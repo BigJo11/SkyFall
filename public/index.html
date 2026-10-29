@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>SKYFALL</title>
+<link rel="stylesheet" href="/css/style.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%230b1220'/><path d='M6 22 L16 7 L26 22 Z' fill='%2362d6ff'/></svg>" />
+<script type="importmap">
+{
+  "imports": {
+    "three": "/vendor/three/three.module.js",
+    "three/": "/vendor/three/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="app">
+  <canvas id="gl"></canvas>
+
+  <!-- ============================ TITLE SCREEN ============================ -->
+  <section id="title" class="screen">
+    <div class="skyline" aria-hidden="true">
+      <div class="cloud c1"></div><div class="cloud c2"></div><div class="cloud c3"></div>
+      <div class="beams"></div>
+    </div>
+
+    <div class="title-inner">
+      <h1 class="logo" data-text="SKYFALL">SKYFALL</h1>
+      <div class="logo-sub">A LAN DEATHMATCH ABOVE THE CLOUDS</div>
+      <div class="logo-note">keyboard + mouse · share your LAN address with friends</div>
+
+      <div class="panel deploy-panel">
+        <label class="field">
+          <span>CALLSIGN</span>
+          <input id="nameInput" maxlength="16" placeholder="PLAYER" autocomplete="off" spellcheck="false" />
+        </label>
+        <button id="deployBtn" class="btn primary">DEPLOY</button>
+        <div class="server-line">
+          <span class="dot" id="srvDot"></span>
+          <span id="srvStatus">connecting…</span>
+        </div>
+      </div>
+
+      <div class="title-cols">
+        <div class="panel col">
+          <h3>CONTROLS</h3>
+          <ul class="keys">
+            <li><b>WASD</b> move</li>
+            <li><b>SHIFT</b> sprint</li>
+            <li><b>SPACE</b> jump</li>
+            <li><b>LMB</b> fire</li>
+            <li><b>RMB</b> scope (sniper)</li>
+            <li><b>1 2 3 4</b> or <b>WHEEL</b> weapons</li>
+            <li><b>R</b> reload</li>
+            <li><b>TAB</b> scoreboard</li>
+            <li><b>ESC</b> pause</li>
+          </ul>
+        </div>
+        <div class="panel col">
+          <h3>ARSENAL</h3>
+          <ul class="arsenal">
+            <li><b class="w-rifle">RIFLE</b><span>4 shots/sec · 6 shots to kill</span></li>
+            <li><b class="w-sniper">SNIPER</b><span>100 damage · 3.5s between shots</span></li>
+            <li><b class="w-smg">SMG</b><span>15 shots/sec · 5 damage</span></li>
+            <li><b class="w-knife">KNIFE</b><span>one shot kill · 0.5s swing</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="lobby">
+        <span class="lobby-label">ON THIS SERVER</span>
+        <div id="lobbyList" class="lobby-list">—</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================ HUD ================================ -->
+  <div id="hud" class="hidden">
+    <div id="dmgVignette"></div>
+    <div id="scopeOverlay" class="hidden">
+      <div class="scope-ring"></div>
+      <div class="scope-h"></div>
+      <div class="scope-v"></div>
+      <div class="scope-ticks"></div>
+      <div class="scope-mask"></div>
+    </div>
+    <div id="flash"></div>
+
+    <header class="hud-top">
+      <div class="hud-stat">
+        <span class="k v" id="hudKills">0</span><span class="sep">/</span><span class="d v" id="hudDeaths">0</span>
+        <span class="lbl">K / D</span>
+      </div>
+      <div class="hud-ping"><span id="hudPing">--</span><span class="unit">ms</span></div>
+    </header>
+
+    <div id="crosshair">
+      <i class="ch t"></i><i class="ch b"></i><i class="ch l"></i><i class="ch r"></i>
+      <i class="ch-dot"></i>
+      <div id="hitmarker">✕</div>
+      <svg id="reloadRing" viewBox="0 0 100 100" class="hidden">
+        <circle class="track" cx="50" cy="50" r="44"></circle>
+        <circle class="bar" cx="50" cy="50" r="44"></circle>
+      </svg>
+      <div id="dmgNumbers"></div>
+    </div>
+
+    <div id="killfeed"></div>
+    <div id="centerMsg"></div>
+
+    <footer class="hud-bottom">
+      <div class="health-block">
+        <div class="health-bar"><div id="healthFill"></div><div class="health-ticks"></div></div>
+        <div class="health-num"><span id="healthNum">100</span></div>
+      </div>
+      <div class="weapon-block">
+        <div class="ammo"><span id="ammoNum">30</span><span class="slash">/</span><span id="ammoMax">30</span></div>
+        <div class="weapon-name" id="weaponName">RIFLE</div>
+        <div class="weapon-slots" id="weaponSlots"></div>
+      </div>
+    </footer>
+
+    <div id="killCam" class="hidden"></div>
+
+    <!-- death overlay -->
+    <div id="deathScreen" class="hidden">
+      <div class="death-inner">
+        <h2>ELIMINATED</h2>
+        <div class="death-by">by <span id="deathBy">THE VOID</span></div>
+        <div class="respawn">RESPAWN IN <span id="respawnTimer">3.0</span></div>
+        <div class="hint">or press <b>SPACE</b> — wait for the counter</div>
+      </div>
+    </div>
+
+    <!-- scoreboard -->
+    <div id="scoreboard" class="hidden">
+      <div class="sb-inner">
+        <h2>SKYFALL</h2>
+        <table>
+          <thead><tr><th>#</th><th>PLAYER</th><th>KILLS</th><th>DEATHS</th><th>PING</th></tr></thead>
+          <tbody id="sbBody"></tbody>
+        </table>
+        <div class="sb-foot">TAB to close · free for all</div>
+      </div>
+    </div>
+
+    <!-- pause -->
+    <div id="pause" class="hidden">
+      <div class="pause-inner panel">
+        <h2>PAUSED</h2>
+        <button class="btn primary" id="resumeBtn">RESUME</button>
+        <div class="slider-row">
+          <label for="sensRange">MOUSE SENS</label>
+          <input id="sensRange" type="range" min="0.2" max="3" step="0.05" value="1" />
+          <output id="sensOut">1.00</output>
+        </div>
+        <div class="slider-row">
+          <label for="volRange">VOLUME</label>
+          <input id="volRange" type="range" min="0" max="1" step="0.02" value="0.7" />
+          <output id="volOut">70%</output>
+        </div>
+        <div class="slider-row">
+          <label for="fovRange">FIELD OF VIEW</label>
+          <input id="fovRange" type="range" min="70" max="110" step="1" value="88" />
+          <output id="fovOut">88°</output>
+        </div>
+        <button class="btn ghost" id="leaveBtn">LEAVE MATCH</button>
+        <p class="tiny">Tip: click the screen to recapture the mouse.</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="loading" class="screen hidden">
+    <div class="loading-inner">
+      <div class="logo small">SKYFALL</div>
+      <div class="loadbar"><i></i></div>
+      <div id="loadMsg">DROPPING IN…</div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+</div>
+
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>
