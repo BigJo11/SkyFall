@@ -97,6 +97,41 @@ public/js/hud.js      DOM HUD, killfeed, scoreboard, death screen
 public/vendor/three   Three.js (bundled so the game works offline)
 ```
 
+## Deploying to Render
+
+The server already binds `0.0.0.0` and reads `PORT`, so it runs unmodified on
+Render (and any other Node host). A `render.yaml` blueprint is included.
+
+**Blueprint (easiest):** Dashboard → **New +** → **Blueprint** → pick this repo →
+Apply. That creates the service with the correct settings below.
+
+**Manual web service:**
+
+| Setting | Value |
+| --- | --- |
+| Language / Runtime | **Node** |
+| Branch | `main` |
+| Region | **Ohio** (or whatever is closest to your players) |
+| Root Directory | *(leave empty)* |
+| Build Command | `npm ci` |
+| Start Command | `npm start` |
+| Health Check Path | `/api/status` |
+| Instance Type | **Free** (Starter removes the sleep) |
+| Environment variable | `NODE_VERSION` = `22.22.3` |
+| Instances | **1 — never scale up** |
+
+Why instance count matters: matches live in server memory. Two instances means
+two separate arenas and players who can't see each other. For the same reason
+there's no sticky session to configure — just keep one instance.
+
+WebSockets work out of the box on Render (the client automatically upgrades to
+`wss://` on HTTPS). Things to know about the **Free** plan:
+
+* It sleeps after ~15 minutes without traffic; the first visitor then waits
+  ~50 seconds for a cold start. The Starter plan stays warm.
+* Every deploy/restart drops all players back to the title screen. That's
+  normal for in-memory matches.
+
 ## Tests
 
 ```bash
