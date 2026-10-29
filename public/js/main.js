@@ -47,11 +47,25 @@ const avatars = new Avatars(scene);
 const viewmodel = new ViewModel(renderer);
 const effects = new Effects(scene);
 
+// ---------------------------------------------------------------- storage
+// localStorage can throw in sandboxed frames, so never let it break boot.
+const store = {
+  get(key, fallback) {
+    try {
+      const v = localStorage.getItem(key);
+      return v == null ? fallback : v;
+    } catch { return fallback; }
+  },
+  set(key, value) {
+    try { localStorage.setItem(key, value); } catch { /* ignore */ }
+  },
+};
+
 // ---------------------------------------------------------------- settings
 const settings = {
-  sens: Number(localStorage.getItem('skyfall.sens') || 1),
-  volume: Number(localStorage.getItem('skyfall.volume') || 0.7),
-  fov: Number(localStorage.getItem('skyfall.fov') || 88),
+  sens: Number(store.get('skyfall.sens', 1)) || 1,
+  volume: Number(store.get('skyfall.volume', 0.7)),
+  fov: Number(store.get('skyfall.fov', 88)) || 88,
 };
 sfx.volume = settings.volume;
 
@@ -653,7 +667,7 @@ function leaveToTitle(reason) {
 
 $('deployBtn').addEventListener('click', () => {
   const name = ($('nameInput').value || '').trim() || `PLAYER ${Math.floor(Math.random() * 900 + 100)}`;
-  localStorage.setItem('skyfall.name', name);
+  store.set('skyfall.name', name);
   state.name = name;
   sfx.init();
   sfx.resume();
@@ -680,18 +694,18 @@ $('fovOut').textContent = Math.round(settings.fov) + '°';
 sensRange.addEventListener('input', () => {
   settings.sens = Number(sensRange.value);
   $('sensOut').textContent = settings.sens.toFixed(2);
-  localStorage.setItem('skyfall.sens', String(settings.sens));
+  store.set('skyfall.sens', String(settings.sens));
 });
 volRange.addEventListener('input', () => {
   settings.volume = Number(volRange.value);
   sfx.setVolume(settings.volume);
   $('volOut').textContent = Math.round(settings.volume * 100) + '%';
-  localStorage.setItem('skyfall.volume', String(settings.volume));
+  store.set('skyfall.volume', String(settings.volume));
 });
 fovRange.addEventListener('input', () => {
   settings.fov = Number(fovRange.value);
   $('fovOut').textContent = Math.round(settings.fov) + '°';
-  localStorage.setItem('skyfall.fov', String(settings.fov));
+  store.set('skyfall.fov', String(settings.fov));
 });
 
 canvas.addEventListener('mousedown', () => {
@@ -744,7 +758,7 @@ async function refreshLobby() {
 }
 const escape = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-$('nameInput').value = localStorage.getItem('skyfall.name') || '';
+$('nameInput').value = store.get('skyfall.name', '');
 refreshLobby();
 setInterval(() => { if (state.phase === 'title') refreshLobby(); }, 3000);
 
