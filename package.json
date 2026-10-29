@@ -1,0 +1,31 @@
+{
+  "name": "skyfall",
+  "version": "1.0.0",
+  "description": "SKYFALL \u2014 a LAN multiplayer 3D arena shooter that runs in the browser",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node server/server.js",
+    "test": "node tests/game.test.mjs && node tests/physics.test.mjs && node tests/scene.test.mjs && node tests/ui.test.mjs && node tests/browser.test.mjs && node tests/live.test.mjs && node scripts/check-client.mjs",
+    "check": "node scripts/check-client.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BigJo11/SkyFall.git"
+  },
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/BigJo11/SkyFall/issues"
+  },
+  "homepage": "https://github.com/BigJo11/SkyFall#readme",
+  "dependencies": {
+    "three": "^0.186.1",
+    "ws": "^8.22.0"
+  },
+  "type": "module",
+  "devDependencies": {
+    "acorn": "^8.19.0",
+    "jsdom": "^30.1.3"
+  }
+}

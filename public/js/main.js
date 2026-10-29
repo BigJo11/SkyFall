@@ -1,0 +1,868 @@
+import * as THREE from 'three';
+import { WEAPONS, PLAYER, NET } from '../../shared/constants.js';
+import { raycastAABBs, rayCapsule } from '../../shared/collision.js';
+import { buildWorld } from './world.js';
+import { Body } from './physics.js';
+import { Input } from './input.js';
+import { Net } from './net.js';
+import { Hud } from './hud.js';
+import { Avatars } from './avatars.js';
+import { ViewModel } from './viewmodel.js';
+import { Effects } from './effects.js';
+import { sfx } from './audio.js';
+
+const $ = (id) => document.getElementById(id);
+
+// ---------------------------------------------------------------- renderer
+const canvas = $('gl');
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: true,
+    powerPreference: 'high-performance',
+    stencil: false,
+  });
+} catch (err) {
+  document.body.innerHTML =
+    '<div style="display:grid;place-items:center;height:100%;font:600 18px system-ui;color:#cfe6ff;' +
+    'text-align:center;padding:24px;line-height:1.6">SKYFALL needs WebGL.<br>' +
+    '<span style="opacity:.6;font-weight:400;font-size:14px">Enable hardware acceleration in your browser and reload.</span></div>';
+  throw err;
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.autoClear = false;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(88, 1, 0.06, 2000);
+camera.rotation.order = 'YXZ';
+
+const world = buildWorld(renderer, scene, camera);
+const body = new Body(world.solids);
+const input = new Input(canvas);
+const net = new Net();
+const hud = new Hud();
+const avatars = new Avatars(scene);
+const viewmodel = new ViewModel(renderer);
+const effects = new Effects(scene);
+
+// ---------------------------------------------------------------- settings
+const settings = {
+  sens: Number(localStorage.getItem('skyfall.sens') || 1),
+  volume: Number(localStorage.getItem('skyfall.volume') || 0.7),
+  fov: Number(localStorage.getItem('skyfall.fov') || 88),
+};
+sfx.volume = settings.volume;
+
+const state = {
+  phase: 'title',       // title | loading | playing | dead
+  paused: false,
+  id: 0,
+  name: '',
+  color: 0x62d6ff,
+  hp: 100,
+  alive: false,
+  kills: 0,
+  deaths: 0,
+  weapon: 0,
+  ammo: WEAPONS.map((w) => w.magSize),
+  reloadEndsAt: 0,
+  reloadDur: 0,
+  nextFireAt: WEAPONS.map(() => 0),
+  recoilBloom: 0,
+  scoped: false,
+  respawnAt: 0,
+  players: [],
+  yaw: 0,
+  pitch: 0,
+  time: 0,
+  lastInputSent: 0,
+  lastShotVisual: 0,
+  damageDealt: 0,
+  fallSpeed: 0,
+  fov: settings.fov,
+  camY: 0,
+  bob: 0,
+  stepDist: 0,
+  shownScoreboard: false,
+  firedSinceSwitch: false,
+  lastKiller: null,
+  deathWeapon: null,
+};
+
+// ---------------------------------------------------------------- resize
+function resize() {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  viewmodel.resize(w, h);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---------------------------------------------------------------- helpers
+const worldDir = new THREE.Vector3();
+function aimDirection() {
+  camera.getWorldDirection(worldDir);
+  return [worldDir.x, worldDir.y, worldDir.z];
+}
+
+const _v1 = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _n = new THREE.Vector3();
+
+// Cast the local aim ray against world + remote players (visual prediction).
+function localRaycast(maxDist) {
+  const origin = new THREE.Vector3().copy(camera.position);
+  const dir = aimDirection();
+  const hit = raycastAABBs(world.solids, origin.x, origin.y, origin.z, dir[0], dir[1], dir[2], maxDist);
+  let t = hit.t;
+  let victim = null;
+  if (hit.aabb) {
+    _n.set(origin.x + dir[0] * t, origin.y + dir[1] * t, origin.z + dir[2] * t);
+  }
+  for (const a of avatars.map.values()) {
+    if (!a.alive) continue;
+    const ht = rayCapsule(
+      origin.x, origin.y, origin.z, dir[0], dir[1], dir[2],
+      [a.pos.x, a.pos.y, a.pos.z], PLAYER.height, PLAYER.radius + 0.06, t
+    );
+    if (ht < t) { t = ht; victim = a; }
+  }
+  const hitWorld = !victim && !!hit.aabb;
+  const point = new THREE.Vector3(origin.x + dir[0] * t, origin.y + dir[1] * t, origin.z + dir[2] * t);
+  // surface normal for impacts
+  let normal = new THREE.Vector3(-dir[0], -dir[1], -dir[2]);
+  if (victim) {
+    normal.set(point.x - victim.pos.x, 0, point.z - victim.pos.z).normalize();
+    if (normal.lengthSq() < 0.01) normal.set(0, 0, 1);
+  } else if (hit.aabb) {
+    // figure out which face we hit
+    const a = hit.aabb;
+    const eps = 0.04;
+    if (Math.abs(point.x - a.minX) < eps) normal.set(-1, 0, 0);
+    else if (Math.abs(point.x - a.maxX) < eps) normal.set(1, 0, 0);
+    else if (Math.abs(point.y - a.minY) < eps) normal.set(0, -1, 0);
+    else if (Math.abs(point.y - a.maxY) < eps) normal.set(0, 1, 0);
+    else if (Math.abs(point.z - a.minZ) < eps) normal.set(0, 0, -1);
+    else if (Math.abs(point.z - a.maxZ) < eps) normal.set(0, 0, 1);
+  }
+  return { origin, dir, point, normal, victim, hitWorld, dist: t };
+}
+
+function muzzleWorldPos(out = new THREE.Vector3()) {
+  const dir = aimDirection();
+  const right = new THREE.Vector3(Math.cos(state.yaw), 0, -Math.sin(state.yaw));
+  return out.set(
+    camera.position.x + dir[0] * 0.55 + right.x * 0.16,
+    camera.position.y + dir[1] * 0.55 - 0.13,
+    camera.position.z + dir[2] * 0.55 + right.z * 0.16
+  );
+}
+
+// ---------------------------------------------------------------- firing
+function currentWeapon() { return WEAPONS[state.weapon]; }
+
+function canReload() {
+  const w = currentWeapon();
+  if (!Number.isFinite(w.magSize)) return false;
+  if (state.reloadEndsAt) return false;
+  return state.ammo[state.weapon] < w.magSize;
+}
+
+function startReload() {
+  const w = currentWeapon();
+  if (!canReload()) return;
+  state.reloadEndsAt = performance.now() + w.reloadTime;
+  state.reloadDur = w.reloadTime;
+  viewmodel.startReload(w.reloadTime);
+  net.send({ t: 'reload' });
+  sfx.reload(w.reloadTime / 1000);
+}
+
+function switchWeapon(i, send = true) {
+  if (i < 0 || i >= WEAPONS.length || i === state.weapon) return;
+  state.lastWeapon = state.weapon;
+  state.weapon = i;
+  state.reloadEndsAt = 0;
+  viewmodel.cancelReload();
+  viewmodel.setWeapon(WEAPONS[i].id);
+  hud.setWeapon(i, state.ammo[i]);
+  hud.reloadProgress(null);
+  setScoped(false);
+  sfx.swap();
+  state.firedSinceSwitch = false;
+  if (send) net.send({ t: 'weapon', i });
+}
+
+function setScoped(v) {
+  if (v === state.scoped) return;
+  state.scoped = v;
+  viewmodel.setScoped(v);
+  hud.scope(v && currentWeapon().id === 'sniper');
+}
+
+function fireOnce(now) {
+  const w = currentWeapon();
+  if (!state.alive || state.paused) return;
+  if (state.reloadEndsAt) return;
+  if (now < state.nextFireAt[state.weapon]) return;
+
+  const infinite = !Number.isFinite(w.magSize);
+  if (!infinite && state.ammo[state.weapon] <= 0) {
+    if (now - state.lastShotVisual > 220) {
+      state.lastShotVisual = now;
+      sfx.empty();
+      startReload();
+    }
+    return;
+  }
+
+  state.nextFireAt[state.weapon] = now + w.interval + 10;
+  state.firedSinceSwitch = true;
+  if (!infinite) {
+    state.ammo[state.weapon] -= 1;
+    hud.setAmmo(state.ammo[state.weapon]);
+    if (state.ammo[state.weapon] <= 0) setTimeout(() => canReload() && state.phase === 'playing' && startReload(), 120);
+  }
+
+  // recoil + feel
+  const recoilKick = w.recoil * 0.0045;
+  state.pitch = Math.min(1.5, state.pitch + recoilKick * (0.6 + Math.random() * 0.8));
+  state.yaw += (Math.random() - 0.5) * recoilKick * (w.id === 'sniper' ? 1.6 : 1.1);
+  state.recoilBloom = Math.min(26, state.recoilBloom + (w.id === 'smg' ? 3 : w.id === 'sniper' ? 14 : 5));
+
+  viewmodel.fire();
+  if (w.melee) viewmodel.swing();
+  sfx.shot(w.id, 0, true);
+
+  const hit = localRaycast(w.range);
+  const from = muzzleWorldPos();
+  effects.muzzle(from);
+  if (!w.melee) {
+    effects.tracer(from, hit.point, w.color, w.id === 'sniper' ? 0.035 : 0.02);
+  }
+  if (hit.victim) {
+    effects.impact(hit.point, hit.normal, 'blood');
+  } else if (hit.hitWorld) {
+    effects.impact(hit.point, hit.normal, 'world');
+  }
+
+  net.send({ t: 'fire', dir: aimDirection() });
+}
+
+// ---------------------------------------------------------------- camera
+function updateCamera(dt) {
+  const speed = Math.hypot(body.vx, body.vz);
+  // head bob
+  if (body.onGround && speed > 0.6) {
+    state.bob += dt * (6 + speed * 0.9);
+    state.stepDist += speed * dt;
+    if (state.stepDist > 2.4) { state.stepDist = 0; sfx.step(0.8); }
+  } else {
+    state.stepDist = 1.6;
+  }
+  const bobAmt = body.onGround ? Math.min(speed / PLAYER.sprintSpeed, 1) * 0.04 : 0;
+  const bobY = Math.sin(state.bob * 2) * bobAmt;
+  const bobX = Math.cos(state.bob) * bobAmt * 0.6;
+
+  // smooth vertical follow over stairs
+  const targetY = body.y + PLAYER.eye;
+  if (state.camY === 0) state.camY = targetY;
+  const dy = targetY - state.camY;
+  state.camY += dy * Math.min(1, dt * (dy > 0.4 || dy < -0.4 ? 26 : 16));
+
+  const strafe = (body.vx * Math.cos(state.yaw) - body.vz * Math.sin(state.yaw)) / PLAYER.sprintSpeed;
+  camera.position.set(body.x + bobX * 0.5, state.camY + bobY, body.z);
+  camera.rotation.set(state.pitch, state.yaw, -strafe * 0.022);
+
+  // fov: sniper scope zoom
+  const targetFov = state.scoped ? 20 : (state.phase === 'dead' ? 96 : state.fov);
+  camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 13);
+  camera.updateProjectionMatrix();
+
+  // viewmodel follows the real fov ratio
+  viewmodel.setFov(state.fov);
+}
+
+// ---------------------------------------------------------------- input loop
+function handleGameplayInput(now, dt) {
+  // look
+  const look = input.takeLook();
+  const sens = settings.sens * (state.scoped ? 0.32 : 1) * 0.0022;
+  if (look.dx || look.dy) {
+    state.yaw -= look.dx * sens;
+    state.pitch -= look.dy * sens;
+    state.pitch = Math.max(-1.5, Math.min(1.5, state.pitch));
+  }
+  viewmodel._lookDX = look.dx;
+  viewmodel._lookDY = look.dy;
+
+  // weapons
+  const slot = input.weaponSlotPressed();
+  if (slot >= 0) switchWeapon(slot);
+  if (input.wheel !== 0) {
+    switchWeapon((state.weapon + (input.wheel > 0 ? 1 : WEAPONS.length - 1)) % WEAPONS.length);
+  }
+  if (input.pressed('KeyR')) startReload();
+  if (input.pressed('KeyQ')) {
+    // last weapon
+    if (state.lastWeapon != null) switchWeapon(state.lastWeapon);
+  }
+
+  // sniper scope (right mouse held)
+  if (currentWeapon().id === 'sniper') {
+    setScoped(input.mouseDown(2) && state.alive && !state.reloadEndsAt);
+  } else if (state.scoped) {
+    setScoped(false);
+  }
+
+  // firing
+  const w = currentWeapon();
+  const trigger = w.automatic ? input.mouseDown(0) : input.mousePressed(0);
+  if (trigger && state.alive && !state.paused) fireOnce(now);
+
+  // movement
+  const axes = input.axes();
+  const wish = state.alive && !state.paused
+    ? { forward: axes.forward, right: axes.right, sprint: axes.sprint }
+    : { forward: 0, right: 0, sprint: false };
+
+  if (input.pressed('Space') && state.alive && !state.paused) body.wantJump = true;
+
+  if (!state.paused) body.update(dt, wish, state.yaw);
+
+  if (body.justLanded) {
+    body.justLanded = false;
+    if (body.fallSpeed > 12) sfx.land();
+  }
+
+  // network position at NET.INPUT_HZ
+  if (now - state.lastInputSent > 1000 / NET.INPUT_HZ) {
+    state.lastInputSent = now;
+    net.send({ t: 'input', p: [round(body.x), round(body.y), round(body.z)], yaw: state.yaw, pitch: state.pitch });
+  }
+}
+
+const round = (v) => Math.round(v * 1000) / 1000;
+
+// ---------------------------------------------------------------- network
+let lastSnapshotAt = 0;
+
+let connectTimer = null;
+
+function connect(name) {
+  state.phase = 'loading';
+  $('title').classList.add('hidden');
+  $('loading').classList.remove('hidden');
+
+  clearTimeout(connectTimer);
+  connectTimer = setTimeout(() => {
+    if (state.phase === 'loading') leaveToTitle('The server did not respond — is it running?');
+  }, 9000);
+
+  net.connect(name)
+    .then(() => {
+      // wait for welcome (handled below)
+    })
+    .catch((err) => {
+      $('loading').classList.add('hidden');
+      $('title').classList.remove('hidden');
+      state.phase = 'title';
+      hud.toast(err.message || 'Could not connect');
+    });
+}
+
+net.on('welcome', (msg) => {
+  clearTimeout(connectTimer);
+  state.id = msg.id;
+  state.name = msg.name;
+  state.color = msg.color;
+  const you = msg.you || { pos: [0, 0.05, 0], yaw: 0 };
+  body.teleport(you.pos[0], you.pos[1], you.pos[2]);
+  state.yaw = you.yaw;
+  state.pitch = 0;
+  state.camY = you.pos[1] + PLAYER.eye;
+  state.hp = you.hp ?? PLAYER.maxHealth;
+  state.alive = true;
+  state.kills = you.kills || 0;
+  state.deaths = you.deaths || 0;
+  state.ammo = WEAPONS.map((w) => w.magSize);
+  state.weapon = 0;
+  state.nextFireAt = WEAPONS.map(() => 0);
+  state.reloadEndsAt = 0;
+
+  avatars.sync(msg.players || [], state.id);
+  viewmodel.setWeapon(WEAPONS[0].id);
+  hud.setWeapon(0, state.ammo[0]);
+  hud.setHealth(state.hp);
+  hud.setKillsDeaths(state.kills, state.deaths);
+
+  input.enabled = true;
+  $('loading').classList.add('hidden');
+  hud.show(true);
+  state.phase = 'playing';
+  state.paused = false;
+
+  tryLock();
+  sfx.init();
+  sfx.resume();
+  sfx.spawn();
+  hud.centerMessage('WELCOME TO SKYFALL', 1800);
+  input.endFrame();
+});
+
+net.on('snapshot', (msg) => {
+  lastSnapshotAt = performance.now();
+  state.players = msg.players;
+  avatars.sync(msg.players, state.id);
+  const me = msg.players.find((p) => p.id === state.id);
+  if (me) {
+    // keep local prediction for movement, trust the server for stats
+    state.kills = me.kills;
+    state.deaths = me.deaths;
+    hud.setKillsDeaths(state.kills, state.deaths);
+    if (Math.abs(me.hp - state.hp) > 0.6) {
+      state.hp = me.hp;
+      hud.setHealth(state.hp);
+    } else if (me.hp > state.hp) {
+      state.hp = me.hp;
+      hud.setHealth(state.hp);
+    }
+    if (!me.alive && state.alive) {
+      // died without a 'died' message (fall etc.)
+      state.alive = false;
+      state.phase = 'dead';
+      if (!state.respawnAt || state.respawnAt < Date.now()) {
+        state.respawnAt = Date.now() + PLAYER.respawnTime;
+      }
+      hud.setHealth(0);
+      hud.showDeath(state.lastKiller || null, state.deathWeapon || null);
+    }
+  }
+});
+
+net.on('join', (msg) => {
+  sfx.join();
+  hud.killFeed(msg.player.name, 'JOINED', null, {});
+  hud.toast(`${msg.player.name} joined the match`);
+});
+
+net.on('leave', (msg) => {
+  hud.toast(`${msg.name} left the match`);
+});
+
+net.on('self', (msg) => {
+  if (msg.weapon != null && msg.weapon !== state.weapon) {
+    switchWeapon(msg.weapon, false);
+  }
+  // the switch confirmation can arrive after we already fired a predicted shot,
+  // so only adopt the server's ammo when we have not spent anything since
+  if (msg.ammo != null && !state.firedSinceSwitch) {
+    state.ammo[state.weapon] = msg.ammo;
+    hud.setAmmo(msg.ammo);
+  }
+  if (msg.reloadEnd != null) {
+    state.reloadEndsAt = performance.now() + msg.reloadEnd;
+  }
+});
+
+net.on('spawn', (msg) => {
+  body.teleport(msg.pos[0], msg.pos[1], msg.pos[2]);
+  state.yaw = msg.yaw;
+  state.pitch = 0;
+  state.camY = msg.pos[1] + PLAYER.eye;
+  state.hp = msg.hp ?? PLAYER.maxHealth;
+  state.alive = true;
+  state.phase = 'playing';
+  state.reloadEndsAt = 0;
+  state.ammo = WEAPONS.map((w) => w.magSize);
+  viewmodel.cancelReload();
+  hud.setHealth(state.hp);
+  hud.setWeapon(state.weapon, state.ammo[state.weapon]);
+  hud.reloadProgress(null);
+  hud.hideDeath();
+  hud.flash(0.35);
+  sfx.spawn();
+  if (state.paused) hidePause();
+  tryLock();
+});
+
+net.on('damaged', (msg) => {
+  state.hp = msg.hp;
+  hud.setHealth(msg.hp);
+  hud.damageFlash(Math.min(1, msg.dmg / 40));
+  sfx.damage();
+  if (msg.from) {
+    // subtle directional hit indicator via the vignette
+    const from = new THREE.Vector3().fromArray(msg.from);
+    const toMe = new THREE.Vector3(body.x - from.x, 0, body.z - from.z).normalize();
+    const fwd = new THREE.Vector3(-Math.sin(state.yaw), 0, -Math.cos(state.yaw));
+    const side = toMe.x * fwd.z - toMe.z * fwd.x;
+    const grd = $('dmgVignette');
+    grd.style.background = `radial-gradient(120% 90% at ${50 + side * 40}% 50%, transparent 35%, rgba(255,40,40,.6) 100%)`;
+  }
+});
+
+net.on('hitmark', (msg) => {
+  hud.hitmarker(msg.kill);
+  sfx.hit(msg.kill);
+  hud.damageNumber(msg.dmg, (Math.random() - 0.5) * 110, -34 + (Math.random() - 0.5) * 46);
+});
+
+net.on('kill', (msg) => {
+  const killerIsMe = msg.killer === state.id;
+  const victimIsMe = msg.victim === state.id;
+  hud.killFeed(
+    msg.killerName || (msg.weapon === 'fall' ? 'THE VOID' : '—'),
+    msg.victimName,
+    msg.weapon,
+    { killerIsMe, victimIsMe }
+  );
+  const vId = msg.victim;
+  const a = avatars.get(vId);
+  if (a) {
+    effects.deathRing(a.pos, 0xff5555);
+    effects.spawnParticles(a.pos.clone().add(new THREE.Vector3(0, 1, 0)), 30, {
+      speed: 4, spread: 2, color: [1, 0.25, 0.2], ttl: 0.9, gravity: 6,
+    });
+  }
+  if (killerIsMe) {
+    sfx.kill();
+    hud.centerMessage(`${msg.weapon === 'knife' ? 'KNIFE' : msg.weapon.toUpperCase()} ELIMINATION`, 1400);
+  }
+});
+
+net.on('died', (msg) => {
+  state.lastKiller = msg.by;
+  state.deathWeapon = msg.weapon;
+  state.alive = false;
+  state.phase = 'dead';
+  state.respawnAt = msg.respawnAt || (Date.now() + PLAYER.respawnTime);
+  state.reloadEndsAt = 0;
+  viewmodel.cancelReload();
+  setScoped(false);
+  hud.showDeath(msg.by, msg.weapon);
+  hud.setHealth(0);
+  hud.reloadProgress(null);
+  sfx.death();
+  hud.flash(0.25);
+});
+
+net.on('shot', (msg) => {
+  if (msg.id === state.id) return; // already predicted locally
+  const from = new THREE.Vector3().fromArray(msg.from);
+  const to = new THREE.Vector3().fromArray(msg.to);
+  const color = msg.weapon === 'sniper' ? 0xffd479 : msg.weapon === 'smg' ? 0x9dffc1 : 0xbfe9ff;
+  if (msg.weapon !== 'knife') effects.tracer(from, to, color, msg.weapon === 'sniper' ? 0.035 : 0.02);
+  const dist = from.distanceTo(camera.position);
+  sfx.shot(msg.weapon, dist, false);
+  const dir = to.clone().sub(from).normalize();
+  if (msg.hit) effects.impact(to, dir.negate(), 'blood');
+  else effects.impact(to, dir.negate(), 'world');
+});
+
+net.on('pong', (msg) => {
+  const rtt = Date.now() - msg.c;
+  hud.setPingValue(rtt);
+});
+
+net.on('reload', (msg) => {
+  if (msg.id === state.id) return;
+  const a = avatars.get(msg.id);
+  if (a) a.reloadHint = performance.now();
+});
+
+net.on('empty', () => { sfx.empty(); });
+
+net.on('correct', (msg) => {
+  body.teleport(msg.pos[0], msg.pos[1], msg.pos[2]);
+});
+
+net.on('close', () => {
+  leaveToTitle('Connection to the server was lost');
+});
+
+// ---------------------------------------------------------------- screens
+function tryLock() {
+  input.requestLock().then((ok) => {
+    if (!ok) {
+      setTimeout(() => {
+        if (!input.locked) enableFallback();
+      }, 350);
+    }
+  });
+  setTimeout(() => {
+    if (!input.locked && state.phase !== 'title') enableFallback();
+  }, 700);
+}
+
+let fallbackWarned = false;
+function enableFallback() {
+  if (input.locked) return;
+  input.fallback = true;
+  if (!fallbackWarned) {
+    fallbackWarned = true;
+    hud.toast('Pointer lock blocked — free look enabled. Click for mouse aim.', 4000);
+  }
+}
+
+input.onLockChange = (locked) => {
+  if (!locked && state.phase === 'playing' && !input.fallback) {
+    showPause();
+  }
+};
+
+input.onLockError = () => { enableFallback(); };
+
+function showPause() {
+  if (state.phase === 'title') return;
+  state.paused = true;
+  input.buttons.clear();
+  input.exitLock();
+  $('pause').classList.remove('hidden');
+  hud.show(true);
+}
+
+function hidePause() {
+  state.paused = false;
+  $('pause').classList.add('hidden');
+  tryLock();
+  input.endFrame();
+}
+
+function leaveToTitle(reason) {
+  input.enabled = false;
+  input.exitLock();
+  net.disconnect();
+  avatars.map.forEach((a) => a.dispose(scene));
+  avatars.map.clear();
+  $('pause').classList.add('hidden');
+  hud.show(false);
+  hud.hideDeath();
+  $('scoreboard').classList.add('hidden');
+  $('title').classList.remove('hidden');
+  state.phase = 'title';
+  state.paused = false;
+  if (reason) hud.toast(reason, 3500);
+  refreshLobby();
+}
+
+$('deployBtn').addEventListener('click', () => {
+  const name = ($('nameInput').value || '').trim() || `PLAYER ${Math.floor(Math.random() * 900 + 100)}`;
+  localStorage.setItem('skyfall.name', name);
+  state.name = name;
+  sfx.init();
+  sfx.resume();
+  connect(name);
+});
+
+$('nameInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('deployBtn').click();
+});
+
+$('resumeBtn').addEventListener('click', () => { hidePause(); });
+$('leaveBtn').addEventListener('click', () => { leaveToTitle(); });
+
+// settings sliders
+const sensRange = $('sensRange');
+const volRange = $('volRange');
+const fovRange = $('fovRange');
+sensRange.value = settings.sens;
+volRange.value = settings.volume;
+fovRange.value = settings.fov;
+$('sensOut').textContent = Number(settings.sens).toFixed(2);
+$('volOut').textContent = Math.round(settings.volume * 100) + '%';
+$('fovOut').textContent = Math.round(settings.fov) + '°';
+sensRange.addEventListener('input', () => {
+  settings.sens = Number(sensRange.value);
+  $('sensOut').textContent = settings.sens.toFixed(2);
+  localStorage.setItem('skyfall.sens', String(settings.sens));
+});
+volRange.addEventListener('input', () => {
+  settings.volume = Number(volRange.value);
+  sfx.setVolume(settings.volume);
+  $('volOut').textContent = Math.round(settings.volume * 100) + '%';
+  localStorage.setItem('skyfall.volume', String(settings.volume));
+});
+fovRange.addEventListener('input', () => {
+  settings.fov = Number(fovRange.value);
+  $('fovOut').textContent = Math.round(settings.fov) + '°';
+  localStorage.setItem('skyfall.fov', String(settings.fov));
+});
+
+canvas.addEventListener('mousedown', () => {
+  if (state.paused) hidePause();
+  else if (!input.locked && !input.fallback) tryLock();
+});
+
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Escape') {
+    if (state.phase === 'title') return;
+    if (state.paused) hidePause();
+    else showPause();
+  }
+  if (e.code === 'Tab' && state.phase !== 'title') {
+    state.shownScoreboard = true;
+  }
+  if (e.code === 'KeyM') {
+    sfx.setVolume(settings.volume = settings.volume > 0 ? 0 : 0.7);
+    volRange.value = settings.volume;
+    $('volOut').textContent = Math.round(settings.volume * 100) + '%';
+  }
+});
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'Tab') state.shownScoreboard = false;
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && state.phase === 'playing' && !state.paused) showPause();
+});
+
+// ---------------------------------------------------------------- lobby
+async function refreshLobby() {
+  try {
+    const res = await fetch('/api/status', { cache: 'no-store' });
+    const data = await res.json();
+    const dot = $('srvDot');
+    dot.className = 'dot on';
+    const list = data.players || [];
+    $('srvStatus').textContent = list.length
+      ? `${list.length} player${list.length === 1 ? '' : 's'} in the arena`
+      : 'server online — be the first in';
+    $('lobbyList').innerHTML = list.length
+      ? list.map((p) => `<span class="chip">${escape(p.name)} · ${p.kills}K</span>`).join('')
+      : '<span style="opacity:.5">empty</span>';
+  } catch {
+    $('srvDot').className = 'dot off';
+    $('srvStatus').textContent = 'server unreachable';
+    $('lobbyList').innerHTML = '<span style="opacity:.5">—</span>';
+  }
+}
+const escape = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+$('nameInput').value = localStorage.getItem('skyfall.name') || '';
+refreshLobby();
+setInterval(() => { if (state.phase === 'title') refreshLobby(); }, 3000);
+
+// ---------------------------------------------------------------- main loop
+let last = performance.now();
+let acc = 0;
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  let dt = (now - last) / 1000;
+  last = now;
+  if (dt > 0.1) dt = 0.1;
+
+  if (state.phase === 'title' || state.phase === 'loading') {
+    // idle camera orbit over the arena for the title backdrop
+    const t = now / 1000;
+    camera.position.set(Math.cos(t * 0.12) * 46, 16 + Math.sin(t * 0.2) * 3, Math.sin(t * 0.12) * 46);
+    camera.lookAt(0, 2, 0);
+    world.update(dt, camera.position);
+    effects.update(dt);
+    avatars.update(dt, t);
+    renderer.clear();
+    renderer.render(scene, camera);
+    return;
+  }
+
+  state.time += dt;
+
+  // physics in fixed-ish steps for stability
+  if (state.alive && !state.paused) {
+    handleGameplayInput(now, dt);
+  } else {
+    // still drain input so keys don't stick
+    input.takeLook();
+    if (state.alive) {
+      const axes = { forward: 0, right: 0, sprint: false };
+      body.update(dt, axes, state.yaw);
+    }
+  }
+
+  // alive: does the crosshair/reload UI need updating
+  if (state.reloadEndsAt) {
+    const remaining = state.reloadEndsAt - performance.now();
+    if (remaining <= 0) {
+      const w = WEAPONS[state.weapon];
+      state.reloadEndsAt = 0;
+      if (Number.isFinite(w.magSize)) state.ammo[state.weapon] = w.magSize;
+      hud.setAmmo(state.ammo[state.weapon]);
+      hud.reloadProgress(null);
+    } else {
+      const dur = state.reloadDur || WEAPONS[state.weapon].reloadTime;
+      hud.reloadProgress(Math.max(0, Math.min(1, 1 - remaining / dur)));
+    }
+  } else {
+    hud.reloadProgress(null);
+  }
+
+  // respawn countdown
+  if (state.phase === 'dead') {
+    const left = (state.respawnAt - Date.now()) / 1000;
+    hud.setRespawn(left);
+  }
+
+  updateCamera(dt);
+  viewmodel.enabled = state.alive && !state.paused;
+
+  // view model
+  const speed = Math.hypot(body.vx, body.vz);
+  viewmodel.update(dt, {
+    lookDX: viewmodel._lookDX || 0,
+    lookDY: viewmodel._lookDY || 0,
+    moveAmount: Math.min(1, speed / PLAYER.walkSpeed),
+    sprint: speed > PLAYER.walkSpeed * 1.05,
+    grounded: body.onGround,
+  });
+  viewmodel._lookDX = 0;
+  viewmodel._lookDY = 0;
+
+  // crosshair bloom
+  const moveBloom = Math.min(1, speed / PLAYER.sprintSpeed) * 8;
+  state.recoilBloom *= Math.exp(-6 * dt);
+  const airBloom = body.onGround ? 0 : 6;
+  const targetGap = 6 + moveBloom + airBloom + state.recoilBloom;
+  const w = currentWeapon();
+  const gapEl = $('crosshair');
+  const currentGap = parseFloat(gapEl.style.getPropertyValue('--gap')) || 7;
+  hud.crosshairGap(currentGap + (targetGap - currentGap) * Math.min(1, dt * 14));
+  gapEl.style.opacity = state.alive ? '1' : '0.25';
+
+  world.update(dt, camera.position);
+  effects.update(dt);
+  avatars.update(dt, state.time);
+  hud.update(dt);
+
+  // scoreboard (throttled: rebuilt only a few times a second)
+  const sbOn = state.shownScoreboard && !state.paused;
+  if (sbOn && now - (state.lastSbRender || 0) > 200) {
+    state.lastSbRender = now;
+    hud.scoreboard(state.players, state.id, true);
+  } else if (!sbOn) {
+    hud.scoreboard(state.players, state.id, false);
+  }
+
+  renderer.clear();
+  renderer.render(scene, camera);
+  if (state.phase === 'playing' || state.phase === 'dead') viewmodel.render();
+
+  input.endFrame();
+  void acc;
+  void NET;
+}
+
+requestAnimationFrame(frame);
+
+// Small debug handle: handy in the console, and used by the automated tests.
+window.SKYFALL = { state, hud, net, body, camera, avatars, viewmodel, effects, world, settings };
+
+// pause on click-to-resume when locked is unavailable
+$('pause').addEventListener('mousedown', (e) => {
+  if (e.target.id === 'pause') hidePause();
+});
