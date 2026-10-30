@@ -5,6 +5,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { Game } from './game.js';
+import { Leaderboard } from './leaderboard.js';
 import { RESERVED } from '../shared/constants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -28,7 +29,12 @@ const MIME = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
-const game = new Game().start();
+// all-time leaderboard, persisted next to the code (override with LEADERBOARD_FILE)
+const BOARD_FILE = process.env.LEADERBOARD_FILE
+  || path.join(ROOT, 'data', 'leaderboard.json');
+const leaderboard = new Leaderboard(BOARD_FILE);
+const game = new Game({ leaderboard }).start();
+console.log(`[board] ${leaderboard.size} all-time rows from ${path.relative(ROOT, BOARD_FILE)}`);
 
 // ---------------------------------------------------------------------------
 // Asset versioning. Players must never end up running a cached main.js against
@@ -110,6 +116,18 @@ const server = http.createServer((req, res) => {
     res.writeHead(400); res.end('Bad request'); return;
   }
 
+  if (urlPath === '/api/leaderboard') {
+    const n = Number(new URL(req.url, 'http://localhost').searchParams.get('n')) || 10;
+    const body = {
+      rows: leaderboard.top(Math.max(1, Math.min(50, n))),
+      updatedAt: leaderboard.updatedAt,
+      total: leaderboard.size,
+    };
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(body));
+    return;
+  }
+
   if (urlPath === '/api/status') {
     const list = [...game.players.values()].map((p) => ({ name: p.name, kills: p.kills, deaths: p.deaths }));
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
@@ -162,6 +180,13 @@ wss.on('connection', (socket) => {
 
 // Recompute the build id on every page load so edits show up without a restart.
 setInterval(() => { BUILD_ID = computeBuildId(); }, 2000).unref();
+
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => {
+    try { leaderboard.flush(); } catch { /* ignore */ }
+    process.exit(0);
+  });
+}
 
 server.listen(PORT, HOST, () => {
   const nets = os.networkInterfaces();

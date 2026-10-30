@@ -95,16 +95,114 @@ test('air strafing can build speed above sprint', () => {
 
 console.log('\nlanding:');
 
-test('landing normally throws the momentum away', () => {
+test('landing normally throws the momentum away once the window shuts', () => {
   const b = player(flatWorld());
   sim(b, 1.6, fwd(true), Math.PI);
   const ground = speedOf(b);
   b.wantJump = true;
   b.update(DT, fwd(true), Math.PI);
   simUntilLanding(b, fwd(true));
+  // the speed is held for a moment so a well-timed jump can still cash it in
+  assert.ok(b.landKeepPending, 'the landing window is open');
+  assert.ok(speedOf(b) > ground * 0.95, `held on touchdown (${speedOf(b).toFixed(2)})`);
+  // let the window run out without pressing jump
+  sim(b, MOVE.landWindow + 0.1, idle, Math.PI);
   const landed = speedOf(b);
   assert.ok(landed < ground * 0.5, `lost most speed (${ground.toFixed(2)} -> ${landed.toFixed(2)})`);
-  assert.ok(landed <= PLAYER.sprintSpeed * MOVE.landCap + 0.01, `capped on landing (${landed.toFixed(2)})`);
+  assert.ok(landed <= PLAYER.sprintSpeed * MOVE.landCap + 0.01, `capped after the window (${landed.toFixed(2)})`);
+});
+
+// press jump when this close (in seconds of fall) to the floor
+function pressAt(b, secondsToFloor, wish = fwd(true), yaw = Math.PI) {
+  for (let i = 0; i < 400; i++) {
+    if (!b.onGround && b.vy < 0 && b.timeToFloor() <= secondsToFloor) {
+      b.wantJump = true;
+      b.update(DT, wish, yaw);
+      return true;
+    }
+    b.update(DT, wish, yaw);
+  }
+  return false;
+}
+
+function jumpAndFall(wish = fwd(true)) {
+  const b = player(flatWorld());
+  sim(b, 1.6, wish, Math.PI);
+  const ground = speedOf(b);
+  b.wantJump = true;
+  b.update(DT, wish, Math.PI);
+  return { b, ground };
+}
+
+test('jumping as you touch down keeps every bit of your momentum', () => {
+  const { b, ground } = jumpAndFall();
+  assert.ok(pressAt(b, MOVE.landJumpWindow), 'pressed inside the window');
+  let perfect = false;
+  for (let i = 0; i < 200 && !perfect; i++) {
+    b.update(DT, fwd(true), Math.PI);
+    perfect = !!b.events.perfectLanding;
+  }
+  assert.ok(perfect, 'it counted as a timed landing');
+  assert.ok(!b.landKeepPending, 'no landing penalty pending');
+  const saved = speedOf(b);
+  for (let i = 0; i < 4; i++) b.update(DT, fwd(true), Math.PI);
+  assert.ok(!b.onGround, 'and it bounced straight back off the floor');
+  assert.ok(saved >= ground * 0.98,
+    `kept the momentum (${ground.toFixed(2)} -> ${saved.toFixed(2)})`);
+});
+
+test('pressing jump just after touching down still saves it', () => {
+  const { b, ground } = jumpAndFall();
+  simUntilLanding(b, fwd(true));
+  assert.ok(b.landKeepPending, 'landing window open');
+  for (let i = 0; i < 8; i++) b.update(DT, fwd(true), Math.PI);   // a late reaction
+  b.wantJump = true;
+  b.update(DT, fwd(true), Math.PI);
+  assert.ok(b.events.perfectLanding, 'late press inside the window counts');
+  assert.ok(speedOf(b) >= ground * 0.98,
+    `kept the momentum (${ground.toFixed(2)} -> ${speedOf(b).toFixed(2)})`);
+});
+
+test('press too late and the momentum is gone', () => {
+  const { b, ground } = jumpAndFall();
+  simUntilLanding(b, fwd(true));
+  sim(b, MOVE.landWindow + 0.06, idle, Math.PI);   // dither past the window
+  b.wantJump = true;
+  b.update(DT, idle, Math.PI);
+  assert.ok(!b.events.perfectLanding, 'not a timed landing');
+  assert.ok(speedOf(b) < ground * 0.5, `speed was lost (${speedOf(b).toFixed(2)})`);
+});
+
+test('a held jump auto-hops without the momentum bonus', () => {
+  const b = player(flatWorld());
+  sim(b, 1.5, fwd(true), Math.PI);
+  const ground = speedOf(b);
+  b.wantJump = true;
+  b.update(DT, fwd(true), Math.PI);
+  b.jumpHeld = true;                 // held from take-off, so never a fresh press
+  let landed = false;
+  let cappedAt = 0;
+  for (let i = 0; i < 400; i++) {
+    b.update(DT, fwd(true), Math.PI);
+    if (!landed && b.onGround) landed = true;
+    if (landed && b.events.momentumLost) { cappedAt = speedOf(b); break; }
+  }
+  assert.ok(landed, 'came back down');
+  assert.ok(cappedAt > 0, 'the landing penalty still applied');
+  assert.ok(cappedAt < ground * 0.6, `the auto-hop lands capped (${cappedAt.toFixed(2)})`);
+});
+
+test('a far too early press does not burn the double jump', () => {
+  const b = player(flatWorld());
+  sim(b, 1.5, fwd(true), Math.PI);
+  b.wantJump = true;
+  b.update(DT, fwd(true), Math.PI);
+  sim(b, 0.2, fwd(true), Math.PI);   // plenty of height left
+  const before = b.airJumps;
+  b.wantJump = true;
+  b.update(DT, fwd(true), Math.PI);
+  assert.ok(b.events.doubleJumped, 'a press with air under you is still a double jump');
+  assert.equal(b.airJumps, before - 1);
 });
 
 test('landing into a slide keeps the speed', () => {
@@ -149,13 +247,14 @@ test('a double jump keeps most of your speed', () => {
   assert.ok(ratio > 0.75 && ratio < 0.96,
     `only lost some speed (${beforeDouble.toFixed(2)} -> ${afterDouble.toFixed(2)}, ${Math.round((1 - ratio) * 100)}%)`);
   assert.ok(afterDouble > beforeDouble * 0.75, 'kept the bulk of it');
-  // and it is a much softer loss than hitting the ground
+  // and it is a much softer loss than a mistimed landing
   const landing = player(flatWorld());
   sim(landing, 1.6, fwd(true), Math.PI);
   landing.wantJump = true;
   landing.update(DT, fwd(true), Math.PI);
   simUntilLanding(landing, fwd(true));
-  assert.ok(speedOf(landing) < afterDouble, 'landing is worse than a double jump');
+  sim(landing, MOVE.landWindow + 0.1, idle, Math.PI);
+  assert.ok(speedOf(landing) < afterDouble, 'a mistimed landing is worse than a double jump');
 });
 
 test('a double jump adds height and refreshes on landing', () => {

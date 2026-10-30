@@ -98,13 +98,14 @@
               <li><b>WASD</b> move</li>
               <li><b>SHIFT</b> sprint</li>
               <li><b>SPACE</b> jump · double jump · wall kick</li>
+              <li><b>SPACE</b> on touchdown keeps your speed</li>
               <li><b>C / CTRL</b> slide (while sprinting)</li>
               <li><b>WALLS</b> run along them in the air</li>
               <li><b>LMB</b> fire</li>
               <li><b>RMB</b> scope (sniper)</li>
               <li><b>1 2 3 4</b> or <b>WHEEL</b> weapons</li>
               <li><b>R</b> reload</li>
-              <li><b>TAB</b> scoreboard</li>
+              <li><b>TAB</b> scoreboard · <b>L</b> leaderboard</li>
               <li><b>ESC</b> pause</li>
             </ul>
           </div>
@@ -121,6 +122,17 @@
               <div id="lobbyList" class="lobby-list">—</div>
             </div>
           </div>
+        </div>
+
+        <div class="panel lb-panel">
+          <div class="lb-head">
+            <h3>ALL-TIME LEADERBOARD</h3>
+            <span class="lb-sub" id="lbSub">—</span>
+          </div>
+          <table class="lb-table">
+            <thead><tr><th>#</th><th>OPERATOR</th><th>KILLS</th><th>DEATHS</th><th>K/D</th><th>STREAK</th></tr></thead>
+            <tbody id="lbList"><tr><td colspan="6" class="lb-empty">no recorded kills yet</td></tr></tbody>
+          </table>
         </div>
       </div>
 
@@ -239,6 +251,18 @@
           <tbody id="sbBody"></tbody>
         </table>
         <div class="sb-foot">TAB to close · free for all</div>
+      </div>
+    </div>
+
+    <!-- all-time leaderboard -->
+    <div id="leaderboard" class="hidden">
+      <div class="lb-inner">
+        <h2>ALL-TIME</h2>
+        <table class="lb-table">
+          <thead><tr><th>#</th><th>OPERATOR</th><th>KILLS</th><th>DEATHS</th><th>K/D</th><th>STREAK</th></tr></thead>
+          <tbody id="lbOverlayBody"><tr><td colspan="6" class="lb-empty">no recorded kills yet</td></tr></tbody>
+        </table>
+        <div class="sb-foot">L to close · survives server restarts</div>
       </div>
     </div>
 

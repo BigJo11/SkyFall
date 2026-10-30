@@ -133,6 +133,8 @@ const state = {
   bob: 0,
   stepDist: 0,
   shownScoreboard: false,
+  shownLeaderboard: false,
+  leaderboard: [],
   firedSinceSwitch: false,
   lastKiller: null,
   deathWeapon: null,
@@ -145,7 +147,7 @@ let session = null;
 // Build stamp: makes it obvious which version the browser actually loaded, and
 // catches the classic "new page, old cached scripts" situation where every
 // button appears dead.
-const BUILD = 'forest v6';
+const BUILD = 'forest v7';
 
 function detectStaleBuild() {
   try {
@@ -469,6 +471,7 @@ function forwardMovementEvents() {
   if (ev.wallJumped) { sfx.wallJump(); session?.onEvent?.('wallJump'); }
   if (ev.slideStarted) { sfx.slide(); session?.onEvent?.('slide'); }
   if (ev.slideLanding) { sfx.slide(); session?.onEvent?.('slideLanding'); }
+  if (ev.perfectLanding) { sfx.perfect(); hud.momentumSaved(); session?.onEvent?.('perfectLanding'); }
   if (ev.momentumLost && body.speed > 1) sfx.land();
   body.events = {};
 }
@@ -603,6 +606,7 @@ net.on('welcome', (msg) => {
   hud.setWeapon(0, state.ammo[0]);
   hud.setHealth(state.hp);
   hud.setKillsDeaths(state.kills, state.deaths);
+  if (Array.isArray(msg.leaderboard)) setLeaderboard(msg.leaderboard, msg.leaderboard.length);
 
   input.enabled = true;
   $('loading').classList.add('hidden');
@@ -868,11 +872,14 @@ function leaveToTitle(reason) {
   hud.show(false);
   hud.hideDeath();
   $('scoreboard').classList.add('hidden');
+  state.shownLeaderboard = false;
+  hud.leaderboard([], false);
   $('title').classList.remove('hidden');
   state.phase = 'title';
   state.paused = false;
   if (reason) hud.toast(reason, 3500);
   refreshLobby();
+  refreshLeaderboard();
 }
 
 on('deployBtn', 'click', () => {
@@ -1015,6 +1022,10 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Tab' && state.phase !== 'title') {
     state.shownScoreboard = true;
   }
+  if (e.code === 'KeyL' && state.phase !== 'title') {
+    state.shownLeaderboard = !state.shownLeaderboard;
+    refreshLeaderboard();
+  }
   if (e.code === 'KeyN' && state.mode === 'tutorial' && !state.paused) {
     session?.skipStep?.();
   }
@@ -1031,6 +1042,25 @@ window.addEventListener('keyup', (e) => {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && state.phase === 'playing' && !state.paused) showPause();
 });
+
+// ---------------------------------------------------------------- leaderboard
+// The server owns the table; the title screen and the L overlay both show it.
+function setLeaderboard(rows, total) {
+  state.leaderboard = rows || [];
+  hud.titleLeaderboard(state.leaderboard, total);
+  if (state.shownLeaderboard) hud.leaderboard(state.leaderboard, true);
+}
+
+async function refreshLeaderboard() {
+  try {
+    const res = await fetch('/api/leaderboard?n=10', { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    setLeaderboard(data.rows, data.total);
+  } catch { /* server not up yet: the panel keeps saying "be the first" */ }
+}
+
+net.on('leaderboard', (msg) => setLeaderboard(msg.rows, msg.rows?.length));
 
 // ---------------------------------------------------------------- lobby
 async function refreshLobby() {
@@ -1056,6 +1086,7 @@ const escape = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': 
 
 $('nameInput').value = store.get('skyfall.name', '');
 refreshLobby();
+refreshLeaderboard();
 setInterval(() => { if (state.phase === 'title') refreshLobby(); }, 3000);
 
 // ---------------------------------------------------------------- main loop
@@ -1156,6 +1187,9 @@ function frame(now) {
   hud.update(dt);
 
   // scoreboard (throttled: rebuilt only a few times a second)
+  const lbOn = state.shownLeaderboard && !state.paused && state.phase !== 'title';
+  hud.leaderboard(state.leaderboard, lbOn);
+
   const sbOn = state.shownScoreboard && !state.paused;
   if (sbOn && now - (state.lastSbRender || 0) > 200) {
     state.lastSbRender = now;

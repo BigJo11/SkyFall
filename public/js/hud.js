@@ -30,6 +30,8 @@ export class Hud {
       respawnTimer: $('respawnTimer'),
       scoreboard: $('scoreboard'),
       sbBody: $('sbBody'),
+      leaderboard: $('leaderboard'),
+      lbBody: $('lbOverlayBody'),
       scope: $('scopeOverlay'),
       dmgNumbers: $('dmgNumbers'),
       toast: $('toast'),
@@ -224,6 +226,48 @@ export class Hud {
     this.el.sbBody.innerHTML = rows.join('') || '<tr><td colspan="5">no players</td></tr>';
   }
 
+  // ------------------------------------------------------------- leaderboard
+  // rows come straight from the server: [{rank, name, kills, deaths, kd, bestStreak}]
+  leaderboardRows(rows, target) {
+    if (!target) return;
+    if (!rows || !rows.length) {
+      target.innerHTML = '<tr><td colspan="6" class="lb-empty">no recorded kills yet</td></tr>';
+      return;
+    }
+    target.innerHTML = rows.map((r, i) => {
+      const rank = r.rank ?? i + 1;
+      const cls = `lb-rank-${rank <= 3 ? rank : 'rest'}${r.crew ? ' lb-crew' : ''}`;
+      return `<tr class="${cls}">
+        <td class="lb-pos">${rank}</td>
+        <td class="pname">${escapeHtml(r.name)}${r.crew ? ' <span class="crew-dot">◆</span>' : ''}</td>
+        <td>${r.kills}</td><td>${r.deaths}</td>
+        <td>${typeof r.kd === 'number' ? r.kd.toFixed(2) : '—'}</td>
+        <td>${r.bestStreak ?? 0}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // the title screen copy and the in-game overlay share the renderer
+  titleLeaderboard(rows, total) {
+    this.leaderboardRows(rows, $('lbList'));
+    const sub = $('lbSub');
+    if (sub) {
+      sub.textContent = rows && rows.length
+        ? `${total ?? rows.length} operator${total === 1 ? '' : 's'} on record`
+        : 'be the first on the board';
+    }
+  }
+
+  leaderboard(rows, show) {
+    this.el.leaderboard.classList.toggle('hidden', !show);
+    if (!show) return;
+    // called every frame: only rebuild the table when the data actually moved
+    const sig = (rows || []).map((r) => `${r.rank}:${r.name}:${r.kills}:${r.deaths}`).join('|');
+    if (sig === this.lbSig) return;
+    this.lbSig = sig;
+    this.leaderboardRows(rows, this.el.lbBody);
+  }
+
   setPingValue(ms) {
     this.pingMs = Math.round(ms);
     this.el.ping.textContent = this.pingMs;
@@ -232,6 +276,18 @@ export class Hud {
   // ---------------------------------------------------------- movement
   // Speedometer: just the number and a bar. No words — movement is not named
   // on screen, you read it off the bar.
+  // the timed landing jump landed: flash the speedometer instead of writing a
+  // word on screen (movement is never named in the HUD)
+  momentumSaved() {
+    const el = this.el.speedometer;
+    if (!el) return;
+    el.classList.remove('saved');
+    void el.offsetWidth;          // restart the animation
+    el.classList.add('saved');
+    clearTimeout(this.savedTimer);
+    this.savedTimer = setTimeout(() => el.classList.remove('saved'), 620);
+  }
+
   setSpeed(mps = 0) {
     const pct = Math.max(0, Math.min(1, mps / 24));
     this.el.speedFill.style.width = (pct * 100).toFixed(1) + '%';

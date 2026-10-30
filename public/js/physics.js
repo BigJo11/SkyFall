@@ -2,7 +2,8 @@
 //
 // Speed is the resource: in the air you keep whatever speed you left the ground
 // with, air strafing lets you build more, a double jump costs a little, and
-// touching the ground costs all of it — unless you land into a slide.
+// touching the ground costs all of it — unless you land into a slide, or jump
+// exactly as you touch down (a timed landing jump keeps 100% of it).
 //
 // Boxes whose top is within step height become walkable (stairs); taller boxes
 // and boxes above the feet become walls (used for wall running).
@@ -27,6 +28,10 @@ export class Body {
     this.wantSlide = false;
     this.jumpHeld = false;        // holding jump auto-hops on landing
     this.onGroundTime = 0;
+    this.jumpBuffer = 0;          // a jump pressed just above the floor
+    this.landGrace = 0;           // window after touchdown to still save speed
+    this.landSpeed = 0;           // the speed you arrived with
+    this.landKeepPending = false; // the landing penalty has not been applied
 
     // ---- movement state
     this.airJumps = 1;
@@ -59,6 +64,9 @@ export class Body {
     this.slideCooldown = 0;
     this.slideBuffer = 0;
     this.lastWallBox = null;
+    this.jumpBuffer = 0;
+    this.landGrace = 0;
+    this.landKeepPending = false;
     this.endWallRun();
   }
 
@@ -73,6 +81,9 @@ export class Body {
     this.slideTime = 0;
     this.slideBuffer = 0;
     this.lastWallBox = null;
+    this.jumpBuffer = 0;
+    this.landGrace = 0;
+    this.landKeepPending = false;
     this.endWallRun();
   }
 
@@ -179,6 +190,23 @@ export class Body {
   // ------------------------------------------------------------- helpers
   get horizontalSpeed() { return Math.hypot(this.vx, this.vz); }
 
+  // How far above the nearest floor this body is (Infinity if there is none).
+  floorGap() {
+    const support = this.supportHeight();
+    return support === -Infinity ? Infinity : this.y - support;
+  }
+
+  // Seconds until this body touches the floor if it keeps falling.
+  timeToFloor() {
+    const gap = this.floorGap();
+    if (!Number.isFinite(gap)) return Infinity;
+    if (gap <= 0.02) return 0;
+    const g = this.wallRun ? MOVE.wallRunGravity : PLAYER.gravity;
+    const vy = Math.min(this.vy, 0);
+    // 0 = gap + vy*t - 0.5*g*t^2, with vy negative while falling
+    return (vy + Math.sqrt(vy * vy + 2 * g * gap)) / g;
+  }
+
   setHorizontal(u) {
     const s = this.horizontalSpeed;
     if (s < 1e-5) return;
@@ -218,6 +246,9 @@ export class Body {
     if (this.lastWallBox === wall.box) return false; // same wall, no landing since
 
     this.wallRun = true;
+    this.landKeepPending = false;
+    this.landGrace = 0;
+    this.jumpBuffer = 0;
     this.wallRunTime = MOVE.wallRunMaxTime;
     this.lastWallBox = wall.box;
     this.wallNormal = { x: wall.nx, z: wall.nz };
@@ -276,6 +307,9 @@ export class Body {
     this.sliding = true;
     this.slideTime = MOVE.slideDuration;
     this.slideBuffer = 0;
+    this.landKeepPending = false;   // the slide handles it from here
+    this.landGrace = 0;
+    this.jumpBuffer = 0;
     this.setHorizontal(Math.max(speed * MOVE.slideBoost, MOVE.slideSpeed));
     this.slideDir = Math.atan2(this.vx, this.vz);
     this.events.slideStarted = true;
@@ -309,6 +343,8 @@ export class Body {
     if (this.slideCooldown > 0) this.slideCooldown = Math.max(0, this.slideCooldown - dt);
     if (this.wallRunCooldown > 0) this.wallRunCooldown = Math.max(0, this.wallRunCooldown - dt);
     if (this.slideBuffer > 0) this.slideBuffer = Math.max(0, this.slideBuffer - dt);
+    if (this.jumpBuffer > 0) this.jumpBuffer = Math.max(0, this.jumpBuffer - dt);
+    if (this.landGrace > 0) this.landGrace = Math.max(0, this.landGrace - dt);
 
     // pressing slide in the air pre-arms it for the landing
     if (this.wantSlide) {
@@ -361,11 +397,20 @@ export class Body {
     }
 
     // ---- jumps
+    const freshPress = !!this.wantJump;
     if (this.wantJump || (this.jumpHeld && this.onGround && this.onGroundTime > 0.02)) {
       this.wantJump = false;
       if (this.wallRun) {
         this.wallJump();
       } else if (this.onGround) {
+        // ---- the timed landing jump: press as you touch down and the speed
+        // you arrived with is still yours. Holding the key does not count —
+        // that is the auto-hop, and it lands you at the capped speed.
+        if (this.landKeepPending && freshPress) {
+          this.saveLanding();
+        } else if (this.landKeepPending) {
+          this.applyLandKeep();
+        }
         this.vy = PLAYER.jumpSpeed;
         this.onGround = false;
         this.sliding = false;              // jumping out of a slide keeps speed
@@ -373,12 +418,33 @@ export class Body {
         this.events.jumped = true;
         if (wish.sprint && startSpeed > PLAYER.walkSpeed * 0.9) this.events.sprintJump = true;
       } else if (this.airJumps > 0) {
-        this.airJumps -= 1;
-        this.vy = Math.max(this.vy * 0.3, 0) + MOVE.doubleJumpSpeed;
-        // a double jump costs you SOME speed, not all of it
-        this.scaleHorizontal(MOVE.doubleJumpKeep);
-        this.events.doubleJumped = true;
+        // pressing jump in the last moments of a fall queues the jump for
+        // touchdown instead of burning the double jump on nothing
+        const toFloor = this.vy <= 0 ? this.timeToFloor() : Infinity;
+        if (toFloor <= MOVE.landJumpWindow) {
+          // wait for the floor instead: it becomes a landing jump on contact
+          this.jumpBuffer = Math.max(0.05, toFloor + 0.08);
+          this.events.jumpBuffered = true;
+        } else {
+          this.airJumps -= 1;
+          this.vy = Math.max(this.vy * 0.3, 0) + MOVE.doubleJumpSpeed;
+          // a double jump costs you SOME speed, not all of it
+          this.scaleHorizontal(MOVE.doubleJumpKeep);
+          this.events.doubleJumped = true;
+        }
       }
+    }
+
+    // a buffered press becomes a real jump the instant we touch the floor
+    if (this.onGround && this.jumpBuffer > 0) {
+      this.jumpBuffer = 0;
+      this.saveLanding();
+      this.vy = PLAYER.jumpSpeed;
+      this.onGround = false;
+      this.sliding = false;
+      this.slideTime = 0;
+      this.events.jumped = true;
+      this.events.sprintJump = wish.sprint && startSpeed > PLAYER.walkSpeed * 0.9;
     }
 
     // ---- horizontal motion
@@ -396,6 +462,9 @@ export class Body {
           this.vx += rx * wish.right * MOVE.slideSteer * dt;
           this.vz += rz * wish.right * MOVE.slideSteer * dt;
         }
+      } else if (this.landKeepPending) {
+        // inside the landing window: hold exactly what you came in with, so a
+        // timed jump can still cash it in. No drag, no accel, no cap.
       } else {
         // ground movement: accelerate toward the walk/sprint target. Faster
         // arrival means carried speed bleeds off quickly too (that is the
@@ -494,6 +563,9 @@ export class Body {
       this.onGround = false;
     }
 
+    // the landing window runs out: now the penalty lands
+    if (this.landKeepPending && this.landGrace <= 0) this.applyLandKeep();
+
     if (this.onGround) {
       this.airTime = 0;
       this.onGroundTime += dt;
@@ -511,24 +583,68 @@ export class Body {
     this.eyeOffset += (targetEye - this.eyeOffset) * k;
   }
 
-  // Landing: momentum is lost unless you slide into it.
+  // Landing. Three ways to keep your momentum:
+  //   1. land into a slide (always has been)
+  //   2. have pressed jump within landJumpWindow of hitting the floor
+  //   3. press jump within landWindow seconds of touching down
+  // Anything else and the landing penalty lands when the window shuts.
   onLand(speed, dt) {
     void dt;
     const sliding = this.sliding;
     if (sliding || (this.slideBuffer > 0 && speed >= MOVE.slideMinSpeed * 0.7)) {
       // keep everything (and give the slide a small boost)
       if (!this.sliding) this.slideBufferFromAir = true;
-      if (!this.sliding) this.sliding = true;
       this.sliding = true;
       this.slideTime = MOVE.slideDuration;
       this.slideBuffer = 0;
+      this.jumpBuffer = 0;
+      this.landKeepPending = false;
+      this.landGrace = 0;
       this.setHorizontal(Math.max(speed * MOVE.slideBoost, MOVE.slideSpeed));
       this.events.slideLanding = true;
       this.slideBufferFromAir = false;
       return;
     }
+    this.landSpeed = speed;
+    if (this.jumpBuffer > 0) {
+      // timed on the way down: the hop fires immediately at full speed
+      this.jumpBuffer = 0;
+      this.landKeepPending = false;
+      this.landGrace = 0;
+      this.keepLandingSpeed(speed);
+      this.wantJump = true;
+      this.events.perfectLanding = true;
+      return;
+    }
     if (speed > 1) {
-      // you hit the ground: the extra speed is gone
+      // hold the speed for a moment — a well-timed press still rescues it
+      this.landKeepPending = true;
+      this.landGrace = MOVE.landWindow;
+      this.jumpBuffer = 0;
+    }
+  }
+
+  // the timed jump saved the landing: full speed, plus a small thank-you
+  saveLanding() {
+    if (!this.landKeepPending) return;
+    this.landKeepPending = false;
+    this.landGrace = 0;
+    this.keepLandingSpeed(this.landSpeed);
+    this.events.perfectLanding = true;
+  }
+
+  keepLandingSpeed(speed) {
+    if (speed <= 1) return;
+    const keep = speed * MOVE.landKeepBonus;
+    this.setHorizontal(Math.min(keep, MOVE.airSpeedCap));
+  }
+
+  // the window shut without a jump: the speed is gone like it always was
+  applyLandKeep() {
+    const speed = this.landSpeed;
+    this.landKeepPending = false;
+    this.landGrace = 0;
+    if (speed > 1) {
       const capped = Math.min(speed * MOVE.landKeep, PLAYER.sprintSpeed * MOVE.landCap);
       this.setHorizontal(Math.max(capped, Math.min(speed, MOVE.slideMinSpeed * 0.5)));
       this.events.momentumLost = true;

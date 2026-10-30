@@ -1,7 +1,9 @@
 // Headless smoke tests for the authoritative server logic.
 //   node tests/game.test.mjs
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { Game } from '../server/game.js';
+import { Leaderboard } from '../server/leaderboard.js';
 import { WEAPONS, RESERVED, CREW_GLOW } from '../shared/constants.js';
 import { rayAABB, rayCapsule, solidAABBs } from '../shared/collision.js';
 import ARENA from '../shared/map.js';
@@ -216,6 +218,52 @@ await test('teleport attempts are corrected', async () => {
   game.handle(a, { t: 'input', p: [200, 60, 0], yaw: 0, pitch: 0 });
   assert.ok(sa.sent.some((m) => m.t === 'correct'), 'server corrects impossible movement');
   assert.notEqual(a.pos[0], 200);
+});
+
+console.log('\nleaderboard:');
+
+await test('a kill lands on the all-time board and is broadcast', async () => {
+  const { game, a, b, sa, sb } = makeGame();
+  const board = game.leaderboard;
+  assert.equal(board.stats('ALPHA'), null, 'joining alone puts nobody on the board');
+  const events = [];
+  game.broadcast = (msg) => events.push(msg);
+
+  // line them up and shoot BRAVO with the sniper
+  a.weapon = 1;
+  game.handle(a, { t: 'fire', dir: dirTo(a.pos, b.pos) });
+
+  assert.equal(b.alive, false, 'the target went down');
+  assert.equal(board.stats('ALPHA').kills, 1);
+  assert.equal(board.stats('BRAVO').deaths, 1);
+  const update = events.find((m) => m.t === 'leaderboard');
+  assert.ok(update, 'the table was pushed to the clients');
+  assert.equal(update.rows[0].name, 'ALPHA');
+  assert.equal(update.rows[0].rank, 1);
+  void sa; void sb;
+});
+
+await test('welcome carries the table so the title screen can show it', () => {
+  const game = new Game();
+  game.leaderboard.recordKill('VETERAN', 'ROOKIE');
+  const sock = fakeSocket();
+  game.addPlayer(sock, 'SECOND');
+  const welcome = sock.sent.find((m) => m.t === 'welcome');
+  assert.ok(Array.isArray(welcome.leaderboard), 'welcome has rows');
+  assert.ok(welcome.leaderboard.some((r) => r.name === 'VETERAN'), 'the veteran is on it');
+  assert.ok(welcome.leaderboard.every((r) => typeof r.matches === 'number'), 'row shape');
+});
+
+await test('a persisted board is reused by the next game instance', () => {
+  const file = `${process.env.TMPDIR || '/tmp'}/skyfall-game-board-${process.pid}.json`;
+  const one = new Game({ leaderboard: new Leaderboard(file) });
+  one.addPlayer(fakeSocket(), 'PERSIST');
+  one.leaderboard.recordKill('PERSIST', 'OTHER');
+  one.leaderboard.flush();
+
+  const two = new Game({ leaderboard: new Leaderboard(file) });
+  assert.equal(two.leaderboard.stats('PERSIST').kills, 1);
+  fs.rmSync(file, { force: true });
 });
 
 console.log('\ncrew + reserved callsigns:');

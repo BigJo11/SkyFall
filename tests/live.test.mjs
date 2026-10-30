@@ -1,9 +1,11 @@
 // End-to-end test: boots the real HTTP/WebSocket server and plays with two
 // clients.   node tests/live.test.mjs
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
 
+const LEADERBOARD = `/tmp/skyfall-board-${process.pid}.json`;
 const PORT = 3111 + Math.floor(Math.random() * 200);
 const BASE = `http://127.0.0.1:${PORT}`;
 let passed = 0;
@@ -49,14 +51,17 @@ function client(name) {
 
 const server = spawn(process.execPath, ['server/server.js'], {
   cwd: new URL('..', import.meta.url).pathname,
-  env: { ...process.env, PORT: String(PORT) },
+  env: { ...process.env, PORT: String(PORT), LEADERBOARD_FILE: LEADERBOARD },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let serverLog = '';
 server.stdout.on('data', (d) => { serverLog += d; });
 server.stderr.on('data', (d) => { serverLog += d; });
 
-const cleanup = () => { try { server.kill('SIGKILL'); } catch {} };
+const cleanup = () => {
+  try { server.kill('SIGKILL'); } catch {}
+  try { fs.rmSync(LEADERBOARD, { force: true }); } catch {}
+};
 process.on('exit', cleanup);
 
 // wait for the listener
@@ -171,6 +176,32 @@ await test('movement input is accepted and reflected in snapshots', async () => 
   assert.ok(snap, 'server tracked the walk');
   a.ws.close();
   await sleep(200);
+});
+
+await test('the all-time leaderboard is served and records a death', async () => {
+  const a = await client('BOARDMAN');
+  const welcome = await a.waitFor((m) => m.t === 'welcome');
+  assert.ok(Array.isArray(welcome.leaderboard), 'welcome carries the table');
+
+  const before = await (await fetch(`${BASE}/api/leaderboard?n=50`)).json();
+  assert.ok(Array.isArray(before.rows));
+  assert.equal(before.rows.some((r) => r.name === 'BOARDMAN'), false, 'joining alone is not a row');
+
+  // step off the edge: the server kills the fall and the table moves
+  const p0 = welcome.you.pos;
+  for (let step = 1; step <= 11; step++) {   // ends around y = -33, below killY
+    a.send({ t: 'input', p: [p0[0], p0[1] - step * 3, p0[2]], yaw: 0, pitch: 0 });
+    await sleep(60);
+  }
+  const update = await a.waitFor((m) => m.t === 'leaderboard', 3000);
+  assert.ok(update.rows.length >= 1, 'a table was pushed');
+
+  const after = await (await fetch(`${BASE}/api/leaderboard?n=50`)).json();
+  const row = after.rows.find((r) => r.name === 'BOARDMAN');
+  assert.ok(row, 'the player is on the table');
+  assert.ok(row.deaths >= 1, `the death was recorded (${row.deaths})`);
+  a.ws.close();
+  await sleep(150);
 });
 
 await test('malformed frames do not crash the server', async () => {

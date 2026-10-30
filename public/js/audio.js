@@ -270,6 +270,21 @@ export class Sfx {
     n.connect(bp).connect(this.env(0.18, 0.05, 0.01));
   }
 
+  // timed landing jump: a short, bright "kept it" chime
+  perfect() {
+    if (!this.ready) return;
+    for (const [i, freq] of [660, 990].entries()) {
+      const o = this.ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(freq, this.t + i * 0.045);
+      const g = this.env(0.1, 0.05, 0.003);
+      g.gain.setValueAtTime(0.0001, this.t);
+      o.connect(g);
+      o.start(this.t + i * 0.045);
+      o.stop(this.t + i * 0.045 + 0.12);
+    }
+  }
+
   wallRun() {
     if (!this.ready) return;
     const n = this.noiseSrc(0.5, 0.45);

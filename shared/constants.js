@@ -74,9 +74,18 @@ export const MOVE = {
   doubleJumpSpeed: 7.8,
   doubleJumpKeep: 0.87,     // you only lose ~13% of your horizontal speed
 
-  landKeep: 0.35,           // normal landing: momentum is gone
+  landKeep: 0.35,           // a mistimed landing: momentum is gone
   landCap: 0.42,            // ...and never above this fraction of sprint speed
   slideLandKeep: 1.0,       // landing into a slide keeps everything
+
+  // Bunny hop: press jump right as you touch down and you keep everything.
+  // The press may come slightly early (buffered through the last moments of
+  // the fall) or slightly late (a short window after touchdown), so the timing
+  // is readable instead of frame-perfect.
+  landJumpWindow: 0.22,     // press within this many seconds of hitting the
+                            // floor and the jump waits for touchdown
+  landWindow: 0.18,         // press this soon after touchdown and you keep it
+  landKeepBonus: 1.02,      // a timed landing jump keeps 100% + a nudge
 
   wallRunMaxTime: 1.9,
   wallRunCooldown: 0.3,     // you cannot latch straight onto the next panel

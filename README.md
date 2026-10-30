@@ -80,6 +80,13 @@ ground with, and the trick is never to touch down flat.
   fixed upward kick. Refreshed by landing and by every wall kick.
 * **Landing flat kills your speed** (capped at ~half sprint speed). Land in a
   **slide** and you keep 100% of it with a small boost — that is the skill.
+* **Timed landing jump keeps everything.** Press jump as you touch down and
+  your momentum is untouched — you also get a 2% nudge. The press may come up
+  to 0.22 s *before* the floor (it waits for contact instead of burning your
+  double jump) or up to 0.18 s *after* it. Press outside that and the landing
+  penalty lands as usual. Holding jump is the auto-hop, not the timed jump: it
+  bounces you but does not save the speed, so the timing is worth learning.
+  A saved landing pops the speedometer amber instead of writing a word.
 * **Wall running** carries your momentum and builds a little on top
   (about +1.2 m/s/s), lasts ~1.9 s, softens gravity, allows corner faces, and
   cannot be re-latched instantly onto the next panel. Kicking off a wall keeps
@@ -101,6 +108,7 @@ ground with, and the trick is never to touch down flat.
 | **Wall kick** | `Space` during a wall run | pushes off the wall, refreshes the double jump |
 | **Slide** | `C` / `Ctrl` while sprinting, or while falling | fast, steerable, preserves momentum on landing |
 | **Slide jump** | `Space` during a slide | keeps the slide speed in the air |
+| **Timed landing jump** | `Space` on touchdown | 0.22 s early → 0.18 s late, keeps 100% |
 | **Mantle** | run at a low ledge | automatic ledge grab |
 
 Sprint is on by default when you hold `Shift`; jumping works at any speed.
@@ -128,6 +136,27 @@ Both run **offline in the browser** — no server, no sign-in, no other players.
   where to run), and `N` skips a step if you get stuck. Finishing offers
   "keep practising" or back to the title.
 
+## Leaderboard
+
+Every kill and every death is folded into an **all-time table** that lives on
+the server (`data/leaderboard.json`, override with `LEADERBOARD_FILE`) and
+survives restarts. It shows on the title screen, comes down the wire with the
+join handshake, is pushed again on every kill, and is also served as JSON:
+
+```bash
+curl http://localhost:3000/api/leaderboard?n=10
+```
+
+Rows carry **kills, deaths, K/D and best streak**, sorted by kills, then fewest
+deaths, then streak. Joining is not enough to get on it — you appear once you
+have a kill or a death to your name — so the table stays about combat. Names are folded case-insensitively — `Ghost`, `GHOST` and
+`ghost` are one operator — and crew accounts (the `1013` code) get a ◆ marker
+and the amber styling. In game, **`L`** opens the same table over your screen.
+
+Because a LAN game has no accounts, a row belongs to whoever types that name;
+only reserved callsigns ("Big Joe") go through a real check, which the server
+enforces before anything reaches the board.
+
 ## Controls
 
 | Input | Action |
@@ -142,6 +171,7 @@ Both run **offline in the browser** — no server, no sign-in, no other players.
 | `C` / `Ctrl` | slide (while sprinting) |
 | `R` | reload |
 | `Tab` | scoreboard |
+| `L` | all-time leaderboard |
 | `Esc` | pause menu (sensitivity, volume, FOV) |
 | `M` | mute |
 | `N` | skip a tutorial step |
@@ -212,6 +242,8 @@ is clear, and the wall-run staging spot produces a real wall run.
 ```
 server/server.js      static file server + WebSocket lobby
 server/game.js        authoritative match state, weapons, damage, respawns
+server/leaderboard.js all-time table: ranking, streaks, JSON persistence
+data/                 leaderboard.json (git-ignored, created on first kill)
 shared/constants.js   weapon and movement balance
 shared/map.js         240 m forest arena, spawns, practice markers
 shared/collision.js   ray/AABB + ray/capsule maths used by server and client
@@ -273,7 +305,7 @@ nothing"). The build id is also shown in the bottom-right of the title screen an
 sent as an `X-Skyfall-Build` header, and the client flags a mismatch on screen if
 it ever sees one.
 
-If a menu button ever seems dead, check the tag: `build <id> · forest v6`
+If a menu button ever seems dead, check the tag: `build <id> · forest v7`
 means the current code is running. Press `Ctrl/Cmd + Shift + R` to force a fresh
 load.
 
@@ -291,6 +323,7 @@ npm test
 | `tests/physics.test.mjs` | walking, stairs, walls, jumping, ledges, crates, plus the real arena (spawns, stairs, cover, void) |
 | `tests/map.test.mjs` | map size and cover distribution, spawn clearance, walkable hills and mesas, practice lane and dummies, wall-run staging spot |
 | `tests/movement.test.mjs` | air speed preservation, air-strafe gains, landing loss vs slide landing, double-jump cost, wall run speed/lifetime/corners/cooldown/wall kicks, mantling, jump-while-sprinting, auto-hop, slides, chained combos |
+| `tests/leaderboard.test.mjs` | ranking, tie-breaks, K/D, streaks, name folding, crew flag, persistence round-trip, corrupt-file recovery, trimming |
 | `tests/tutorial.test.mjs` | practice dummies, respawns, stats, and the full 15-step tutorial state machine |
 | `tests/scene.test.mjs` | every 3D module built against real Three.js (no GPU needed) |
 | `tests/ui.test.mjs` | the real `index.html` driven through jsdom: HUD, killfeed, scoreboard, input |

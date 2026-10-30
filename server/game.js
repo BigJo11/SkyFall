@@ -1,8 +1,10 @@
 import { PLAYER, WEAPONS, PLAYER_COLORS, NET, MAX_LEGIT_SPEED, RESERVED, CREW_GLOW } from '../shared/constants.js';
 import ARENA from '../shared/map.js';
 import { solidAABBs, raycastAABBs, rayCapsule } from '../shared/collision.js';
+import { Leaderboard } from './leaderboard.js';
 
 const now = () => Date.now();
+const LEADERBOARD_ROWS = 10;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 function sanitizeName(raw, fallback) {
@@ -20,8 +22,10 @@ function norm3(v) {
 }
 
 export class Game {
-  constructor() {
+  constructor({ leaderboard = null } = {}) {
     this.players = new Map();
+    // all-time table; the server passes a file-backed one, tests get memory
+    this.leaderboard = leaderboard || new Leaderboard(null);
     this.solids = solidAABBs(ARENA.boxes);
     this.nextId = 1;
     this.tickTimer = null;
@@ -75,6 +79,7 @@ export class Game {
       lastFallDeath: 0,
     };
     this.players.set(id, player);
+    this.leaderboard.recordJoin(name, { crew });
 
     this.send(player, {
       t: 'welcome',
@@ -83,6 +88,7 @@ export class Game {
       color: player.color,
       you: this.pub(player),
       players: [...this.players.values()].filter((p) => p.id !== id).map((p) => this.pub(p)),
+      leaderboard: this.leaderboard.top(LEADERBOARD_ROWS),
       snapshotHz: NET.TICK_HZ,
     });
     this.broadcast({ t: 'join', player: this.pub(player) }, id);
@@ -330,6 +336,14 @@ export class Game {
     victim.reloadEnd = 0;
     victim.respawnAt = now() + PLAYER.respawnTime;
     if (killer && killer !== victim) killer.kills++;
+
+    // fold the kill into the all-time table (a fall has no killer)
+    this.leaderboard.recordKill(
+      killer && killer !== victim ? killer.name : null,
+      victim.name,
+      { crew: !!killer?.crew },
+    );
+    this.broadcast({ t: 'leaderboard', rows: this.leaderboard.top(LEADERBOARD_ROWS) });
 
     this.broadcast({
       t: 'kill',

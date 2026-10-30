@@ -128,6 +128,40 @@ test('scoreboard sorts by kills and marks the local player', () => {
   assert.match(rows[1].textContent, /you/);
 });
 
+test('leaderboard renders ranks, crew rows and stays empty-safe', () => {
+  const rows = [
+    { rank: 1, name: 'BIG JOE', kills: 42, deaths: 7, kd: 6, bestStreak: 9, crew: true },
+    { rank: 2, name: 'ALPHA', kills: 12, deaths: 12, kd: 1, bestStreak: 3, crew: false },
+  ];
+  hud.titleLeaderboard(rows, 2);
+  const title = document.getElementById('lbList');
+  assert.equal(title.querySelectorAll('tr').length, 2, 'title table filled');
+  assert.match(title.textContent, /BIG JOE/);
+  assert.match(title.textContent, /42/);
+  assert.ok(title.querySelector('.lb-crew'), 'crew row is marked');
+  assert.match(document.getElementById('lbSub').textContent, /2 operators/);
+
+  hud.leaderboard(rows, true);
+  assert.equal(document.getElementById('leaderboard').classList.contains('hidden'), false, 'overlay open');
+  assert.equal(document.getElementById('lbOverlayBody').querySelectorAll('tr').length, 2);
+
+  hud.leaderboard([], false);
+  assert.equal(document.getElementById('leaderboard').classList.contains('hidden'), true, 'overlay closed');
+
+  hud.titleLeaderboard([], 0);
+  assert.match(title.textContent, /no recorded kills yet/, 'empty state');
+});
+
+test('a saved momentum landing only flashes the speedometer', () => {
+  hud.setSpeed(14.2);
+  hud.momentumSaved();
+  const el = document.getElementById('speedometer');
+  assert.ok(el.classList.contains('saved'));
+  // no words appear anywhere in the movement HUD
+  assert.doesNotMatch(el.textContent, /perfect|momentum|saved/i);
+  el.classList.remove('saved');
+});
+
 test('death screen + respawn countdown', () => {
   hud.showDeath('BRAVO', 'sniper');
   assert.equal(document.getElementById('deathScreen').classList.contains('hidden'), false);

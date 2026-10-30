@@ -11,6 +11,7 @@ import WebSocket from 'ws';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const TMP = path.join(ROOT, '.uitest');
+const LEADERBOARD = `/tmp/skyfall-board-${process.pid}.json`;
 const PORT = 3320 + Math.floor(Math.random() * 100);
 
 let passed = 0;
@@ -114,7 +115,7 @@ process.on('unhandledRejection', (e) => runtimeErrors.push(e));
 // ------------------------------------------------------------ server
 const server = spawn(process.execPath, ['server/server.js'], {
   cwd: ROOT,
-  env: { ...process.env, PORT: String(PORT) },
+  env: { ...process.env, PORT: String(PORT), LEADERBOARD_FILE: LEADERBOARD },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let serverLog = '';
@@ -473,12 +474,70 @@ await test('speed HUD and speed preservation work in the live client', async () 
   assert.ok(minAir > groundSpeed * 0.8,
     `kept air speed (${groundSpeed.toFixed(2)} -> ${minAir.toFixed(2)}) ${JSON.stringify(minInfo)} trace=${trace.slice(0, 24)}`);
 
-  // land: speed should collapse
+  // land without touching jump: the speed is held for the landing window, then
+  // the mistimed landing kills it
   for (let i = 0; i < 200 && !sk.body.onGround; i++) pump(1);
   window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'KeyW' }));
   window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'ShiftLeft' }));
-  pump(2);
+  pump(20);   // ~0.33 s of frames: past the landing window
   assert.ok(sk.body.speed < groundSpeed * 0.75, `landing killed the momentum (${sk.body.speed.toFixed(2)})`);
+});
+
+await test('a timed landing jump keeps the momentum in the live client', async () => {
+  const sk = window.SKYFALL;
+  sk.body.teleport(40, 0.05, -6);
+  sk.state.yaw = Math.PI;
+  for (let i = 0; i < 20; i++) pump(1);
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyW' }));
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ShiftLeft' }));
+  for (let i = 0; i < 80; i++) pump(1);
+  const groundSpeed = sk.body.speed;
+  assert.ok(groundSpeed > 9, `sprinting (${groundSpeed.toFixed(2)} m/s)`);
+
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Space' }));
+  pump(2);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space' }));
+
+  // drop until we are inside the landing window, then press jump
+  let pressed = false;
+  for (let i = 0; i < 200; i++) {
+    if (!pressed && !sk.body.onGround && sk.body.vy < 0 && sk.body.timeToFloor() < 0.18) {
+      window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Space' }));
+      pump(1);
+      window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space' }));
+      pressed = true;
+      break;
+    }
+    pump(1);
+  }
+  assert.ok(pressed, 'pressed jump just above the floor');
+  // the speedometer flash is the client-side signal that the timing counted
+  let flashed = false;
+  for (let i = 0; i < 60 && !flashed; i++) {
+    pump(1);
+    flashed = document.getElementById('speedometer').classList.contains('saved');
+  }
+  assert.ok(flashed, 'the timed landing registered (speedometer flash)');
+  assert.ok(sk.body.speed > groundSpeed * 0.9,
+    `the timed jump kept the speed (${groundSpeed.toFixed(2)} -> ${sk.body.speed.toFixed(2)})`);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'KeyW' }));
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'ShiftLeft' }));
+});
+
+await test('the all-time leaderboard shows on the title screen and under L', async () => {
+  // the L overlay toggles in-game
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyL' }));
+  pump(3);
+  assert.equal(document.getElementById('leaderboard').classList.contains('hidden'), false, 'overlay open');
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyL' }));
+  pump(3);
+  assert.equal(document.getElementById('leaderboard').classList.contains('hidden'), true, 'overlay closed');
+
+  // the server serves the table over HTTP and the panel renders it
+  const board = await (await fetch(`http://127.0.0.1:${PORT}/api/leaderboard?n=5`)).json();
+  assert.ok(Array.isArray(board.rows), 'rows array');
+  assert.ok(typeof board.total === 'number', 'total count');
+  assert.ok(board.rows.every((r) => r.kills >= 0 && r.rank >= 1), 'rows carry kills + rank');
 });
 
 await test('tutorial starts, advances with N, and completes', async () => {
