@@ -139,6 +139,8 @@ merged into a single draw call on load.
   players who want to fight above the plate.
 * **12 spawn points** verified clear, each facing the middle of the map.
 
+![top-down plan of the arena](docs/arena-plan.png)
+
 `tests/map.test.mjs` asserts the plate has no holes, every spawn is standing
 room, every staircase can actually be walked up, the practice lane is clear, and
 the wall-run staging spot produces a real wall run.
