@@ -1,6 +1,12 @@
 // Remote players: stylised armoured figures built from primitives.
 import * as THREE from 'three';
-import { nameTexture } from './textures.js';
+import { nameTexture, softCircleTexture } from './textures.js';
+
+let glowTex = null;
+function softGlowTexture() {
+  if (!glowTex) glowTex = softCircleTexture(128);
+  return glowTex;
+}
 
 const BODY = 0x2a3346;
 const BODY_LIGHT = 0x3b4761;
@@ -96,6 +102,25 @@ export class Avatar {
     this.root.add(ring);
     this.ring = ring;
 
+    // ---- crew skin: a glowing aura, brighter accents and a lit ring
+    if (player.crew) {
+      accentMat.emissive = accent.clone();
+      accentMat.emissiveIntensity = 0.9;
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: softGlowTexture(), color: accent, transparent: true, opacity: 0.5,
+        depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+      }));
+      halo.scale.set(3.4, 4.2, 1);
+      halo.position.y = 1.15;
+      this.root.add(halo);
+      this.halo = halo;
+      const light = new THREE.PointLight(accent, 2.6, 9, 2);
+      light.position.set(0, 1.3, 0);
+      this.root.add(light);
+      this.glowLight = light;
+      ring.material.opacity = 0.8;
+    }
+
     // name plate
     this.tex = nameTexture(this.name, '#' + accent.getHexString(), 1);
     this.plate = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -189,7 +214,14 @@ export class Avatar {
       this.plate.material.opacity = Math.min(0.95, this.plate.material.opacity + dt * 2);
     }
 
-    this.ring.material.opacity = 0.22 + Math.sin(time * 3 + this.id) * 0.08;
+    if (this.halo) {
+      const pulse = 0.42 + Math.sin(time * 2.6 + this.id) * 0.14;
+      this.halo.material.opacity = pulse;
+      this.ring.material.opacity = 0.55 + Math.sin(time * 2.6 + this.id) * 0.25;
+      if (this.glowLight) this.glowLight.intensity = 2.2 + Math.sin(time * 2.6 + this.id) * 0.9;
+    } else {
+      this.ring.material.opacity = 0.22 + Math.sin(time * 3 + this.id) * 0.08;
+    }
     this.hitFlash = Math.max(0, this.hitFlash - dt * 4);
   }
 

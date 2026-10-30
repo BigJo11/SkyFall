@@ -7,6 +7,34 @@ export const NET = {
   MAX_NAME: 16,
 };
 
+// ---------------------------------------------------------------- identity
+// Some callsigns are reserved. Typing the crew code on the title screen unlocks
+// them (and a glowing skin) for everybody in the lobby.
+export const RESERVED = {
+  code: '1013',
+  // a reserved name is anything containing "big joe", however it is spelled:
+  // "bigjoe", "b1g_joe", "BIG JOE 1013" ...
+  isReserved(raw) {
+    const s = String(raw ?? '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+      .replace(/0/g, 'o')
+      .replace(/1/g, 'i')
+      .replace(/3/g, 'e')
+      .replace(/4|@/g, 'a')
+      .replace(/5|\$/g, 's')
+      .replace(/7/g, 't');
+    return s.includes('bigjoe');
+  },
+  normaliseCode(raw) {
+    return String(raw ?? '').replace(/\D/g, '');
+  },
+};
+
+// Skins: the crew glow colour and the palette used for everything else.
+export const CREW_GLOW = 0xffd23f;
+export const CREW_GLOW_ALT = 0x8b5cf6;
+
 export const PLAYER = {
   maxHealth: 100,
   radius: 0.38,
@@ -67,16 +95,20 @@ export const MOVE = {
   wallJumpUp: 8.0,
   wallJumpKeep: 1.0,
 
-  slideSpeed: 14.2,
-  slideMinSpeed: 5.5,
-  slideDuration: 1.5,
-  slideFriction: 1.5,
-  slideSteer: 5.4,
-  slideBoost: 1.05,
+  // Sliding is forgiving on purpose: it is long, slow to bleed speed, easy to
+  // start (even out of a slow walk), and can be re-armed almost immediately.
+  slideSpeed: 15.0,
+  slideMinSpeed: 3.0,
+  slideDuration: 2.6,
+  slideFriction: 0.8,
+  slideSteer: 6.4,
+  slideBoost: 1.08,
   slideEyeOffset: -0.55,
-  slideCooldown: 0.25,
-  slideBuffer: 0.4,         // press slide this long before landing and it sticks
+  slideCooldown: 0.08,
+  slideBuffer: 0.7,         // press slide this long before landing and it sticks
   slideJumpKeep: 1.0,
+  slideExtend: 0.9,         // pressing slide again mid-slide tops the timer back up
+  slideWalkStart: 0.55,     // fraction of sprint speed needed to start from a walk
 };
 
 // Highest horizontal speed a legitimately moving player can reach — the server

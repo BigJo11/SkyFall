@@ -145,6 +145,32 @@ await test('title screen renders the arena backdrop frames', async () => {
   assert.ok(runtimeErrors.length === 0, `no runtime errors: ${runtimeErrors[0]}`);
 });
 
+await test('the reserved callsign is locked until the crew code is typed', async () => {
+  const name = document.getElementById('nameInput');
+  name.value = 'Big Joe';
+  document.getElementById('deployBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  assert.equal(document.getElementById('title').classList.contains('hidden'), false, 'deploy refused');
+  assert.match(document.getElementById('titleNotice').textContent, /TAKEN/);
+
+  // typing the code in order unlocks it (and the glow skin)
+  const code = document.getElementById('codeInput');
+  for (const ch of '1013') {
+    code.value += ch;
+    code.dispatchEvent(new window.Event('input', { bubbles: true }));
+    pump(1);
+  }
+  assert.ok(document.body.classList.contains('crew'), 'crew skin unlocked');
+  assert.equal(document.getElementById('crewBadge').classList.contains('hidden'), false, 'badge shown');
+  assert.match(document.getElementById('titleNotice').textContent, /GRANTED/);
+
+  // clearing it locks the callsign again
+  document.getElementById('crewClear').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(1);
+  assert.equal(document.body.classList.contains('crew'), false);
+  name.value = '';
+});
+
 await test('deploy connects to the real server and enters the match', async () => {
   document.getElementById('nameInput').value = 'JSDOM';
   document.getElementById('deployBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));

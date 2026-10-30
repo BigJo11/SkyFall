@@ -1,4 +1,4 @@
-import { PLAYER, WEAPONS, PLAYER_COLORS, NET, MAX_LEGIT_SPEED } from '../shared/constants.js';
+import { PLAYER, WEAPONS, PLAYER_COLORS, NET, MAX_LEGIT_SPEED, RESERVED, CREW_GLOW } from '../shared/constants.js';
 import ARENA from '../shared/map.js';
 import { solidAABBs, raycastAABBs, rayCapsule } from '../shared/collision.js';
 
@@ -41,10 +41,12 @@ export class Game {
 
   // ------------------------------------------------------------- connections
 
-  addPlayer(socket, requestedName) {
+  addPlayer(socket, requestedName, crew = false) {
     const id = this.nextId++;
     const taken = new Set([...this.players.values()].map((p) => p.name));
     let name = sanitizeName(requestedName, `PLAYER ${id}`);
+    // reserved callsigns need the crew code
+    if (!crew && RESERVED.isReserved(name)) name = `PLAYER ${id}`;
     if (taken.has(name)) name = `${name} (${id})`.slice(0, NET.MAX_NAME + 4);
 
     const spawn = this.pickSpawn();
@@ -52,7 +54,8 @@ export class Game {
       id,
       name,
       socket,
-      color: PLAYER_COLORS[(id - 1) % PLAYER_COLORS.length],
+      color: crew ? CREW_GLOW : PLAYER_COLORS[(id - 1) % PLAYER_COLORS.length],
+      crew: !!crew,
       pos: spawn.pos.slice(),
       yaw: spawn.yaw,
       pitch: 0,
@@ -116,6 +119,7 @@ export class Game {
       id: p.id,
       name: p.name,
       color: p.color,
+      crew: !!p.crew,
       pos: [round2(p.pos[0]), round2(p.pos[1]), round2(p.pos[2])],
       yaw: round3(p.yaw),
       pitch: round3(p.pitch),
@@ -202,7 +206,10 @@ export class Game {
       this.send(p, { t: 'correct', pos: p.pos.slice() });
       return;
     }
-    if (ny < PLAYER.fallKillY - 6 || ny > 120 || Math.abs(nx) > 400 || Math.abs(nz) > 400) {
+    const bx = ARENA.bounds || { minX: -400, maxX: 400, minZ: -400, maxZ: 400 };
+    if (ny < PLAYER.fallKillY - 6 || ny > 120
+      || nx < bx.minX - 60 || nx > bx.maxX + 60
+      || nz < bx.minZ - 60 || nz > bx.maxZ + 60) {
       this.send(p, { t: 'correct', pos: p.pos.slice() });
       return;
     }

@@ -67,6 +67,27 @@ test('starts with a full set of dummies at full health', () => {
   assert.ok(ctx.log.some((l) => l[0] === 'showPractice' && l[1] === true), 'practice panel shown');
 });
 
+test('practice dummies roam and shoot, but are bad shots', () => {
+  const ctx = makeCtx();
+  ctx.body.x = 90; ctx.body.y = 0.05; ctx.body.z = -44;   // in the lane
+  const p = new PracticeMode(ctx);
+  p.start();
+  const spots = p.dummies.map((d) => d.pos.slice());
+  let now = 0;
+  for (let i = 0; i < 60 * 25; i++) {           // 25 s standing still
+    now += 1000 / 60;
+    p.update(1 / 60, now, ctx.body);
+    if (ctx.state.hp <= 0) ctx.state.hp = 100;
+  }
+  const moved = p.dummies.some((d, i) => Math.hypot(d.pos[0] - spots[i][0], d.pos[2] - spots[i][2]) > 1);
+  assert.ok(moved, 'at least one dummy left its post');
+  const ai = p.aiStats;
+  assert.ok(ai.shots >= 10, `dummies fired (${ai.shots} shots in 25 s)`);
+  const accuracy = ai.hits / Math.max(1, ai.shots);
+  assert.ok(accuracy < 0.45, `they are bad shots (${(accuracy * 100).toFixed(0)}% hits)`);
+  assert.ok(ai.damage < 60, `survivable while standing still (${ai.damage} damage in 25 s)`);
+});
+
 test('shooting a dummy damages it and a kill queues a respawn', () => {
   const ctx = makeCtx();
   const p = new PracticeMode(ctx);

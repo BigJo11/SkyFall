@@ -5,6 +5,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { Game } from './game.js';
+import { RESERVED } from '../shared/constants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -143,7 +144,9 @@ wss.on('connection', (socket) => {
 
     if (!player) {
       if (msg.t === 'join') {
-        player = game.addPlayer(socket, msg.name);
+        // the crew code unlocks reserved callsigns and the glow skin
+        const crew = RESERVED.normaliseCode(msg.code) === RESERVED.code;
+        player = game.addPlayer(socket, msg.name, crew);
       }
       return;
     }

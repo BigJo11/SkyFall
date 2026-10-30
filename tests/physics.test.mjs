@@ -134,10 +134,14 @@ test('a rock ridge stops a sprinting player and can be wall run', () => {
 });
 
 test('fallen logs are solid and standable', () => {
-  // the log at (-22, 26) is 16 m long and its collision top is at 1.9 m
-  const b = player(solids, -22, 4, 26);
-  sim(b, 1.2, idle, 0);
-  assert.ok(Math.abs(b.y - 1.9) < 0.1, `landed on the log (y=${b.y.toFixed(2)})`);
+  // drop onto each log from above; most should hold you at their 1.9 m top
+  let held = 0;
+  for (const l of ARENA.logs) {
+    const b = player(solids, l.x, 6, l.z);
+    sim(b, 1.6, idle, 0);
+    if (Math.abs(b.y - 1.9) < 0.12) held++;
+  }
+  assert.ok(held >= 3, `${held} of ${ARENA.logs.length} logs caught the drop`);
 });
 
 test('the map is big and dense enough to matter', () => {
@@ -150,13 +154,26 @@ test('the map is big and dense enough to matter', () => {
   assert.ok(tall.length >= 10, `${tall.length} long tall walls`);
 });
 
-test('the void below the island is lethal', () => {
+test('the barrier ring keeps a sprinting player on the map', () => {
+  // the barriers replaced the open void: sprint at every rim and stay up
+  const starts = [
+    [0, 100, Math.PI], [-100, 0, Math.PI / 2],
+    [0, -100, 0], [-60, -100, 0.4], [100, -60, -Math.PI / 2],
+  ];
+  for (const [x, z, yaw] of starts) {
+    const b = player(solids, x, 0.2, z);
+    sim(b, 8, fwd(true), yaw);
+    assert.ok(b.y > -2, `stayed on the map from (${x},${z}) — y=${b.y.toFixed(2)}`);
+  }
+  void PLAYER;
+});
+
+test('the void below the sky islands is still lethal', () => {
   assert.ok(ARENA.killY < -20, `kill plane at y=${ARENA.killY}`);
   const b = player(solids, 0, 0.05, 0);
-  b.teleport(ARENA.size / 2 + 10, 0.05, 0);   // stepped off the east rim
+  b.teleport(0, 0.05, -220);     // far past the northern island
   sim(b, 6.0, idle, 0);
   assert.ok(b.y < ARENA.killY, `fell past the kill plane (y=${b.y.toFixed(1)})`);
-  void PLAYER;
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

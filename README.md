@@ -10,8 +10,26 @@ internet required.
 
 Fight across a floating forest plateau thousands of metres above the clouds:
 terraced hills, mossy rock ridges to wall run, woods and boulders for cover, a
-shallow lake, and two satellite islands you have to jump to reach. Fall off and
-the void takes you.
+shallow lake, two satellite islands — and, bolted onto the east gate, a smoking
+industrial yard. A rock barrier ring keeps the fight in the arena; the void only
+gets you if you jump off a bridge.
+
+## The title screen
+
+A rugged, grimy deployment screen — crest, dust, scanlines and a stencilled
+SKYFALL wordmark on a smoking battlefield. Type a callsign, press **DEPLOY**,
+or pick **PRACTICE** / **TUTORIAL**.
+
+Two callsign rules:
+
+* **"Big Joe" is reserved** — every variation of it (case, spacing, punctuation
+  and leetspeak: `B1G_J0E`, `Big J0e`, `b i g j o e`) is locked unless you have
+  the code. Try it without one and the game quietly renames you `PLAYER <id>`,
+  on the client and on the server.
+* **The code is `1013`** (a prefix of the callsign box or the code box — type it
+  in that order). Entering it unlocks the crew skin: a glowing amber halo, a
+  point light that lights up the terrain around you, and an emissive accent on
+  the rig. Clear the badge to drop back to a normal skin.
 
 ## Quick start
 
@@ -98,8 +116,11 @@ Both run **offline in the browser** — no server, no sign-in, no other players.
 * **Practice** — a live-fire range in the eastern meadow of the map: a
   30 m clear lane with six dummies at staggered ranges that respawn 1.6 s after
   you destroy them, an endless magazine economy, and a stats panel counting
-  dummies downed, jumps, wall runs, slides and your top speed. Fall off the edge
-  and you are dropped back on the firing line.
+  dummies downed, jumps, wall runs, slides and your top speed. The dummies
+  **roam around their posts and shoot back — badly**: a 1.9 s telegraphed aim,
+  ~17° of scatter, 3 damage a hit. If you hold still in the open they land about
+  one shot in four; if you move they mostly miss, and going down just puts you
+  back on the firing line.
 * **Tutorial** — 15 objectives that teach the whole game in order: move, look,
   jump, sprint, sprint jump, double jump, wall run, wall kick, slide,
   carry speed (land in a slide), then rifle → sniper → knife → reload. Each step advances the moment you
@@ -127,10 +148,18 @@ Both run **offline in the browser** — no server, no sign-in, no other players.
 
 ## The map
 
-One big floating forest, **240 × 240 m** — 1288 boxes plus 356 trees, 237
-boulders and about 7,000 instanced grass blades. It is all generated from
-`shared/map.js` and merged into a single vertex-coloured mesh, so the whole
-terrain is one draw call.
+One big floating forest, **240 × 240 m**, plus a **76 × 124 m industrial annex**
+hanging off its eastern gate and two 150 m-away sky islands. 1,187 solid boxes,
+129 hand-placed trees plus 135 boulders and about 7,000 instanced grass blades. It is all
+generated from `shared/map.js` and merged into a single vertex-coloured mesh, so
+the whole terrain is one draw call.
+
+**You can no longer fall out of the world.** A 17 m rock barrier ring — nine
+metres thick, with taller corner peaks — walls in the whole plateau. The only
+ways past it are three deliberate gates: the industrial causeway to the east and
+a bridge to each sky island in the north and south. The islands are ringed with
+their own rock parapets and a single 4 m bridge gap, so stepping off the edge
+means falling from the bridge, not wandering off a cliff.
 
 * **Central hill** — a terraced, tree-ringed knoll 11 m tall with a flat crown,
   standing stones and a lone pine. Every terrace is under step height, so you can
@@ -145,8 +174,13 @@ terrain is one draw call.
   you are never more than a few metres from something to break a sightline.
 * **Fallen logs**, **dirt trails**, **grass patches**, a **shallow lake** with an
   island, and an eroded, tree-fringed rim with rock shelves jutting into the void.
-* **Two sky islands** 150 m out, reachable with a good wall kick.
-* **14 spawn points**, each cleared of geometry and facing the middle.
+* **Two sky islands** 150 m out, reachable with a good wall kick or over the
+  bridge, each ringed by a parapet with one bridge gap.
+* **The industrial annex** (an addition, not a carve-out) — a fenced yard east of
+  the gate with four sheds, six storage tanks, an overhead pipe run, a gantry,
+  catwalks, two smoking chimneys and stacks of containers. Wide open in the
+  middle: deliberately left as room for something very large.
+* **19 spawn points**, each cleared of geometry and facing the middle.
 
 ![top-down plan of the arena](docs/arena-plan.png)
 
@@ -239,7 +273,7 @@ nothing"). The build id is also shown in the bottom-right of the title screen an
 sent as an `X-Skyfall-Build` header, and the client flags a mismatch on screen if
 it ever sees one.
 
-If a menu button ever seems dead, check the tag: `build <id> · forest v5`
+If a menu button ever seems dead, check the tag: `build <id> · forest v6`
 means the current code is running. Press `Ctrl/Cmd + Shift + R` to force a fresh
 load.
 

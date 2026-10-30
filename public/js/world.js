@@ -258,10 +258,16 @@ export function buildWorld(renderer, scene, camera) {
   const grassColor = new THREE.Color();
   let gc = 0;
   const rand = mulberry32(20260430);
+  const INDUSTRIAL = ARENA.industrial;
+  const inYard = (x, z) => INDUSTRIAL
+    && x > INDUSTRIAL.x0 - 10 && x < INDUSTRIAL.x1 + 10
+    && z > INDUSTRIAL.z0 - 10 && z < INDUSTRIAL.z1 + 10;
+  const onRim = (x, z) => Math.abs(x) > ARENA.size / 2 - 20 || Math.abs(z) > ARENA.size / 2 - 20;
   const colourAt = (x, z) => 0x5c8a3c + (Math.floor(rand() * 3) - 1) * 0x0a0604;
   while (gc < grassCount) {
     const x = (rand() - 0.5) * (ARENA.size - 6);
     const z = (rand() - 0.5) * (ARENA.size - 6);
+    if (onRim(x, z) || inYard(x, z)) continue;
     if (!floorFree(x, z, 2.2)) continue;
     dummy.position.set(x, groundHeight(x, z) + 0.02, z);
     const s = 0.7 + rand() * 0.9;
@@ -317,7 +323,7 @@ export function buildWorld(renderer, scene, camera) {
   for (let i = 0; i < 900; i++) {
     const x = (rand() - 0.5) * (ARENA.size - 10);
     const z = (rand() - 0.5) * (ARENA.size - 10);
-    const ok = floorFree(x, z, 2.2);
+    const ok = !onRim(x, z) && !inYard(x, z) && floorFree(x, z, 2.2);
     dummy.position.set(ok ? x : 0, ok ? groundHeight(x, z) + 0.34 : -1000, ok ? z : 0);
     const s = 0.7 + rand() * 0.8;
     dummy.scale.set(s, s, s);
@@ -350,6 +356,70 @@ export function buildWorld(renderer, scene, camera) {
     rim.rotation.x = -Math.PI / 2;
     rim.position.set(lake.x, 0.1, lake.z);
     world.add(rim);
+  }
+
+  // ---------------------------------------------------------------- industry
+  // The refinery yard is all boxes in the collision mesh; these are the round
+  // bits — tanks, pipes, lamp heads and smoke stacks.
+  const props = ARENA.props || { tanks: [], pipes: [], lamps: [], cranes: [] };
+  const steelMat = new THREE.MeshLambertMaterial({ color: 0x76808a, flatShading: true });
+  const rustMat = new THREE.MeshLambertMaterial({ color: 0x8a5a3c, flatShading: true });
+
+  for (const t of props.tanks) {
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(t.r, t.r, t.h, 18), steelMat);
+    body.position.set(t.x, t.h / 2, t.z);
+    body.castShadow = true;
+    body.receiveShadow = true;
+    world.add(body);
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(t.r, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), steelMat);
+    cap.position.set(t.x, t.h, t.z);
+    cap.castShadow = true;
+    world.add(cap);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(t.r * 1.02, t.r * 1.02, 0.5, 18), rustMat);
+    band.position.set(t.x, t.h * 0.55, t.z);
+    world.add(band);
+  }
+  for (const p of props.pipes) {
+    const geo = new THREE.CylinderGeometry(p.r, p.r, p.len, 10);
+    const m = new THREE.Mesh(geo, steelMat);
+    m.position.set(p.x, p.y, p.z);
+    if (p.axis === 'x') m.rotation.z = Math.PI / 2;
+    else m.rotation.x = Math.PI / 2;
+    m.castShadow = true;
+    world.add(m);
+  }
+
+  // lamp heads: additive glows so the yard reads warm at the edges
+  const lampTex = softCircleTexture(64);
+  for (const l of props.lamps) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: lampTex, color: 0xffcf7a, transparent: true, opacity: 0.85,
+      depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+    }));
+    s.position.set(l.x, l.y, l.z);
+    s.scale.set(3.4, 3.4, 1);
+    world.add(s);
+  }
+
+  // two chimneys with drifting smoke
+  const smokeTex = cloudTexture();
+  const smoke = [];
+  for (const [sx, sz] of [[196, -34], [196, 34]]) {
+    const stack = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.4, 26, 12), rustMat);
+    stack.position.set(sx, 13, sz);
+    stack.castShadow = true;
+    world.add(stack);
+    for (let i = 0; i < 5; i++) {
+      const p = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: smokeTex, color: 0xdfe6ec, transparent: true, opacity: 0.22,
+        depthWrite: false, fog: false,
+      }));
+      p.position.set(sx, 26 + i * 4, sz);
+      p.scale.setScalar(9 + i * 3);
+      p.userData = { baseY: 26 + i * 4, phase: i * 0.7, x: sx, z: sz };
+      smoke.push(p);
+      world.add(p);
+    }
   }
 
   // ---------------------------------------------------------------- horizon
@@ -473,6 +543,12 @@ export function buildWorld(renderer, scene, camera) {
       const x = Math.cos(u.a) * u.r;
       const z = Math.sin(u.a) * u.r;
       s.position.set(x, u.y + Math.sin(time * 2 + u.bob) * 1.1, z);
+    }
+    for (const p of smoke) {
+      const u = p.userData;
+      p.position.y = u.baseY + ((time * 2.2 + u.phase * 6) % 12);
+      p.position.x = u.x + Math.sin(time * 0.6 + u.phase) * 2.4;
+      p.material.opacity = 0.26 * (1 - ((time * 2.2 + u.phase * 6) % 12) / 12);
     }
     if (water) water.material.opacity = 0.78 + Math.sin(time * 0.9) * 0.05;
     dust.material.opacity = 0.4 + Math.sin(time * 0.35) * 0.12;

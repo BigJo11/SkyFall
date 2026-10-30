@@ -2,7 +2,7 @@
 //   node tests/game.test.mjs
 import assert from 'node:assert/strict';
 import { Game } from '../server/game.js';
-import { WEAPONS } from '../shared/constants.js';
+import { WEAPONS, RESERVED, CREW_GLOW } from '../shared/constants.js';
 import { rayAABB, rayCapsule, solidAABBs } from '../shared/collision.js';
 import ARENA from '../shared/map.js';
 
@@ -216,6 +216,26 @@ await test('teleport attempts are corrected', async () => {
   game.handle(a, { t: 'input', p: [200, 60, 0], yaw: 0, pitch: 0 });
   assert.ok(sa.sent.some((m) => m.t === 'correct'), 'server corrects impossible movement');
   assert.notEqual(a.pos[0], 200);
+});
+
+console.log('\ncrew + reserved callsigns:');
+
+await test('a reserved callsign is downgraded without the code', () => {
+  const game = new Game();
+  for (const name of ['Big Joe', 'B1G_J0E', 'bigjoe', 'Big J0e']) {
+    const p = game.addPlayer(fakeSocket(), name);
+    assert.ok(!RESERVED.isReserved(p.name), `${name} -> ${p.name}`);
+    assert.equal(p.crew, false);
+  }
+});
+
+await test('the crew code keeps the name and lights the player up', () => {
+  const game = new Game();
+  const p = game.addPlayer(fakeSocket(), 'Big Joe', true);
+  assert.equal(p.name, 'Big Joe');
+  assert.equal(p.crew, true);
+  assert.equal(p.color, CREW_GLOW);
+  assert.equal(game.pub(p).crew, true, 'the snapshot carries the crew flag');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

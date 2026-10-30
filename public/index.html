@@ -22,66 +22,115 @@
 
   <!-- ============================ TITLE SCREEN ============================ -->
   <section id="title" class="screen">
-    <div class="skyline" aria-hidden="true">
-      <div class="cloud c1"></div><div class="cloud c2"></div><div class="cloud c3"></div>
-      <div class="beams"></div>
+    <div class="backdrop" aria-hidden="true">
+      <div class="grade"></div>
+      <div class="scan"></div>
+      <div class="grain"></div>
+      <div class="ridge r1"></div>
+      <div class="ridge r2"></div>
+      <div class="ridge r3"></div>
+      <div class="smoke s1"></div>
+      <div class="smoke s2"></div>
+      <div class="dust"></div>
+      <div class="flare"></div>
     </div>
 
     <div class="build-tag" id="buildTag">build</div>
-    <div class="title-inner">
-      <h1 class="logo" data-text="SKYFALL">SKYFALL</h1>
-      <div class="logo-sub">A LAN DEATHMATCH ABOVE THE CLOUDS</div>
-      <div class="logo-note">keyboard + mouse · share your LAN address with friends</div>
 
-      <div class="panel deploy-panel">
-        <label class="field">
-          <span>CALLSIGN</span>
-          <input id="nameInput" maxlength="16" placeholder="PLAYER" autocomplete="off" spellcheck="false" />
-        </label>
-        <button id="deployBtn" class="btn primary">DEPLOY · ONLINE MATCH</button>
-        <div class="mode-row">
-          <button id="practiceBtn" class="btn mode">PRACTICE</button>
-          <button id="tutorialBtn" class="btn mode">TUTORIAL</button>
+    <div class="title-frame">
+      <header class="title-head">
+        <div class="crest" aria-hidden="true">
+          <svg viewBox="0 0 64 64"><path d="M32 4 L58 16 V34 C58 47 47 56 32 61 C17 56 6 47 6 34 V16 Z" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M20 42 L32 18 L44 42 Z" fill="currentColor" opacity=".9"/></svg>
         </div>
-        <div class="mode-note">practice &amp; tutorial run offline — no server needed</div>
-        <div class="server-line">
-          <span class="dot" id="srvDot"></span>
-          <span id="srvStatus">connecting…</span>
+        <div class="head-text">
+          <div class="kicker">TACTICAL DROP COMMAND</div>
+          <h1 class="logo" data-text="SKYFALL">SKYFALL</h1>
+          <div class="logo-sub"><span>OPERATION</span> BROKEN SKY <i>/</i> LAN DEATHMATCH</div>
+        </div>
+        <div class="status-strip">
+          <div class="st"><span class="st-k">SECTOR</span><span class="st-v">OH-1013</span></div>
+          <div class="st"><span class="st-k">BUILD</span><span class="st-v" id="buildTagSlot">—</span></div>
+          <div class="st"><span class="st-k">LINK</span><span class="st-v" id="srvStatusTop">…</span></div>
+        </div>
+      </header>
+
+      <div class="title-body">
+        <div class="deploy-panel">
+          <div class="panel-corner tl"></div><div class="panel-corner tr"></div>
+          <div class="panel-corner bl"></div><div class="panel-corner br"></div>
+          <div class="dp-head">
+            <span class="dp-title">DEPLOYMENT</span>
+            <span class="dp-sub">choose your entry</span>
+          </div>
+
+          <label class="field">
+            <span>CALLSIGN</span>
+            <input id="nameInput" maxlength="16" placeholder="PLAYER" autocomplete="off" spellcheck="false" />
+          </label>
+
+          <button id="deployBtn" class="btn primary">DEPLOY · ONLINE MATCH</button>
+          <div class="mode-row">
+            <button id="practiceBtn" class="btn mode">PRACTICE</button>
+            <button id="tutorialBtn" class="btn mode">TUTORIAL</button>
+          </div>
+          <div class="mode-note">practice &amp; tutorial run offline — no server needed</div>
+
+          <div class="server-line">
+            <span class="dot" id="srvDot"></span>
+            <span id="srvStatus">connecting…</span>
+          </div>
+
+          <div class="crew-row">
+            <label class="code-field">
+              <span>ACCESS</span>
+              <input id="codeInput" inputmode="numeric" maxlength="8" placeholder="—" autocomplete="off" spellcheck="false" />
+            </label>
+            <button id="crewClear" class="btn tiny ghost hidden">CLEAR</button>
+            <span id="crewBadge" class="crew-badge hidden">CREW</span>
+          </div>
+          <div id="titleNotice" class="title-notice"></div>
+        </div>
+
+        <div class="title-cols">
+          <div class="panel col">
+            <h3>CONTROLS</h3>
+            <ul class="keys">
+              <li><b>WASD</b> move</li>
+              <li><b>SHIFT</b> sprint</li>
+              <li><b>SPACE</b> jump · double jump · wall kick</li>
+              <li><b>C / CTRL</b> slide (while sprinting)</li>
+              <li><b>WALLS</b> run along them in the air</li>
+              <li><b>LMB</b> fire</li>
+              <li><b>RMB</b> scope (sniper)</li>
+              <li><b>1 2 3 4</b> or <b>WHEEL</b> weapons</li>
+              <li><b>R</b> reload</li>
+              <li><b>TAB</b> scoreboard</li>
+              <li><b>ESC</b> pause</li>
+            </ul>
+          </div>
+          <div class="panel col">
+            <h3>ARSENAL</h3>
+            <ul class="arsenal">
+              <li><b class="w-rifle">RIFLE</b><span>4 shots/sec · 6 shots to kill</span></li>
+              <li><b class="w-sniper">SNIPER</b><span>100 damage · 3.5s between shots</span></li>
+              <li><b class="w-smg">SMG</b><span>15 shots/sec · 5 damage</span></li>
+              <li><b class="w-knife">KNIFE</b><span>one shot kill · 0.5s swing</span></li>
+            </ul>
+            <div class="lobby">
+              <span class="lobby-label">ON THIS SERVER</span>
+              <div id="lobbyList" class="lobby-list">—</div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="title-cols">
-        <div class="panel col">
-          <h3>CONTROLS</h3>
-          <ul class="keys">
-            <li><b>WASD</b> move</li>
-            <li><b>SHIFT</b> sprint</li>
-            <li><b>SPACE</b> jump · double jump · wall kick</li>
-            <li><b>C / CTRL</b> slide (while sprinting)</li>
-            <li><b>WALLS</b> run along them in the air</li>
-            <li><b>LMB</b> fire</li>
-            <li><b>RMB</b> scope (sniper)</li>
-            <li><b>1 2 3 4</b> or <b>WHEEL</b> weapons</li>
-            <li><b>R</b> reload</li>
-            <li><b>TAB</b> scoreboard</li>
-            <li><b>ESC</b> pause</li>
-          </ul>
-        </div>
-        <div class="panel col">
-          <h3>ARSENAL</h3>
-          <ul class="arsenal">
-            <li><b class="w-rifle">RIFLE</b><span>4 shots/sec · 6 shots to kill</span></li>
-            <li><b class="w-sniper">SNIPER</b><span>100 damage · 3.5s between shots</span></li>
-            <li><b class="w-smg">SMG</b><span>15 shots/sec · 5 damage</span></li>
-            <li><b class="w-knife">KNIFE</b><span>one shot kill · 0.5s swing</span></li>
-          </ul>
-        </div>
-      </div>
-
-      <div class="lobby">
-        <span class="lobby-label">ON THIS SERVER</span>
-        <div id="lobbyList" class="lobby-list">—</div>
-      </div>
+      <footer class="title-foot">
+        <span>FLOATING FOREST PLATEAU · REFINERY ANNEX</span>
+        <span class="dotsep">•</span>
+        <span>SHARE YOUR LAN ADDRESS WITH FRIENDS</span>
+        <span class="dotsep">•</span>
+        <span>KEYBOARD + MOUSE</span>
+      </footer>
     </div>
   </section>
 

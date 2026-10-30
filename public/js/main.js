@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WEAPONS, PLAYER, NET } from '../../shared/constants.js';
+import { WEAPONS, PLAYER, NET, MOVE, RESERVED, CREW_GLOW } from '../../shared/constants.js';
 import { raycastAABBs, rayCapsule } from '../../shared/collision.js';
 import { buildWorld } from './world.js';
 import { Body } from './physics.js';
@@ -107,6 +107,7 @@ const state = {
   id: 0,
   name: '',
   color: 0x62d6ff,
+  crew: false,
   hp: 100,
   alive: false,
   kills: 0,
@@ -144,7 +145,7 @@ let session = null;
 // Build stamp: makes it obvious which version the browser actually loaded, and
 // catches the classic "new page, old cached scripts" situation where every
 // button appears dead.
-const BUILD = 'forest v5';
+const BUILD = 'forest v6';
 
 function detectStaleBuild() {
   try {
@@ -556,7 +557,7 @@ let lastSnapshotAt = 0;
 
 let connectTimer = null;
 
-function connect(name) {
+function connect(name, code = '') {
   state.phase = 'loading';
   $('title').classList.add('hidden');
   $('loading').classList.remove('hidden');
@@ -566,7 +567,7 @@ function connect(name) {
     if (state.phase === 'loading') leaveToTitle('The server did not respond — is it running?');
   }, 9000);
 
-  net.connect(name)
+  net.connect(name, code)
     .then(() => {
       // wait for welcome (handled below)
     })
@@ -875,16 +876,81 @@ function leaveToTitle(reason) {
 }
 
 on('deployBtn', 'click', () => {
-  const name = ($('nameInput').value || '').trim() || `PLAYER ${Math.floor(Math.random() * 900 + 100)}`;
+  const name = ($('nameInput').value || '').trim().toUpperCase() || `PLAYER ${Math.floor(Math.random() * 900 + 100)}`;
+  if (RESERVED.isReserved(name) && !crewUnlocked()) {
+    titleNotice('THAT CALLSIGN IS TAKEN');
+    return;
+  }
   store.set('skyfall.name', name);
   state.name = name;
+  state.crew = crewUnlocked();
   sfx.init();
   sfx.resume();
-  connect(name);
+  connect(name, state.crew ? RESERVED.code : '');
 });
 
 on('nameInput', 'keydown', (e) => {
   if (e.key === 'Enter') $('deployBtn').click();
+});
+
+// ------------------------------------------------------------ crew code
+// Type the code anywhere on the title screen (the callsign box or the access
+// field): it unlocks the reserved callsigns and the glowing skin.
+const CODE_STORE = 'skyfall.code';
+function crewUnlocked() { return store.get(CODE_STORE, '') === RESERVED.code; }
+function setCrew(on) {
+  store.set(CODE_STORE, on ? RESERVED.code : '');
+  document.body.classList.toggle('crew', on);
+  const badge = $('crewBadge');
+  if (badge) badge.classList.toggle('hidden', !on);
+  const input = $('codeInput');
+  if (input) input.value = on ? RESERVED.code : '';
+  if (on) {
+    sfx.init();
+    sfx.resume();
+    sfx.objectiveDone?.();
+    titleNotice('CREW ACCESS GRANTED · GLOW SKIN UNLOCKED', 'good');
+  } else {
+    titleNotice('CREW ACCESS CLEARED');
+  }
+}
+function tryCode(raw) {
+  if (RESERVED.normaliseCode(raw) === RESERVED.code) setCrew(true);
+}
+let noticeTimer = null;
+function titleNotice(text, tone = 'bad') {
+  const el = $('titleNotice');
+  if (!el) return;
+  el.textContent = text;
+  el.className = `title-notice show ${tone}`;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => { el.className = 'title-notice'; }, 3200);
+}
+on('codeInput', 'input', (e) => tryCode(e.target.value));
+on('codeInput', 'keydown', (e) => {
+  if (e.key === 'Enter') tryCode(e.target.value);
+});
+on('crewClear', 'click', () => setCrew(false));
+
+// the code typed straight into the callsign box works too
+on('nameInput', 'input', (e) => {
+  const v = e.target.value;
+  if (RESERVED.normaliseCode(v) === RESERVED.code) {
+    tryCode(v);
+    e.target.value = store.get('skyfall.name', '');
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (state.phase !== 'title') return;
+  if (document.activeElement && document.activeElement.tagName === 'INPUT'
+    && document.activeElement.id !== 'codeInput') return;
+  // digits typed on the title screen feed the access field
+  if (/^[0-9]$/.test(e.key)) {
+    const input = $('codeInput');
+    const next = (input.value + e.key).slice(-8);
+    input.value = next;
+    tryCode(next);
+  }
 });
 
 function safeStartMode(kind) {

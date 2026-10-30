@@ -262,9 +262,17 @@ export class Body {
 
   // ------------------------------------------------------------- sliding
   startSlide() {
-    if (this.sliding || this.slideCooldown > 0) return false;
+    if (this.slideCooldown > 0) return false;
     const speed = this.horizontalSpeed;
-    if (speed < MOVE.slideMinSpeed) return false;
+    // mid-slide press tops the timer back up instead of being ignored
+    if (this.sliding) {
+      if (speed < MOVE.slideMinSpeed) return false;
+      this.slideTime = Math.max(this.slideTime, MOVE.slideExtend);
+      this.events.slideStarted = true;
+      return true;
+    }
+    const floor = Math.min(MOVE.slideMinSpeed, MOVE.slideWalkStart * PLAYER.sprintSpeed);
+    if (speed < floor) return false;
     this.sliding = true;
     this.slideTime = MOVE.slideDuration;
     this.slideBuffer = 0;
@@ -316,7 +324,7 @@ export class Body {
     // ---- slide upkeep
     if (this.sliding) {
       this.slideTime -= dt;
-      if (this.slideTime <= 0 || this.horizontalSpeed < MOVE.slideMinSpeed * 0.6) this.endSlide();
+      if (this.slideTime <= 0 || this.horizontalSpeed < MOVE.slideMinSpeed * 0.45) this.endSlide();
     }
 
     // ---- wall run upkeep
@@ -379,6 +387,9 @@ export class Body {
         const f = Math.max(0, 1 - MOVE.slideFriction * dt);
         this.vx *= f;
         this.vz *= f;
+        // downslope-ish assist: a slide never stalls out while you still steer
+        const sNow = this.horizontalSpeed;
+        if (sNow < MOVE.slideMinSpeed) this.setHorizontal(MOVE.slideMinSpeed);
         if (hasWish && Math.abs(wish.right) > 0.05) {
           const rx = Math.cos(yaw);
           const rz = -Math.sin(yaw);
