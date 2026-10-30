@@ -36,9 +36,15 @@ function serveFile(res, filePath) {
       res.end('Not found');
       return;
     }
+    const ext = path.extname(filePath).toLowerCase();
+    // HTML and game code must never be served from a stale cache: a mismatch
+    // between an old page and new modules is impossible to debug for players.
+    const cacheControl = (ext === '.html' || ext === '.js' || ext === '.css')
+      ? 'no-store, must-revalidate'
+      : 'no-cache';
     res.writeHead(200, {
-      'Content-Type': MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream',
-      'Cache-Control': 'no-cache',
+      'Content-Type': MIME[ext] || 'application/octet-stream',
+      'Cache-Control': cacheControl,
       'Cross-Origin-Opener-Policy': 'same-origin',
     });
     res.end(data);
