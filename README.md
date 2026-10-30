@@ -181,13 +181,27 @@ WebSockets work out of the box on Render (the client automatically upgrades to
 * Every deploy/restart drops all players back to the title screen. That's
   normal for in-memory matches.
 
+## Cache safety
+
+Every HTML/JS/CSS response is served `no-store` **and** stamped with a build id
+computed from the newest source file: the page's asset URLs and every relative
+import get `?v=<build>`, so a browser can never mix an old cached `main.js` with
+a fresh `index.html` (that failure mode looks exactly like "the menu buttons do
+nothing"). The build id is also shown in the bottom-right of the title screen and
+sent as an `X-Skyfall-Build` header, and the client flags a mismatch on screen if
+it ever sees one.
+
+If a menu button ever seems dead, check the tag: `build <id> · movement v3`
+means the current code is running. Press `Ctrl/Cmd + Shift + R` to force a fresh
+load.
+
 ## Tests
 
 ```bash
 npm test
 ```
 
-98 checks across eight suites:
+99 checks across eight suites:
 
 | Suite | Covers |
 | --- | --- |

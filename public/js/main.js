@@ -141,10 +141,45 @@ const state = {
 // offline practice / tutorial session (null while playing online)
 let session = null;
 
-// Build stamp: makes it obvious which version the browser actually loaded.
-const BUILD = '2026-10-30 · movement v2';
-$('buildTag') && ($('buildTag').textContent = BUILD);
-console.log('[skyfall]', BUILD);
+// Build stamp: makes it obvious which version the browser actually loaded, and
+// catches the classic "new page, old cached scripts" situation where every
+// button appears dead.
+const BUILD = 'movement v3';
+
+function detectStaleBuild() {
+  try {
+    const myBuild = new URL(import.meta.url).searchParams.get('v');
+    const pageBuild = window.__SKYFALL_BUILD__;
+    const measurable = !!pageBuild && pageBuild !== '__BUILD__';
+    const stale = measurable && !!myBuild && myBuild !== pageBuild;
+    const tag = $('buildTag');
+    if (tag) tag.textContent = `build ${myBuild || 'dev'} · ${BUILD}`;
+    console.log('[skyfall]', BUILD, '· module build:', myBuild || 'dev', '· page build:', pageBuild || 'dev');
+    if (stale) {
+      const box = $('fatal');
+      if (box) {
+        box.textContent = 'SKYFALL loaded an out-of-date script from the browser cache, so the '
+          + 'menu buttons will not work. Hard reload this page (Ctrl/Cmd + Shift + R) to fix it.';
+        box.classList.add('show');
+      }
+    }
+    return stale;
+  } catch (e) {
+    return false;
+  }
+}
+const staleBuild = detectStaleBuild();
+
+// A stale module graph makes the mode buttons dead; make them heal themselves.
+function hardReload() {
+  try {
+    const url = new URL(location.href);
+    url.searchParams.set('r', Date.now().toString(36));
+    location.replace(url.toString());
+  } catch {
+    location.reload();
+  }
+}
 
 // ---------------------------------------------------------------- resize
 function resize() {
@@ -850,9 +885,22 @@ on('nameInput', 'keydown', (e) => {
   if (e.key === 'Enter') $('deployBtn').click();
 });
 
-on('practiceBtn', 'click', () => { sfx.init(); sfx.resume(); startLocalMode('practice'); });
-on('tutorialBtn', 'click', () => { sfx.init(); sfx.resume(); startLocalMode('tutorial'); });
-on('odPractice', 'click', () => { startLocalMode('practice'); });
+function safeStartMode(kind) {
+  if (staleBuild) { hardReload(); return; }
+  try {
+    sfx.init();
+    sfx.resume();
+    startLocalMode(kind);
+  } catch (err) {
+    reportFatal(err);
+    state.phase = 'title';
+    $('loading') && $('loading').classList.add('hidden');
+    $('title') && $('title').classList.remove('hidden');
+  }
+}
+on('practiceBtn', 'click', () => safeStartMode('practice'));
+on('tutorialBtn', 'click', () => safeStartMode('tutorial'));
+on('odPractice', 'click', () => safeStartMode('practice'));
 on('odTitle', 'click', () => { leaveToTitle(); });
 
 on('resumeBtn', 'click', () => { hidePause(); });

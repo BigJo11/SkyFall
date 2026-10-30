@@ -29,6 +29,51 @@ const MIME = {
 
 const game = new Game().start();
 
+// ---------------------------------------------------------------------------
+// Asset versioning. Players must never end up running a cached main.js against
+// a freshly served index.html: that looks exactly like "the buttons do
+// nothing". Every HTML/JS/CSS response gets a cache-busting ?v=<build> stamped
+// onto its asset URLs and relative imports, and the page carries the build id
+// so the client can detect a mismatch and say so.
+// ---------------------------------------------------------------------------
+function computeBuildId() {
+  let newest = 0;
+  const walk = (dir) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name === 'vendor' || e.name === 'node_modules') continue;
+        walk(p);
+      } else if (/\.(js|html|css)$/.test(e.name)) {
+        try { newest = Math.max(newest, fs.statSync(p).mtimeMs); } catch { /* ignore */ }
+      }
+    }
+  };
+  walk(PUBLIC);
+  walk(SHARED);
+  return Math.round(newest).toString(36);
+}
+
+let BUILD_ID = computeBuildId();
+
+// Add ?v=<build> to asset URLs in HTML and to relative imports in our own JS.
+function versionHtml(html) {
+  return html
+    .replace(/__BUILD__/g, BUILD_ID)
+    .replace(/((?:src|href)=")(\/(?:js|css)\/[^"?]+\.(?:js|css))(")/g, `$1$2?v=${BUILD_ID}$3`);
+}
+
+function versionJs(src) {
+  return src.replace(
+    /(\bfrom\s*['"])(\.{1,2}\/[^'"?]+\.js)(['"])/g,
+    `$1$2?v=${BUILD_ID}$3`
+  );
+}
+
+const VERSIONED = new Set(['.html', '.js', '.css']);
+
 function serveFile(res, filePath) {
   fs.readFile(filePath, (err, data) => {
     if (err) {
@@ -39,15 +84,20 @@ function serveFile(res, filePath) {
     const ext = path.extname(filePath).toLowerCase();
     // HTML and game code must never be served from a stale cache: a mismatch
     // between an old page and new modules is impossible to debug for players.
-    const cacheControl = (ext === '.html' || ext === '.js' || ext === '.css')
-      ? 'no-store, must-revalidate'
-      : 'no-cache';
+    const cacheControl = VERSIONED.has(ext) ? 'no-store, must-revalidate' : 'no-cache';
+
+    let body = data;
+    const isVendor = filePath.includes(`${path.sep}vendor${path.sep}`);
+    if (!isVendor && ext === '.html') body = Buffer.from(versionHtml(data.toString('utf8')));
+    else if (!isVendor && ext === '.js') body = Buffer.from(versionJs(data.toString('utf8')));
+
     res.writeHead(200, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
       'Cache-Control': cacheControl,
       'Cross-Origin-Opener-Policy': 'same-origin',
+      'X-Skyfall-Build': BUILD_ID,
     });
-    res.end(data);
+    res.end(body);
   });
 }
 
@@ -106,6 +156,9 @@ wss.on('connection', (socket) => {
   });
   socket.on('error', () => {});
 });
+
+// Recompute the build id on every page load so edits show up without a restart.
+setInterval(() => { BUILD_ID = computeBuildId(); }, 2000).unref();
 
 server.listen(PORT, HOST, () => {
   const nets = os.networkInterfaces();

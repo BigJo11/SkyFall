@@ -479,6 +479,8 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
 /* title: three ways in */
 .mode-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .btn.mode {
+  font-size: 14px;
+  font-weight: 800;
   font-size: 13px;
   letter-spacing: .2em;
   padding: 11px 10px;
@@ -628,4 +630,18 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
   position: absolute; right: 12px; bottom: 10px; z-index: 3;
   font-family: var(--mono); font-size: 9px; letter-spacing: .12em;
   color: rgba(147, 167, 196, .45);
+}
+
+/* short viewports: shrink the logo so the mode buttons are always visible */
+@media (max-height: 820px) {
+  .logo { font-size: clamp(44px, 9vw, 104px); }
+  .title-inner { gap: 12px; padding: 12px 0; }
+  .col { padding: 10px 14px; }
+  .keys li, .arsenal li { font-size: 12px; }
+}
+@media (max-height: 660px) {
+  .logo { font-size: clamp(36px, 7vw, 72px); }
+  .logo-sub, .logo-note { display: none; }
+  .title-cols { display: none; }
+  .lobby { display: none; }
 }

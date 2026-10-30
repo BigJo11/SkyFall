@@ -81,6 +81,31 @@ await test('serves the client bundle and shared modules', async () => {
   assert.deepEqual(status.players, []);
 });
 
+await test('HTML gets build-stamped asset URLs and relative imports are versioned', async () => {
+  const html = await (await fetch(BASE + '/')).text();
+  const meta = html.match(/<meta name="skyfall-build" content="([^"]+)" \/>/);
+  assert.ok(meta, 'page advertises its build id');
+  const build = meta[1];
+  assert.notEqual(build, '__BUILD__', 'placeholder was substituted');
+
+  const script = html.match(/<script type="module" src="([^"]+)"/);
+  assert.ok(script, 'module entry present');
+  assert.equal(script[1], `/js/main.js?v=${build}`, 'entry point is cache-busted');
+
+  const css = html.match(/<link rel="stylesheet" href="([^"]+)"/);
+  assert.equal(css[1], `/css/style.css?v=${build}`, 'stylesheet is cache-busted');
+
+  assert.ok(html.includes(`window.__SKYFALL_BUILD__ = '${build}'`), 'page exposes its build to the client');
+
+  const js = await (await fetch(BASE + '/js/main.js')).text();
+  for (const m of js.matchAll(/(\bfrom\s*['"])(\.{1,2}\/[^'"]+\.js)(['"])/g)) {
+    assert.ok(m[2].includes(`?v=${build}`), `import ${m[2]} is versioned`);
+  }
+  // vendor libraries are served untouched
+  const three = await (await fetch(BASE + '/vendor/three/three.module.js')).text();
+  assert.ok(!three.includes('?v='), 'vendor bundle not rewritten');
+});
+
 await test('404s unknown files and blocks path traversal', async () => {
   assert.equal((await fetch(`${BASE}/nope.js`)).status, 404);
   assert.equal((await fetch(`${BASE}/shared/../server/game.js`)).status, 404);
