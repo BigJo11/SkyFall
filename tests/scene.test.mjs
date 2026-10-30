@@ -46,8 +46,8 @@ const { buildWorld } = await import('../public/js/world.js');
 const { Effects } = await import('../public/js/effects.js');
 const { ViewModel } = await import('../public/js/viewmodel.js');
 const { Avatar, Avatars } = await import('../public/js/avatars.js');
-const { nameTexture, softCircleTexture, cloudTexture } = await import('../public/js/textures.js');
-const { WEAPONS, PLAYER } = await import('../shared/constants.js');
+const { nameTexture, softCircleTexture, cloudTexture, carbonTexture, scanlineTexture } = await import('../public/js/textures.js');
+const { WEAPONS, PLAYER, COSMETIC } = await import('../shared/constants.js');
 const ARENA = (await import('../shared/map.js')).default;
 
 let passed = 0;
@@ -144,10 +144,62 @@ test('avatars survive a teleport (respawn) snapshot', () => {
   assert.ok(Math.abs(a.pos.x - 30) < 0.001, 'snapped to the new spawn');
 });
 
+test('every cosmetic material builds a rig', () => {
+  for (const m of COSMETIC.materials) {
+    const sc = new THREE.Scene();
+    const a = new Avatar(sc, {
+      id: 9, name: 'LOOKS', color: 0x62d6ff, cosmetic: { primary: 0xff6b6b, secondary: 0x1d2534, material: m.id },
+      crew: m.locked, pos: [0, 0, 0], yaw: 0, hp: 100, alive: true,
+    });
+    assert.equal(a.materialId, m.id, `${m.id} applied`);
+    for (let i = 0; i < 10; i++) a.update(1 / 60, i / 60);   // animated textures tick
+    assert.ok(a.root.parent === sc, `${m.id} added to the scene`);
+  }
+});
+
+test('a locked material falls back for non-crew rigs', () => {
+  const sc = new THREE.Scene();
+  // the server normally sanitises this, but an avatar must not trust it either
+  const a = new Avatar(sc, {
+    id: 10, name: 'CHEAT', color: 0x62d6ff, cosmetic: { material: 'plasma' },
+    crew: false, pos: [0, 0, 0], yaw: 0, hp: 100, alive: true,
+  });
+  assert.equal(a.materialId, 'matte');
+});
+
+test('neon and scanline light themselves up', () => {
+  for (const id of ['neon', 'scanline']) {
+    const sc = new THREE.Scene();
+    const a = new Avatar(sc, {
+      id: 11, name: 'GLOW', color: 0xffd23f, crew: true,
+      cosmetic: { primary: 0xffd23f, material: id }, pos: [0, 0, 0], yaw: 0, hp: 100, alive: true,
+    });
+    assert.ok(a.halo, `${id} has a halo sprite`);
+    assert.ok(a.ring.material.opacity > 0.5, `${id} brightens the contact ring`);
+  }
+});
+
+test('the cosmetic colour paints the weapon accents', () => {
+  const vm = new ViewModel({ domElement: fakeCanvas(), setPixelRatio() {}, setSize() {} });
+  vm.setAccent(0xff6b6b);
+  let painted = 0;
+  for (const m of Object.values(vm.models)) {
+    m.group.traverse((n) => {
+      if (n.material?.isMeshBasicMaterial) {
+        painted++;
+        assert.equal(n.material.color.getHex(), 0xff6b6b, 'accent recoloured');
+      }
+    });
+  }
+  assert.ok(painted > 0, `${painted} accent parts recoloured`);
+});
+
 test('procedural textures', () => {
   assert.ok(nameTexture('TESTER', '#62d6ff', 0.5));
   assert.ok(softCircleTexture());
   assert.ok(cloudTexture());
+  assert.ok(carbonTexture());
+  assert.ok(scanlineTexture());
 });
 
 test('weapon balance numbers', () => {
@@ -156,11 +208,20 @@ test('weapon balance numbers', () => {
   const smg = WEAPONS.find((w) => w.id === 'smg');
   const knife = WEAPONS.find((w) => w.id === 'knife');
   assert.ok(Math.abs(1000 / rifle.interval - 4) < 1e-9, 'rifle fires 4 shots/sec');
-  assert.equal(Math.ceil(100 / rifle.damage), 6, 'rifle kills in 6 shots');
+  assert.equal(Math.ceil(100 / rifle.damage), 4, 'rifle kills in 4 shots');
   assert.equal(sniper.damage, 100, 'sniper one-shots');
   assert.equal(sniper.interval, 3500, 'sniper cooldown 3.5s');
-  assert.equal(smg.damage, 5, 'smg damage');
+  assert.equal(smg.damage, 8, 'smg damage');
+  assert.equal(Math.ceil(100 / smg.damage), 13, 'smg kills in 13 shots');
   assert.ok(Math.abs(1000 / smg.interval - 15) < 1e-9, 'smg fires 15 shots/sec');
+  assert.equal(rifle.headshot, 2, 'rifle headshot multiplier');
+  assert.equal(smg.headshot, 2, 'smg headshot multiplier');
+  assert.equal(sniper.headshot, 1, 'sniper needs no headshot bonus');
+  assert.equal(knife.headshot, 1, 'melee needs no headshot bonus');
+  assert.equal(rifle.assist, true, 'rifle gets aim assist');
+  assert.equal(smg.assist, true, 'smg gets aim assist');
+  assert.equal(sniper.assist, false, 'sniper opts out of aim assist');
+  assert.equal(knife.assist, false, 'knife opts out of aim assist');
   assert.equal(knife.damage, 100, 'knife one-shots');
   assert.equal(knife.interval, 500, 'knife cooldown 0.5s');
   assert.equal(PLAYER.maxHealth, 100);

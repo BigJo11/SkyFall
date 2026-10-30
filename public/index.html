@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<meta name="skyfall-build" content="__BUILD__" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 <title>SKYFALL</title>
 <link rel="stylesheet" href="/css/style.css" />
@@ -21,57 +22,181 @@
 
   <!-- ============================ TITLE SCREEN ============================ -->
   <section id="title" class="screen">
-    <div class="skyline" aria-hidden="true">
-      <div class="cloud c1"></div><div class="cloud c2"></div><div class="cloud c3"></div>
-      <div class="beams"></div>
+    <div class="backdrop" aria-hidden="true">
+      <div class="grade"></div>
+      <div class="scan"></div>
+      <div class="grain"></div>
+      <div class="ridge r1"></div>
+      <div class="ridge r2"></div>
+      <div class="ridge r3"></div>
+      <div class="smoke s1"></div>
+      <div class="smoke s2"></div>
+      <div class="dust"></div>
+      <div class="flare"></div>
     </div>
 
-    <div class="title-inner">
-      <h1 class="logo" data-text="SKYFALL">SKYFALL</h1>
-      <div class="logo-sub">A LAN DEATHMATCH ABOVE THE CLOUDS</div>
-      <div class="logo-note">keyboard + mouse · share your LAN address with friends</div>
+    <div class="build-tag" id="buildTag">build</div>
 
-      <div class="panel deploy-panel">
-        <label class="field">
-          <span>CALLSIGN</span>
-          <input id="nameInput" maxlength="16" placeholder="PLAYER" autocomplete="off" spellcheck="false" />
-        </label>
-        <button id="deployBtn" class="btn primary">DEPLOY</button>
-        <div class="server-line">
-          <span class="dot" id="srvDot"></span>
-          <span id="srvStatus">connecting…</span>
+    <div class="title-frame">
+      <header class="title-head">
+        <div class="crest" aria-hidden="true">
+          <svg viewBox="0 0 64 64"><path d="M32 4 L58 16 V34 C58 47 47 56 32 61 C17 56 6 47 6 34 V16 Z" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M20 42 L32 18 L44 42 Z" fill="currentColor" opacity=".9"/></svg>
+        </div>
+        <div class="head-text">
+          <div class="kicker">TACTICAL DROP COMMAND</div>
+          <h1 class="logo" data-text="SKYFALL">SKYFALL</h1>
+          <div class="logo-sub"><span>OPERATION</span> BROKEN SKY <i>/</i> LAN DEATHMATCH</div>
+        </div>
+        <div class="status-strip">
+          <div class="st"><span class="st-k">SECTOR</span><span class="st-v">OH-1013</span></div>
+          <div class="st"><span class="st-k">BUILD</span><span class="st-v" id="buildTagSlot">—</span></div>
+          <div class="st"><span class="st-k">LINK</span><span class="st-v" id="srvStatusTop">…</span></div>
+        </div>
+      </header>
+
+      <div class="title-body">
+        <div class="deploy-panel">
+          <div class="panel-corner tl"></div><div class="panel-corner tr"></div>
+          <div class="panel-corner bl"></div><div class="panel-corner br"></div>
+          <div class="dp-head">
+            <span class="dp-title">DEPLOYMENT</span>
+            <span class="dp-sub">choose your entry</span>
+          </div>
+
+          <label class="field">
+            <span>CALLSIGN</span>
+            <input id="nameInput" maxlength="16" placeholder="PLAYER" autocomplete="off" spellcheck="false" />
+          </label>
+
+          <button id="deployBtn" class="btn primary">DEPLOY · ONLINE MATCH</button>
+          <div class="mode-row">
+            <button id="practiceBtn" class="btn mode">PRACTICE</button>
+            <button id="tutorialBtn" class="btn mode">TUTORIAL</button>
+          </div>
+          <div class="mode-note">practice &amp; tutorial run offline — no server needed</div>
+          <button id="changelogBtn" class="btn updates">UPDATES · V.2</button>
+
+          <div class="server-line">
+            <span class="dot" id="srvDot"></span>
+            <span id="srvStatus">connecting…</span>
+          </div>
+
+          <div class="crew-row">
+            <label class="code-field">
+              <span>ACCESS</span>
+              <input id="codeInput" inputmode="numeric" maxlength="8" placeholder="—" autocomplete="off" spellcheck="false" />
+            </label>
+            <button id="crewClear" class="btn tiny ghost hidden">CLEAR</button>
+            <span id="crewBadge" class="crew-badge hidden">CREW</span>
+          </div>
+          <div id="titleNotice" class="title-notice"></div>
+        </div>
+
+        <div class="title-cols">
+          <div class="panel col">
+            <h3>CONTROLS</h3>
+            <ul class="keys">
+              <li><b>WASD</b> move</li>
+              <li><b>SHIFT</b> sprint</li>
+              <li><b>SPACE</b> jump · double jump · wall kick</li>
+              <li><b>SPACE</b> on touchdown keeps your speed</li>
+              <li><b>C / CTRL</b> slide (while sprinting)</li>
+              <li><b>WALLS</b> run along them in the air</li>
+              <li><b>LMB</b> fire</li>
+              <li><b>RMB</b> scope (sniper)</li>
+              <li><b>1 2 3 4</b> or <b>WHEEL</b> weapons</li>
+              <li><b>R</b> reload</li>
+              <li><b>TAB</b> scoreboard · <b>L</b> leaderboard</li>
+              <li><b>ESC</b> pause</li>
+            </ul>
+          </div>
+          <div class="panel col">
+            <h3>ARSENAL</h3>
+            <ul class="arsenal">
+              <li><b class="w-rifle">RIFLE</b><span>4 shots/sec · 4 shots to kill · ×2 head</span></li>
+              <li><b class="w-sniper">SNIPER</b><span>100 damage · 3.5s between shots</span></li>
+              <li><b class="w-smg">SMG</b><span>15 shots/sec · 8 damage · ×2 head</span></li>
+              <li><b class="w-knife">KNIFE</b><span>one shot kill · 0.5s swing</span></li>
+            </ul>
+            <div class="lobby">
+              <span class="lobby-label">ON THIS SERVER</span>
+              <div id="lobbyList" class="lobby-list">—</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel cos-panel">
+          <div class="cos-head">
+            <h3>APPEARANCE</h3>
+            <span class="cos-sub" id="cosSub">matte · standard issue</span>
+          </div>
+          <div class="cos-body">
+            <div class="cos-preview" id="cosPreview" aria-hidden="true">
+              <div class="fig">
+                <div class="fig-head"></div>
+                <div class="fig-visor"></div>
+                <div class="fig-torso"></div>
+                <div class="fig-stripe"></div>
+                <div class="fig-arm l"></div>
+                <div class="fig-arm r"></div>
+                <div class="fig-leg l"></div>
+                <div class="fig-leg r"></div>
+                <div class="fig-scan"></div>
+              </div>
+              <div class="fig-ring"></div>
+            </div>
+            <div class="cos-controls">
+              <div class="cos-row">
+                <span class="cos-label">PRIMARY</span>
+                <div class="swatches" id="primarySwatches"></div>
+              </div>
+              <div class="cos-row">
+                <span class="cos-label">SECONDARY</span>
+                <div class="swatches" id="secondarySwatches"></div>
+              </div>
+              <div class="cos-row">
+                <span class="cos-label">MATERIAL</span>
+                <div class="materials" id="materialList"></div>
+              </div>
+              <div class="cos-hint" id="cosHint">neon &amp; scanline need crew access</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel lb-panel">
+          <div class="lb-head">
+            <h3>ALL-TIME LEADERBOARD</h3>
+            <span class="lb-sub" id="lbSub">—</span>
+          </div>
+          <table class="lb-table">
+            <thead><tr><th>#</th><th>OPERATOR</th><th>KILLS</th><th>DEATHS</th><th>K/D</th><th>STREAK</th></tr></thead>
+            <tbody id="lbList"><tr><td colspan="6" class="lb-empty">no recorded kills yet</td></tr></tbody>
+          </table>
         </div>
       </div>
 
-      <div class="title-cols">
-        <div class="panel col">
-          <h3>CONTROLS</h3>
-          <ul class="keys">
-            <li><b>WASD</b> move</li>
-            <li><b>SHIFT</b> sprint</li>
-            <li><b>SPACE</b> jump</li>
-            <li><b>LMB</b> fire</li>
-            <li><b>RMB</b> scope (sniper)</li>
-            <li><b>1 2 3 4</b> or <b>WHEEL</b> weapons</li>
-            <li><b>R</b> reload</li>
-            <li><b>TAB</b> scoreboard</li>
-            <li><b>ESC</b> pause</li>
-          </ul>
-        </div>
-        <div class="panel col">
-          <h3>ARSENAL</h3>
-          <ul class="arsenal">
-            <li><b class="w-rifle">RIFLE</b><span>4 shots/sec · 6 shots to kill</span></li>
-            <li><b class="w-sniper">SNIPER</b><span>100 damage · 3.5s between shots</span></li>
-            <li><b class="w-smg">SMG</b><span>15 shots/sec · 5 damage</span></li>
-            <li><b class="w-knife">KNIFE</b><span>one shot kill · 0.5s swing</span></li>
-          </ul>
-        </div>
-      </div>
+      <footer class="title-foot">
+        <span>FLOATING FOREST PLATEAU · REFINERY ANNEX</span>
+        <span class="dotsep">•</span>
+        <span>SHARE YOUR LAN ADDRESS WITH FRIENDS</span>
+        <span class="dotsep">•</span>
+        <span>KEYBOARD + MOUSE</span>
+      </footer>
+    </div>
 
-      <div class="lobby">
-        <span class="lobby-label">ON THIS SERVER</span>
-        <div id="lobbyList" class="lobby-list">—</div>
+    <!-- update history: reads shared/changelog.js, sits above the title screen -->
+    <div id="changelog" class="hidden" role="dialog" aria-modal="true" aria-label="Update history">
+      <div class="cl-inner">
+        <div class="cl-head">
+          <div class="cl-title">
+            <h2>UPDATES</h2>
+            <span class="cl-sub">SKYFALL change history</span>
+          </div>
+          <button id="changelogClose" class="btn tiny ghost">CLOSE</button>
+        </div>
+        <div class="cl-tabs" id="changelogTabs"></div>
+        <div class="cl-body" id="changelogBody"></div>
+        <div class="cl-foot">milestones only · <b>U</b> to reopen · <b>ESC</b> to close</div>
       </div>
     </div>
   </section>
@@ -110,6 +235,44 @@
     <div id="killfeed"></div>
     <div id="centerMsg"></div>
 
+    <div id="objective" class="hidden">
+      <div class="obj-head"><span id="objIndex">1 / 15</span><span class="obj-kicker">TUTORIAL</span></div>
+      <div class="obj-title" id="objTitle">MOVE</div>
+      <div class="obj-text" id="objText">Hold WASD to move.</div>
+      <div class="obj-tip" id="objTip">WASD</div>
+    </div>
+
+    <div id="practiceStats" class="hidden">
+      <div class="ps-head">PRACTICE RANGE</div>
+      <div class="ps-row"><span>DUMMIES DOWN</span><b id="psKills">0</b></div>
+      <div class="ps-row"><span>JUMPS</span><b id="psJumps">0</b></div>
+      <div class="ps-row"><span>WALL RUNS</span><b id="psWallRuns">0</b></div>
+      <div class="ps-row"><span>SLIDES</span><b id="psSlides">0</b></div>
+      <div class="ps-row"><span>TOP SPEED</span><b id="psMomentum">0.0</b></div>
+    </div>
+
+
+    <div id="speedometer">
+      <div class="speed-bar">
+        <div id="speedFill"></div>
+        <div class="speed-marks"></div>
+      </div>
+      <div class="speed-label">
+        <span id="speedVal">0.0</span><span class="unit">m/s</span>
+      </div>
+    </div>
+
+    <div id="objectiveDone" class="hidden">
+      <div class="panel od-inner">
+        <h2>TUTORIAL COMPLETE</h2>
+        <p>You know the ropes. Dummies are waiting in the practice range.</p>
+        <div class="od-row">
+          <button id="odPractice" class="btn primary">KEEP PRACTISING</button>
+          <button id="odTitle" class="btn ghost">BACK TO TITLE</button>
+        </div>
+      </div>
+    </div>
+
     <footer class="hud-bottom">
       <div class="health-block">
         <div class="health-bar"><div id="healthFill"></div><div class="health-ticks"></div></div>
@@ -143,6 +306,18 @@
           <tbody id="sbBody"></tbody>
         </table>
         <div class="sb-foot">TAB to close · free for all</div>
+      </div>
+    </div>
+
+    <!-- all-time leaderboard -->
+    <div id="leaderboard" class="hidden">
+      <div class="lb-inner">
+        <h2>ALL-TIME</h2>
+        <table class="lb-table">
+          <thead><tr><th>#</th><th>OPERATOR</th><th>KILLS</th><th>DEATHS</th><th>K/D</th><th>STREAK</th></tr></thead>
+          <tbody id="lbOverlayBody"><tr><td colspan="6" class="lb-empty">no recorded kills yet</td></tr></tbody>
+        </table>
+        <div class="sb-foot">L to close · survives server restarts</div>
       </div>
     </div>
 
@@ -181,8 +356,10 @@
   </div>
 
   <div id="toast"></div>
+  <div id="fatal"></div>
 </div>
 
+<script>window.__SKYFALL_BUILD__ = '__BUILD__';</script>
 <script type="module" src="/js/main.js"></script>
 </body>
 </html>

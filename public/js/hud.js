@@ -30,11 +30,29 @@ export class Hud {
       respawnTimer: $('respawnTimer'),
       scoreboard: $('scoreboard'),
       sbBody: $('sbBody'),
+      leaderboard: $('leaderboard'),
+      lbBody: $('lbOverlayBody'),
       scope: $('scopeOverlay'),
       dmgNumbers: $('dmgNumbers'),
       toast: $('toast'),
       killCam: $('killCam'),
+      speedometer: $('speedometer'),
+      speedFill: $('speedFill'),
+      speedVal: $('speedVal'),
+      objective: $('objective'),
+      objIndex: $('objIndex'),
+      objTitle: $('objTitle'),
+      objText: $('objText'),
+      objTip: $('objTip'),
+      practiceStats: $('practiceStats'),
+      psKills: $('psKills'),
+      psJumps: $('psJumps'),
+      psWallRuns: $('psWallRuns'),
+      psSlides: $('psSlides'),
+      psMomentum: $('psMomentum'),
+      objectiveDone: $('objectiveDone'),
     };
+    this.objectiveId = null;
     this.killfeedEntries = [];
     this.vignette = 0;
     this.buildSlots();
@@ -101,18 +119,19 @@ export class Hud {
     this.el.ping.textContent = ms > 0 ? Math.round(ms) : '--';
   }
 
-  hitmarker(kill) {
+  hitmarker(kill, head = false) {
     const h = this.el.hitmarker;
-    h.classList.remove('show', 'kill');
+    h.classList.remove('show', 'kill', 'head');
     void h.offsetWidth;
     if (kill) h.classList.add('kill');
+    if (head) h.classList.add('head');
     h.classList.add('show');
   }
 
-  damageNumber(amount, x, y) {
+  damageNumber(amount, x, y, opts = {}) {
     const d = document.createElement('div');
-    d.className = 'dmgnum';
-    d.textContent = amount;
+    d.className = 'dmgnum' + (opts.head ? ' head' : '');
+    d.textContent = opts.head ? `${amount}!` : amount;
     d.style.left = x + 'px';
     d.style.top = y + 'px';
     this.el.dmgNumbers.appendChild(d);
@@ -143,18 +162,19 @@ export class Hud {
     div.className = 'kf' + (opts.announce ? ' announce' : '');
     const kCls = opts.killerIsMe ? 'me' : 'them';
     const vCls = opts.victimIsMe ? 'me' : 'them';
-    const icon = weapon === 'knife' ? '🗡' : weapon === 'fall' ? '☠' : '✖';
+    const icon = weapon === 'knife' ? '🗡' : weapon === 'fall' ? '☠' : opts.head ? '✦' : '✖';
     const wName = weapon ? weapon.toUpperCase() : '';
     const mid = weapon
       ? `<span class="icon">${icon}</span><span class="wp">${wName}</span>`
       : '<span class="icon">»</span>';
     div.innerHTML = `<span class="${kCls}">${escapeHtml(killer || 'THE VOID')}</span>
       ${mid}
-      <span class="${vCls}">${escapeHtml(victim)}</span>`;
+      <span class="${vCls}">${escapeHtml(victim)}</span>` +
+      (opts.head ? '<span class="crit">HEADSHOT</span>' : '');
     this.el.killfeed.appendChild(div);
 
     // +points flair for own kills
-    if (opts.killerIsMe) this.centerMessage('+1 ELIMINATION', 900);
+    if (opts.killerIsMe) this.centerMessage(opts.head ? '+1 HEADSHOT' : '+1 ELIMINATION', 900);
 
     setTimeout(() => div.classList.add('out'), 5200);
     setTimeout(() => div.remove(), 5700);
@@ -208,9 +228,111 @@ export class Hud {
     this.el.sbBody.innerHTML = rows.join('') || '<tr><td colspan="5">no players</td></tr>';
   }
 
+  // ------------------------------------------------------------- leaderboard
+  // rows come straight from the server: [{rank, name, kills, deaths, kd, bestStreak}]
+  leaderboardRows(rows, target) {
+    if (!target) return;
+    if (!rows || !rows.length) {
+      target.innerHTML = '<tr><td colspan="6" class="lb-empty">no recorded kills yet</td></tr>';
+      return;
+    }
+    target.innerHTML = rows.map((r, i) => {
+      const rank = r.rank ?? i + 1;
+      const cls = `lb-rank-${rank <= 3 ? rank : 'rest'}${r.crew ? ' lb-crew' : ''}`;
+      return `<tr class="${cls}">
+        <td class="lb-pos">${rank}</td>
+        <td class="pname">${escapeHtml(r.name)}${r.crew ? ' <span class="crew-dot">◆</span>' : ''}</td>
+        <td>${r.kills}</td><td>${r.deaths}</td>
+        <td>${typeof r.kd === 'number' ? r.kd.toFixed(2) : '—'}</td>
+        <td>${r.bestStreak ?? 0}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // the title screen copy and the in-game overlay share the renderer
+  titleLeaderboard(rows, total) {
+    this.leaderboardRows(rows, $('lbList'));
+    const sub = $('lbSub');
+    if (sub) {
+      sub.textContent = rows && rows.length
+        ? `${total ?? rows.length} operator${total === 1 ? '' : 's'} on record`
+        : 'be the first on the board';
+    }
+  }
+
+  leaderboard(rows, show) {
+    this.el.leaderboard.classList.toggle('hidden', !show);
+    if (!show) return;
+    // called every frame: only rebuild the table when the data actually moved
+    const sig = (rows || []).map((r) => `${r.rank}:${r.name}:${r.kills}:${r.deaths}`).join('|');
+    if (sig === this.lbSig) return;
+    this.lbSig = sig;
+    this.leaderboardRows(rows, this.el.lbBody);
+  }
+
   setPingValue(ms) {
     this.pingMs = Math.round(ms);
     this.el.ping.textContent = this.pingMs;
+  }
+
+  // ---------------------------------------------------------- movement
+  // Speedometer: just the number and a bar. No words — movement is not named
+  // on screen, you read it off the bar.
+  // the timed landing jump landed: flash the speedometer instead of writing a
+  // word on screen (movement is never named in the HUD)
+  momentumSaved() {
+    const el = this.el.speedometer;
+    if (!el) return;
+    el.classList.remove('saved');
+    void el.offsetWidth;          // restart the animation
+    el.classList.add('saved');
+    clearTimeout(this.savedTimer);
+    this.savedTimer = setTimeout(() => el.classList.remove('saved'), 620);
+  }
+
+  setSpeed(mps = 0) {
+    const pct = Math.max(0, Math.min(1, mps / 24));
+    this.el.speedFill.style.width = (pct * 100).toFixed(1) + '%';
+    this.el.speedVal.textContent = mps.toFixed(1);
+    this.el.speedometer.classList.toggle('hot', mps > 13.6);
+  }
+
+  // ---------------------------------------------------------- practice / tutorial
+  showPractice(on) {
+    this.el.practiceStats.classList.toggle('hidden', !on);
+  }
+
+  practiceStats(stats) {
+    this.el.psKills.textContent = stats.kills;
+    this.el.psJumps.textContent = stats.jumps;
+    this.el.psWallRuns.textContent = stats.wallRuns;
+    this.el.psSlides.textContent = stats.slides;
+    this.el.psMomentum.textContent = (stats.bestSpeed || 0).toFixed(1) + ' m/s';
+  }
+
+  showObjective(obj, index, total) {
+    if (!obj) {
+      this.el.objective.classList.add('hidden');
+      this.objectiveId = null;
+      return;
+    }
+    const changed = this.objectiveId !== obj.id;
+    this.objectiveId = obj.id;
+    this.el.objective.classList.remove('hidden');
+    this.el.objIndex.textContent = `${index} / ${total}`;
+    this.el.objTitle.textContent = obj.title;
+    this.el.objText.textContent = obj.text;
+    this.el.objTip.textContent = obj.tip || '';
+    this.el.objTip.classList.toggle('hidden', !obj.tip);
+    if (changed) {
+      this.el.objective.classList.remove('step-done');
+      void this.el.objective.offsetWidth;
+      this.el.objective.classList.add('step-done');
+    }
+  }
+
+  showObjectiveDone(on) {
+    this.el.objectiveDone.classList.toggle('hidden', !on);
   }
 
   flash(amount = 0.5) {

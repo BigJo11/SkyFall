@@ -1,8 +1,10 @@
 // Headless smoke tests for the authoritative server logic.
 //   node tests/game.test.mjs
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { Game } from '../server/game.js';
-import { WEAPONS } from '../shared/constants.js';
+import { Leaderboard } from '../server/leaderboard.js';
+import { WEAPONS, RESERVED, CREW_GLOW, COSMETIC } from '../shared/constants.js';
 import { rayAABB, rayCapsule, solidAABBs } from '../shared/collision.js';
 import ARENA from '../shared/map.js';
 
@@ -31,12 +33,23 @@ function makeGame() {
   const sb = fakeSocket();
   const a = game.addPlayer(sa, 'ALPHA');
   const b = game.addPlayer(sb, 'BRAVO');
-  // deterministic positions in an open lane of the arena (x = 20, z 0..20)
-  a.pos = [20, 0.01, 0]; a.yaw = 0;
-  b.pos = [20, 0.01, 12]; b.yaw = Math.PI;
+  // deterministic positions in an open meadow lane (x = 31, z -70..-58),
+  // verified walkable and ray-clear in tests/map.test.mjs
+  a.pos = [31, 0.01, -70]; a.yaw = 0;
+  b.pos = [31, 0.01, -60]; b.yaw = Math.PI;
   game.broadcast = () => {};
   return { game, a, b, sa, sb };
 }
+
+// aim at a specific height above the victim's feet (0.9 = body, 1.7 = head)
+const dirToY = (from, to, relHeight) => {
+  const ox = from[0], oy = from[1] + 1.62, oz = from[2];
+  const dx = to[0] - ox;
+  const dy = (to[1] + relHeight) - oy;
+  const dz = to[2] - oz;
+  const len = Math.hypot(dx, dy, dz);
+  return [dx / len, dy / len, dz / len];
+};
 
 const dirTo = (from, to) => {
   const ox = from[0], oy = from[1] + 1.62, oz = from[2];
@@ -58,19 +71,19 @@ await test('welcome carries identity and spawn', async () => {
 
 console.log('\nweapons:');
 
-await test('rifle does 17 damage per hit, 6 shots to kill at 4/sec', async () => {
+await test('rifle does 25 damage per hit, 4 shots to kill at 4/sec', async () => {
   const { game, a, b } = makeGame();
   a.weapon = 0;
   const dir = dirTo(a.pos, b.pos);
   let shots = 0;
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 3; i++) {
     game.handle(a, { t: 'fire', dir });
     shots++;
-    assert.equal(b.hp, 100 - 17 * shots, `hp after ${shots} rifle shots`);
+    assert.equal(b.hp, 100 - 25 * shots, `hp after ${shots} rifle shots`);
     await sleep(255);
   }
   game.handle(a, { t: 'fire', dir });
-  assert.equal(b.alive, false, 'sixth rifle shot kills');
+  assert.equal(b.alive, false, 'fourth rifle shot kills');
   assert.equal(a.kills, 1);
   assert.equal(b.deaths, 1);
 });
@@ -111,7 +124,89 @@ await test('sniper deals 100 damage: one shot kill, 3.5s cooldown', async () => 
   assert.equal(b.alive, false, 'sniper fires again after 3.5s');
 });
 
-await test('smg: 5 damage per shot at 15 shots/sec', async () => {
+await test('a headshot doubles rifle damage and kills in two shots', async () => {
+  const { game, a, b, sa } = makeGame();
+  const broadcast = [];
+  game.broadcast = (m) => broadcast.push(m);
+  a.weapon = 0;
+  sa.sent.length = 0;
+  const head = dirToY(a.pos, b.pos, 1.7);
+
+  game.handle(a, { t: 'fire', dir: head });
+  assert.equal(b.hp, 50, '28 -> 50 damage on a head hit');
+  const mark = sa.sent.find((m) => m.t === 'hitmark');
+  assert.equal(mark.head, true, 'hitmark flagged as a headshot');
+  assert.equal(mark.dmg, 50, 'reported damage is the doubled value');
+  const shot = broadcast.filter((m) => m.t === 'shot').pop();
+  assert.equal(shot.head, true, 'the shot broadcast says headshot');
+
+  await sleep(255);
+  game.handle(a, { t: 'fire', dir: head });
+  assert.equal(b.alive, false, 'two rifle headshots kill');
+  assert.equal(a.kills, 1);
+});
+
+await test('body shots still do normal damage and are not flagged', async () => {
+  const { game, a, b, sa } = makeGame();
+  const broadcast = [];
+  game.broadcast = (m) => broadcast.push(m);
+  a.weapon = 0;
+  sa.sent.length = 0;
+  game.handle(a, { t: 'fire', dir: dirToY(a.pos, b.pos, 0.9) });
+  assert.equal(b.hp, 75, 'body shot is still 25');
+  assert.equal(sa.sent.find((m) => m.t === 'hitmark').head, false);
+  assert.equal(broadcast.filter((m) => m.t === 'shot').pop().head, false);
+  // and low shots near the feet are definitely not headshots
+  sa.sent.length = 0;
+  await sleep(255);
+  game.handle(a, { t: 'fire', dir: dirToY(a.pos, b.pos, 0.15) });
+  assert.equal(b.hp, 50);
+  assert.equal(sa.sent.find((m) => m.t === 'hitmark').head, false);
+});
+
+await test('smg headshots hit for 16, sniper and knife are unchanged', async () => {
+  let { game, a, b, sa } = makeGame();
+  a.weapon = 2;
+  sa.sent.length = 0;
+  game.handle(a, { t: 'fire', dir: dirToY(a.pos, b.pos, 1.7) });
+  assert.equal(b.hp, 84, 'smg headshot = 16');
+  assert.equal(sa.sent.find((m) => m.t === 'hitmark').head, true);
+
+  // sniper: a head hit is still 100, so it cannot exceed a one-shot kill
+  ({ game, a, b, sa } = makeGame());
+  a.weapon = 1;
+  sa.sent.length = 0;
+  game.handle(a, { t: 'fire', dir: dirToY(a.pos, b.pos, 1.7) });
+  assert.equal(b.alive, false, 'sniper headshot kills');
+  assert.equal(sa.sent.find((m) => m.t === 'hitmark').dmg, 100, 'no bonus damage invented');
+
+  // knife is melee: it never reports a headshot
+  ({ game, a, b, sa } = makeGame());
+  a.weapon = 3;
+  b.pos = [a.pos[0], a.pos[1], a.pos[2] - 1.5];
+  sa.sent.length = 0;
+  game.handle(a, { t: 'fire', dir: dirToY(a.pos, b.pos, 1.7) });
+  assert.equal(b.alive, false, 'knife still one-shots');
+  assert.equal(sa.sent.find((m) => m.t === 'hitmark').head, false, 'melee never headshots');
+});
+
+await test('the victim is told a headshot landed, and the kill feed flags it', async () => {
+  const { game, a, b, sb } = makeGame();
+  a.weapon = 0;
+  sb.sent.length = 0;
+  game.handle(a, { t: 'fire', dir: dirToY(a.pos, b.pos, 1.7) });
+  const dmgMsg = sb.sent.find((m) => m.t === 'damaged');
+  assert.equal(dmgMsg.head, true, 'victim feedback carries the head flag');
+
+  const kills = [];
+  game.broadcast = (m) => { if (m.t === 'kill') kills.push(m); };
+  a.weapon = 1;
+  game.handle(a, { t: 'fire', dir: dirToY(a.pos, b.pos, 1.7) });
+  assert.equal(kills.length, 1);
+  assert.equal(kills[0].head, true, 'kill message flags the headshot');
+});
+
+await test('smg: 8 damage per shot at 15 shots/sec', async () => {
   const { game, a, b } = makeGame();
   a.weapon = 2;
   const dir = dirTo(a.pos, b.pos);
@@ -119,14 +214,14 @@ await test('smg: 5 damage per shot at 15 shots/sec', async () => {
     game.handle(a, { t: 'fire', dir });
     await sleep(70);
   }
-  assert.equal(b.hp, 80, 'four smg hits = 20 damage');
+  assert.equal(b.hp, 68, 'four smg hits = 32 damage');
   assert.equal(a.ammo[2], WEAPONS[2].magSize - 4);
 });
 
 await test('knife one-shots at close range with a 0.5s cooldown', async () => {
   const { game, a, b } = makeGame();
   a.weapon = 3;
-  b.pos = [20, 0.01, 2]; // 2m in front
+  b.pos = [31, 0.01, -68]; // 2m in front
   const dir = dirTo(a.pos, b.pos);
   game.handle(a, { t: 'fire', dir });
   assert.equal(b.alive, false, 'knife one-shot kill');
@@ -141,7 +236,7 @@ await test('knife one-shots at close range with a 0.5s cooldown', async () => {
 await test('knife cannot reach across the map', async () => {
   const { game, a, b } = makeGame();
   a.weapon = 3;
-  const dir = dirTo(a.pos, b.pos); // 12 m apart
+  const dir = dirTo(a.pos, b.pos); // 10 m apart
   game.handle(a, { t: 'fire', dir });
   assert.equal(b.hp, 100, 'out of knife range');
 });
@@ -215,6 +310,117 @@ await test('teleport attempts are corrected', async () => {
   game.handle(a, { t: 'input', p: [200, 60, 0], yaw: 0, pitch: 0 });
   assert.ok(sa.sent.some((m) => m.t === 'correct'), 'server corrects impossible movement');
   assert.notEqual(a.pos[0], 200);
+});
+
+console.log('\nleaderboard:');
+
+await test('a kill lands on the all-time board and is broadcast', async () => {
+  const { game, a, b, sa, sb } = makeGame();
+  const board = game.leaderboard;
+  assert.equal(board.stats('ALPHA'), null, 'joining alone puts nobody on the board');
+  const events = [];
+  game.broadcast = (msg) => events.push(msg);
+
+  // line them up and shoot BRAVO with the sniper
+  a.weapon = 1;
+  game.handle(a, { t: 'fire', dir: dirTo(a.pos, b.pos) });
+
+  assert.equal(b.alive, false, 'the target went down');
+  assert.equal(board.stats('ALPHA').kills, 1);
+  assert.equal(board.stats('BRAVO').deaths, 1);
+  const update = events.find((m) => m.t === 'leaderboard');
+  assert.ok(update, 'the table was pushed to the clients');
+  assert.equal(update.rows[0].name, 'ALPHA');
+  assert.equal(update.rows[0].rank, 1);
+  void sa; void sb;
+});
+
+await test('welcome carries the table so the title screen can show it', () => {
+  const game = new Game();
+  game.leaderboard.recordKill('VETERAN', 'ROOKIE');
+  const sock = fakeSocket();
+  game.addPlayer(sock, 'SECOND');
+  const welcome = sock.sent.find((m) => m.t === 'welcome');
+  assert.ok(Array.isArray(welcome.leaderboard), 'welcome has rows');
+  assert.ok(welcome.leaderboard.some((r) => r.name === 'VETERAN'), 'the veteran is on it');
+  assert.ok(welcome.leaderboard.every((r) => typeof r.matches === 'number'), 'row shape');
+});
+
+await test('a persisted board is reused by the next game instance', () => {
+  const file = `${process.env.TMPDIR || '/tmp'}/skyfall-game-board-${process.pid}.json`;
+  const one = new Game({ leaderboard: new Leaderboard(file) });
+  one.addPlayer(fakeSocket(), 'PERSIST');
+  one.leaderboard.recordKill('PERSIST', 'OTHER');
+  one.leaderboard.flush();
+
+  const two = new Game({ leaderboard: new Leaderboard(file) });
+  assert.equal(two.leaderboard.stats('PERSIST').kills, 1);
+  fs.rmSync(file, { force: true });
+});
+
+console.log('\ncosmetics:');
+
+await test('a cosmetic rides the join and shows up in snapshots', () => {
+  const game = new Game();
+  const sock = fakeSocket();
+  const look = { primary: 0xff6b6b, secondary: 0x1d2534, material: 'metal' };
+  const p = game.addPlayer(sock, 'STYLISH', false, look);
+  assert.deepEqual(p.cosmetic, look);
+  assert.equal(p.color, 0xff6b6b, 'the name plate follows the primary colour');
+  const pub = game.pub(p);
+  assert.deepEqual(pub.cosmetic, look, 'the snapshot carries it');
+});
+
+await test('a locked material is refused server-side without the code', () => {
+  const game = new Game();
+  const plain = game.addPlayer(fakeSocket(), 'WANNABE', false, { material: 'neon' });
+  assert.equal(plain.cosmetic.material, 'matte', 'no code, no neon');
+  const crew = game.addPlayer(fakeSocket(), 'Big Joe', true, { material: 'neon' });
+  assert.equal(crew.cosmetic.material, 'neon', 'crew get what they picked');
+});
+
+await test('hostile cosmetic values are sanitised, not trusted', () => {
+  const game = new Game();
+  const p = game.addPlayer(fakeSocket(), 'GARBAGE', false, {
+    primary: -1, secondary: 0x1000000, material: 'plasma',
+  });
+  assert.equal(p.cosmetic.primary, COSMETIC.primary);
+  assert.equal(p.cosmetic.secondary, COSMETIC.secondary);
+  assert.equal(p.cosmetic.material, 'matte');
+});
+
+await test('no cosmetic keeps the old per-player palette', () => {
+  const game = new Game();
+  const a = game.addPlayer(fakeSocket(), 'PLAIN');
+  const b = game.addPlayer(fakeSocket(), 'ALSO');
+  assert.equal(a.cosmetic, null, 'nothing invented');
+  assert.notEqual(a.color, b.color, 'everyone still gets a distinct colour');
+});
+
+await test('crew without a cosmetic still get the gold glow', () => {
+  const game = new Game();
+  const p = game.addPlayer(fakeSocket(), 'Big Joe', true);
+  assert.equal(p.color, CREW_GLOW);
+});
+
+console.log('\ncrew + reserved callsigns:');
+
+await test('a reserved callsign is downgraded without the code', () => {
+  const game = new Game();
+  for (const name of ['Big Joe', 'B1G_J0E', 'bigjoe', 'Big J0e']) {
+    const p = game.addPlayer(fakeSocket(), name);
+    assert.ok(!RESERVED.isReserved(p.name), `${name} -> ${p.name}`);
+    assert.equal(p.crew, false);
+  }
+});
+
+await test('the crew code keeps the name and lights the player up', () => {
+  const game = new Game();
+  const p = game.addPlayer(fakeSocket(), 'Big Joe', true);
+  assert.equal(p.name, 'Big Joe');
+  assert.equal(p.crew, true);
+  assert.equal(p.color, CREW_GLOW);
+  assert.equal(game.pub(p).crew, true, 'the snapshot carries the crew flag');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

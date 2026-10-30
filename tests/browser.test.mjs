@@ -8,9 +8,11 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { JSDOM } from 'jsdom';
 import WebSocket from 'ws';
+import { PLAYER, AIM_ASSIST } from '../shared/constants.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const TMP = path.join(ROOT, '.uitest');
+const LEADERBOARD = `/tmp/skyfall-board-${process.pid}.json`;
 const PORT = 3320 + Math.floor(Math.random() * 100);
 
 let passed = 0;
@@ -114,7 +116,7 @@ process.on('unhandledRejection', (e) => runtimeErrors.push(e));
 // ------------------------------------------------------------ server
 const server = spawn(process.execPath, ['server/server.js'], {
   cwd: ROOT,
-  env: { ...process.env, PORT: String(PORT) },
+  env: { ...process.env, PORT: String(PORT), LEADERBOARD_FILE: LEADERBOARD },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let serverLog = '';
@@ -145,9 +147,208 @@ await test('title screen renders the arena backdrop frames', async () => {
   assert.ok(runtimeErrors.length === 0, `no runtime errors: ${runtimeErrors[0]}`);
 });
 
-await test('deploy connects to the real server and enters the match', async () => {
-  document.getElementById('nameInput').value = 'JSDOM';
+await test('the reserved callsign is locked until the crew code is typed', async () => {
+  const name = document.getElementById('nameInput');
+  name.value = 'Big Joe';
   document.getElementById('deployBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  assert.equal(document.getElementById('title').classList.contains('hidden'), false, 'deploy refused');
+  assert.match(document.getElementById('titleNotice').textContent, /TAKEN/);
+
+  // typing the code in order unlocks it (and the glow skin)
+  const code = document.getElementById('codeInput');
+  for (const ch of '1013') {
+    code.value += ch;
+    code.dispatchEvent(new window.Event('input', { bubbles: true }));
+    pump(1);
+  }
+  assert.ok(document.body.classList.contains('crew'), 'crew skin unlocked');
+  assert.equal(document.getElementById('crewBadge').classList.contains('hidden'), false, 'badge shown');
+  assert.match(document.getElementById('titleNotice').textContent, /GRANTED/);
+
+  // clearing it locks the callsign again
+  document.getElementById('crewClear').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(1);
+  assert.equal(document.body.classList.contains('crew'), false);
+  name.value = '';
+});
+
+await test('typing the code into the access field does not double the digits', async () => {
+  // A real browser inserts the character itself on keydown *and* fires `input`.
+  // Simulate exactly that, so a second manual write in the keydown handler
+  // (which used to turn "1013" into "11001133") would be caught here.
+  const code = document.getElementById('codeInput');
+  code.value = '';
+  code.focus();
+  for (const ch of '1013') {
+    document.dispatchEvent(new window.KeyboardEvent('keydown', { key: ch, code: `Digit${ch}`, bubbles: true }));
+    code.value += ch;                                   // the browser's own insert
+    code.dispatchEvent(new window.Event('input', { bubbles: true }));
+    pump(1);
+  }
+  assert.equal(code.value, '1013', `the field holds exactly what was typed (${code.value})`);
+  assert.ok(document.body.classList.contains('crew'), 'the code unlocked the crew skin');
+  document.getElementById('crewClear').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(1);
+  assert.equal(document.body.classList.contains('crew'), false);
+
+  // typing digits with nothing focused still feeds the access field
+  code.value = '';
+  code.blur();
+  for (const ch of '1013') {
+    document.dispatchEvent(new window.KeyboardEvent('keydown', { key: ch, code: `Digit${ch}`, bubbles: true }));
+    pump(1);
+  }
+  assert.equal(code.value, '1013', 'typed-anywhere digits land once each');
+  assert.ok(document.body.classList.contains('crew'), 'unlocked from the keyboard too');
+  document.getElementById('crewClear').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(1);
+  code.value = '';
+});
+
+await test('the changelog opens from the title screen and shows both entries', async () => {
+  const sk = window.SKYFALL;
+  const $id = (id) => document.getElementById(id);
+  const panel = $id('changelog');
+  assert.ok(panel.classList.contains('hidden'), 'starts closed');
+
+  $id('changelogBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  assert.equal(sk.updatesOpen(), true, 'panel opened');
+  assert.equal(panel.classList.contains('hidden'), false);
+
+  // newest update selected, with its content rendered
+  const tabs = () => [...$id('changelogTabs').children];
+  assert.equal(tabs().length, 2, 'two milestones listed');
+  assert.equal(tabs().filter((t) => t.classList.contains('active')).length, 1, 'one active tab');
+  assert.match(tabs().find((t) => t.classList.contains('active')).textContent, /V\.2/);
+  const v2 = $id('changelogBody').textContent;
+  assert.match(v2, /240 × 240 m/, 'the new map size is on screen');
+  assert.match(v2, /eleven times the area/i, 'the change is explained');
+  assert.match(v2, /Movement: momentum/i, 'movement covered');
+  // the panel is player-facing: it must not leak the access code or name another game
+  assert.doesNotMatch(v2, /1013/, 'no access code on screen');
+  assert.doesNotMatch(v2, /titanfall/i, 'no other game named');
+  assert.ok($id('changelogBody').querySelector('table, ul'), 'formatted content, not a wall of text');
+
+  // switching to the launch entry
+  tabs().find((t) => t.dataset.entry === 'launch')
+    .dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  const launch = $id('changelogBody').textContent;
+  assert.match(launch, /72 × 72 m/, 'launch map size');
+  assert.match(launch, /no edges/i, 'the old map had no edges');
+  assert.doesNotMatch(launch, /1013|titanfall/i, 'launch entry is clean too');
+  assert.equal($id('changelogBody').querySelectorAll('table').length, 1, 'launch weapon table');
+  // the weapon numbers are the originals, not the current balance
+  assert.match(launch, /RIFLE17/, 'rifle listed at launch damage');
+
+  // ESC closes it
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Escape' }));
+  pump(2);
+  assert.equal(sk.updatesOpen(), false, 'ESC closed the panel');
+  assert.equal(sk.state.phase, 'title', 'still on the title screen');
+
+  // U reopens it, and a click on the backdrop closes it again
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyU' }));
+  pump(2);
+  assert.equal(sk.updatesOpen(), true, 'U reopened the panel');
+  panel.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  assert.equal(sk.updatesOpen(), false, 'backdrop click closed it');
+
+  // clicking inside the panel must not close it
+  $id('changelogBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  $id('changelogBody').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  assert.equal(sk.updatesOpen(), true, 'clicks inside the panel are ignored');
+  $id('changelogClose').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  assert.equal(sk.updatesOpen(), false, 'close button works');
+});
+
+await test('typing a callsign does not trigger the U shortcut', async () => {
+  const sk = window.SKYFALL;
+  const input = document.getElementById('nameInput');
+  input.focus();
+  input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'u', code: 'KeyU', bubbles: true }));
+  input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'U', code: 'KeyU', bubbles: true }));
+  pump(2);
+  assert.equal(sk.updatesOpen(), false, 'the panel stayed shut while typing');
+  input.blur();
+});
+
+await test('cosmetics: pick colours and a material, locked ones need the code', async () => {
+  const sk = window.SKYFALL;
+  const $id = (id) => document.getElementById(id);
+  const mats = () => [...$id('materialList').children];
+  const matBtn = (id) => mats().find((b) => b.dataset.material === id);
+
+  assert.equal($id('primarySwatches').children.length, 12, 'palette rendered');
+  assert.equal(mats().length, 5, 'five materials');
+  assert.equal(matBtn('neon').disabled, true, 'neon locked without the code');
+  assert.equal(matBtn('scanline').disabled, true, 'scanline locked without the code');
+  assert.equal(matBtn('metal').disabled, false, 'metal is free');
+
+  // a free colour + material applies to the saved look and the preview
+  $id('primarySwatches').children[1].click();
+  $id('secondarySwatches').children[8].click();
+  matBtn('metal').click();
+  pump(2);
+  assert.equal(sk.cosmetic.material, 'metal');
+  assert.equal($id('cosPreview').dataset.material, 'metal');
+  assert.match($id('cosSub').textContent, /metal/);
+  assert.match(window.localStorage.getItem('skyfall.cosmetic') || '', /metal/, 'persisted');
+
+  // clicking a locked material while locked does nothing
+  matBtn('neon').click();
+  pump(2);
+  assert.notEqual(sk.cosmetic.material, 'neon', 'neon stayed locked');
+
+  // the choice also paints the first-person weapon accents
+  assert.equal(sk.weaponAccent(), 0xff6b6b, 'weapon accent follows the primary colour');
+
+  // unlocking the code unlocks both materials, live
+  const code = $id('codeInput');
+  code.focus();
+  for (const ch of '1013') {
+    code.value += ch;
+    code.dispatchEvent(new window.Event('input', { bubbles: true }));
+    pump(1);
+  }
+  assert.ok(document.body.classList.contains('crew'), 'crew unlocked');
+  assert.equal(matBtn('neon').disabled, false, 'neon unlocked');
+  assert.equal(matBtn('scanline').disabled, false, 'scanline unlocked');
+
+  matBtn('neon').click();
+  pump(3);
+  assert.equal(sk.cosmetic.material, 'neon', 'neon equipped');
+  matBtn('scanline').click();
+  pump(3);
+  assert.equal(sk.cosmetic.material, 'scanline', 'scanline equipped');
+
+  // clearing the code drops back to a material anyone may wear
+  $id('crewClear').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(3);
+  assert.equal(sk.cosmetic.material, 'matte', 'fell back to matte');
+  assert.equal(matBtn('neon').disabled, true, 'locked again');
+  // leave a plain look for the deploy test
+  sk.applyCosmetic({ primary: 0x62d6ff, secondary: 0x2a3346, material: 'matte' });
+  pump(2);
+});
+
+await test('deploy connects to the real server and enters the match', async () => {
+  const sk0 = window.SKYFALL;
+  document.getElementById('nameInput').value = 'JSDOM';
+  // the update panel must not survive into the match
+  document.getElementById('changelogBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  assert.equal(sk0.updatesOpen(), true, 'panel open before deploying');
+  document.getElementById('deployBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  assert.equal(sk0.updatesOpen(), false, 'deploy closed the panel');
+  assert.equal(document.getElementById('changelog').classList.contains('hidden'), true);
   assert.equal(document.getElementById('title').classList.contains('hidden'), true);
   assert.equal(document.getElementById('loading').classList.contains('hidden'), false);
 
@@ -292,6 +493,446 @@ await test('combat feedback handlers: damage, kill, death, respawn', async () =>
   // the sniper was equipped last, so respawn hands back a fresh 5-round mag
   assert.equal(window.SKYFALL.state.ammo[window.SKYFALL.state.weapon], 5, 'fresh magazine on respawn');
   assert.equal(document.getElementById('ammoMax').textContent, '5');
+});
+
+await test('a denied pointer lock does not pause the game (regression)', async () => {
+  // Browsers fire pointerlockchange/error when a lock request is refused, which
+  // is the normal case inside an iframe. Entering a mode must still work.
+  const sk = window.SKYFALL;
+  document.dispatchEvent(new window.Event('pointerlockerror'));
+  document.dispatchEvent(new window.Event('pointerlockchange'));
+  pump(3);
+  assert.equal(sk.state.paused, false, 'not paused by a refused lock');
+  assert.equal(document.getElementById('pause').classList.contains('hidden'), true, 'no pause overlay');
+  assert.equal(sk.state.phase, 'playing', 'still in the match');
+  assert.equal(sk.input.fallback, true, 'free-look fallback enabled');
+});
+
+await test('practice mode spawns dummies and lets you shoot them', async () => {
+  const { startLocalMode } = window.SKYFALL;
+  // leave the online match first
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Escape' }));
+  pump(2);
+  document.getElementById('leaveBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  await sleep(120);
+
+  document.getElementById('practiceBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(4);
+  const sk = window.SKYFALL;
+  // the lock request is refused in jsdom; the mode must still come up
+  document.dispatchEvent(new window.Event('pointerlockerror'));
+  document.dispatchEvent(new window.Event('pointerlockchange'));
+  pump(3);
+  assert.equal(sk.state.paused, false, 'mode not blocked by the pause overlay');
+  assert.equal(document.getElementById('pause').classList.contains('hidden'), true);
+  assert.equal(sk.state.mode, 'practice');
+  assert.equal(sk.state.phase, 'playing');
+  assert.equal(document.getElementById('practiceStats').classList.contains('hidden'), false);
+  assert.equal(sk.avatars.map.size, 6, 'six dummies rendered');
+  assert.equal(document.getElementById('title').classList.contains('hidden'), true);
+
+  // aim at the nearest dummy down the range lane (the lane is 30 m long)
+  const dummy = sk.session.dummies
+    .slice()
+    .sort((p, q) => Math.hypot(p.pos[0] - sk.body.x, p.pos[2] - sk.body.z)
+      - Math.hypot(q.pos[0] - sk.body.x, q.pos[2] - sk.body.z))[0];
+  const dx = dummy.pos[0] - sk.body.x;
+  const dz = dummy.pos[2] - sk.body.z;
+  const dist = Math.hypot(dx, dz);
+  sk.state.yaw = Math.atan2(-dx, -dz);
+  sk.state.pitch = Math.atan2(dummy.pos[1] + 1.0 - (sk.body.y + 1.62), dist);
+  pump(2);
+  const hpBefore = dummy.hp;
+  const canvas = document.getElementById('gl');
+  const tr = sk.aimTrace();
+  assert.equal(tr.victim && tr.victim.id, dummy.id, 'the crosshair is on the dummy');
+  // tap the trigger: hold for a couple of frames, then release and wait out
+  // the rifle cooldown
+  for (let i = 0; i < 3; i++) {
+    canvas.dispatchEvent(new window.MouseEvent('mousedown', { button: 0, bubbles: true }));
+    pump(3);
+    window.dispatchEvent(new window.MouseEvent('mouseup', { button: 0 }));
+    for (let f = 0; f < 16; f++) pump(1, 20);
+    await sleep(20);
+  }
+  if (!(dummy.hp < hpBefore)) {
+    const dbg = {
+      mode: sk.state.mode,
+      phase: sk.state.phase,
+      paused: sk.state.paused,
+      ammo: sk.state.ammo[0],
+      cam: sk.camera.position.toArray().map((v) => +v.toFixed(2)),
+      bodyY: sk.body.y,
+      dummy: dummy.pos,
+      yaw: sk.state.yaw,
+      pitch: sk.state.pitch,
+      avatars: sk.avatars.map.size,
+      sessions: !!sk.session,
+    };
+    throw new Error(`dummy took damage (${hpBefore} -> ${dummy.hp}) ${JSON.stringify(dbg)}`);
+  }
+  assert.ok(sk.state.ammo[0] < 30, 'ammo spent locally');
+});
+
+// Hide every practice dummy except `keep`: park the rest hundreds of metres away
+// (moving their home too, so a respawn cannot bring them back mid-test) and hold
+// the survivor still. Without this the six dummies share the range lane and an
+// aim-assist test can lock onto a neighbour.
+function isolateDummy(sk, keep) {
+  for (const d of sk.session.dummies) {
+    d.ai.wander = false;
+    d.ai.wait = 1e9;
+    d.ai.pick = null;
+    if (d === keep) continue;
+    d.alive = false;
+    d.pos[0] = 600; d.pos[1] = 0; d.pos[2] = 600;
+    d.home = [600, 0, 600];
+    const a = sk.avatars.get(d.id);
+    if (a) a.alive = false;
+  }
+}
+
+await test('headshots land for double damage in the real client', async () => {
+  const sk = window.SKYFALL;
+  const canvas = document.getElementById('gl');
+  const d = sk.session.dummies[0];
+  // Freeze the dummy and put it on an empty stretch of runway, 12 m ahead.
+  d.hp = 100;
+  d.alive = true;
+  isolateDummy(sk, d);
+  const av = sk.avatars.get(d.id);
+  if (av) av.alive = true;
+  const stand = 12;
+  d.pos[0] = 40; d.pos[1] = 0.05; d.pos[2] = -26;
+  sk.body.teleport(40, 0.05, -26 + stand);
+  sk.state.yaw = 0;                     // looking down -z, toward the dummy
+  sk.state.pitch = 0;
+  for (let i = 0; i < 12; i++) pump(1);
+
+  const eyeY = sk.body.y + PLAYER.eye;
+  const fireOnce = () => {
+    sk.state.nextFireAt[0] = 0;
+    canvas.dispatchEvent(new window.MouseEvent('mousedown', { button: 0, bubbles: true }));
+    pump(1);
+    window.dispatchEvent(new window.MouseEvent('mouseup', { button: 0 }));
+    pump(2);
+  };
+
+  // aim at the head
+  sk.state.pitch = Math.atan2((d.pos[1] + 1.7) - eyeY, stand);
+  pump(3);
+  const tr = sk.aimTrace();
+  assert.equal(tr.victim && tr.victim.id, d.id, 'crosshair on the dummy');
+  assert.equal(tr.head, true, 'the client agrees this is a head hit');
+
+  fireOnce();
+  assert.equal(d.hp, 50, `one rifle headshot takes 50 (hp ${d.hp})`);
+
+  // now the body
+  d.hp = 100;
+  sk.state.pitch = Math.atan2((d.pos[1] + 0.9) - eyeY, stand);
+  pump(3);
+  const body = sk.aimTrace();
+  assert.equal(body.victim && body.victim.id, d.id, 'crosshair still on the dummy');
+  assert.equal(body.head, false, 'chest shot is not a head hit');
+
+  fireOnce();
+  assert.equal(d.hp, 75, `one rifle body shot takes 25 (hp ${d.hp})`);
+  sk.state.pitch = 0;
+  pump(1);
+});
+
+await test('aim assist nudges a nearly-on-target shot, and leaves a wild one alone', async () => {
+  const sk = window.SKYFALL;
+  const d = sk.session.dummies[1];
+  d.hp = 100;
+  d.alive = true;
+  isolateDummy(sk, d);                  // hold still: this test is about the maths
+  const av = sk.avatars.get(d.id);
+  if (av) av.alive = true;
+  sk.state.weapon = 0;                  // rifle: assist enabled
+
+  // an empty stretch of runway, so no other dummy can fall inside the cone
+  const stand = 20;
+  d.pos[0] = 40; d.pos[1] = 0.05; d.pos[2] = -26;
+  sk.body.teleport(40, 0.05, -26 + stand);
+  const eyeY = sk.body.y + PLAYER.eye;
+  const chestY = d.pos[1] + PLAYER.height * AIM_ASSIST.chestHeight;
+  sk.state.yaw = 0;                     // -z, toward the dummy
+  sk.state.pitch = Math.atan2(chestY - eyeY, stand);
+  for (let i = 0; i < 12; i++) pump(1);   // let the rendered avatar settle
+
+  const angleTo = (dir) => {
+    const cand = sk.assistCandidates().find((c) => c.id === d.id);
+    assert.ok(cand, 'the dummy is a visible assist candidate');
+    const chest = [cand.pos[0], cand.pos[1] + PLAYER.height * AIM_ASSIST.chestHeight, cand.pos[2]];
+    const c = sk.camera.position;
+    const v = [chest[0] - c.x, chest[1] - c.y, chest[2] - c.z];
+    const n = Math.hypot(...v);
+    const dot = dir[0] * (v[0] / n) + dir[1] * (v[1] / n) + dir[2] * (v[2] / n);
+    return Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
+  };
+
+  // dead on: whatever comes out must still be pointing at the dummy
+  const onTargetErr = angleTo(sk.aimDirection());
+  assert.ok(onTargetErr < 1.0, `aimed at the chest (${onTargetErr.toFixed(2)} deg off)`);
+  assert.ok(angleTo(sk.assistedAim()) < 1.0, 'an on-target shot is not thrown off');
+
+  // 2 degrees wide: the shot should bend back toward the dummy
+  sk.state.yaw = -2 * Math.PI / 180;    // yaw + is left, so negative turns right
+  pump(3);
+  const raw = sk.aimDirection();
+  const rawErr = angleTo(raw);
+  const info = sk.assistedAimInfo();
+  assert.equal(info.targetId, d.id, 'locked onto the dummy we are testing');
+  assert.ok(rawErr > 1.5 && rawErr < AIM_ASSIST.coneDeg,
+    `test aim starts inside the cone (${rawErr.toFixed(2)} deg)`);
+  const bentErr = angleTo(info.dir);
+  assert.ok(bentErr < rawErr,
+    `assisted shot is closer (${rawErr.toFixed(2)} -> ${bentErr.toFixed(2)} deg)`);
+  assert.ok(info.pullDeg <= AIM_ASSIST.maxPullDeg + 1e-9, 'respects the pull cap');
+  assert.ok(Math.abs(Math.hypot(...info.dir) - 1) < 1e-9, 'unit direction');
+
+  // nothing to assist when looking at the sky
+  sk.state.pitch = 1.3;
+  pump(3);
+  const sky = sk.aimDirection();
+  const skyInfo = sk.assistedAimInfo();
+  assert.equal(skyInfo.targetId, null, 'no target when staring at the sky');
+  assert.deepEqual(sk.assistedAim(), sky, 'no magnetism on a wild shot');
+
+  // the sniper opts out entirely
+  sk.state.pitch = Math.atan2(chestY - eyeY, stand);
+  sk.state.weapon = 1;
+  sk.state.yaw = -2 * Math.PI / 180;
+  pump(3);
+  assert.equal(sk.assistedAimInfo().targetId, null, 'sniper skips the assist pass');
+  assert.deepEqual(sk.assistedAim(), sk.aimDirection(), 'sniper gets no assist');
+  sk.state.weapon = 0;
+  sk.state.yaw = 0;
+  pump(1);
+});
+
+await test('practice mode runs the movement mechanics end to end', async () => {
+  const sk = window.SKYFALL;
+  // jump
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Space' }));
+  pump(2);
+  assert.ok(sk.body.vy > 0 || !sk.body.onGround, 'jumped');
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space' }));
+  pump(1);
+  // double jump
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Space' }));
+  pump(2);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space' }));
+  for (let i = 0; i < 60; i++) pump(1);
+  assert.ok(sk.session.stats.jumps >= 1, 'jumps counted');
+
+  // sprint then slide
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyW' }));
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ShiftLeft' }));
+  for (let i = 0; i < 60; i++) pump(1);
+  assert.ok(sk.state.mode === 'practice');
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyC' }));
+  pump(2);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'KeyC' }));
+  assert.ok(sk.body.sliding || sk.session.stats.slides > 0, 'slide triggered');
+  for (let i = 0; i < 20; i++) pump(1);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'KeyW' }));
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'ShiftLeft' }));
+  pump(2);
+});
+
+await test('speed HUD and speed preservation work in the live client', async () => {
+  const sk = window.SKYFALL;
+  // stand on a known-clear runway: x = 40, looking down +z
+  sk.body.teleport(40, 0.05, -6);
+  sk.state.yaw = Math.PI;
+  sk.state.pitch = 0;
+  // stand still first
+  for (let i = 0; i < 30; i++) pump(1);
+  assert.equal(document.getElementById('speedVal').textContent, '0.0');
+
+  // sprint into a jump and check that air speed is kept
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyW' }));
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ShiftLeft' }));
+  for (let i = 0; i < 80; i++) pump(1);
+  const groundSpeed = sk.body.speed;
+  assert.ok(groundSpeed > 9, `sprinting (${groundSpeed.toFixed(2)} m/s)`);
+  assert.ok(parseFloat(document.getElementById('speedVal').textContent) > 9, 'readout follows speed');
+
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Space' }));
+  pump(2);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space' }));
+  let minAir = Infinity;
+  let minInfo = null;
+  const trace = [];
+  for (let i = 0; i < 90; i++) {
+    pump(1);
+    if (sk.body.onGround) break;
+    trace.push(+sk.body.speed.toFixed(2));
+    if (sk.body.speed < minAir) {
+      minAir = sk.body.speed;
+      minInfo = {
+        i,
+        wall: sk.body.wallRun,
+        slide: sk.body.sliding,
+        airJumps: sk.body.airJumps,
+        pos: [+sk.body.x.toFixed(2), +sk.body.y.toFixed(2), +sk.body.z.toFixed(2)],
+        vy: +sk.body.vy.toFixed(2),
+      };
+    }
+  }
+  assert.ok(minAir > groundSpeed * 0.8,
+    `kept air speed (${groundSpeed.toFixed(2)} -> ${minAir.toFixed(2)}) ${JSON.stringify(minInfo)} trace=${trace.slice(0, 24)}`);
+
+  // land without touching jump: the speed is held for the landing window, then
+  // the mistimed landing kills it
+  for (let i = 0; i < 200 && !sk.body.onGround; i++) pump(1);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'KeyW' }));
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'ShiftLeft' }));
+  pump(20);   // ~0.33 s of frames: past the landing window
+  assert.ok(sk.body.speed < groundSpeed * 0.75, `landing killed the momentum (${sk.body.speed.toFixed(2)})`);
+});
+
+await test('a timed landing jump keeps the momentum in the live client', async () => {
+  const sk = window.SKYFALL;
+  sk.body.teleport(40, 0.05, -6);
+  sk.state.yaw = Math.PI;
+  for (let i = 0; i < 20; i++) pump(1);
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyW' }));
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ShiftLeft' }));
+  for (let i = 0; i < 80; i++) pump(1);
+  const groundSpeed = sk.body.speed;
+  assert.ok(groundSpeed > 9, `sprinting (${groundSpeed.toFixed(2)} m/s)`);
+
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Space' }));
+  pump(2);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space' }));
+
+  // drop until we are inside the landing window, then press jump
+  let pressed = false;
+  for (let i = 0; i < 200; i++) {
+    if (!pressed && !sk.body.onGround && sk.body.vy < 0 && sk.body.timeToFloor() < 0.18) {
+      window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Space' }));
+      pump(1);
+      window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space' }));
+      pressed = true;
+      break;
+    }
+    pump(1);
+  }
+  assert.ok(pressed, 'pressed jump just above the floor');
+  // the speedometer flash is the client-side signal that the timing counted
+  let flashed = false;
+  for (let i = 0; i < 60 && !flashed; i++) {
+    pump(1);
+    flashed = document.getElementById('speedometer').classList.contains('saved');
+  }
+  assert.ok(flashed, 'the timed landing registered (speedometer flash)');
+  assert.ok(sk.body.speed > groundSpeed * 0.9,
+    `the timed jump kept the speed (${groundSpeed.toFixed(2)} -> ${sk.body.speed.toFixed(2)})`);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'KeyW' }));
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'ShiftLeft' }));
+});
+
+await test('the all-time leaderboard shows on the title screen and under L', async () => {
+  // the L overlay toggles in-game
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyL' }));
+  pump(3);
+  assert.equal(document.getElementById('leaderboard').classList.contains('hidden'), false, 'overlay open');
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyL' }));
+  pump(3);
+  assert.equal(document.getElementById('leaderboard').classList.contains('hidden'), true, 'overlay closed');
+
+  // the server serves the table over HTTP and the panel renders it
+  const board = await (await fetch(`http://127.0.0.1:${PORT}/api/leaderboard?n=5`)).json();
+  assert.ok(Array.isArray(board.rows), 'rows array');
+  assert.ok(typeof board.total === 'number', 'total count');
+  assert.ok(board.rows.every((r) => r.kills >= 0 && r.rank >= 1), 'rows carry kills + rank');
+});
+
+await test('the tutorial jump step advances from a real SPACE press', async () => {
+  // Regression: the jump step looks for flags.jumped but main.js forwarded the
+  // event as 'jump', so the tutorial stalled here forever while the player
+  // bounced up and down wondering what they had done wrong.
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Escape' }));
+  pump(2);
+  document.getElementById('leaveBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(3);
+  await sleep(120);
+
+  document.getElementById('tutorialBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(6);
+  const sk = window.SKYFALL;
+  assert.equal(sk.state.mode, 'tutorial');
+
+  const title = () => document.getElementById('objTitle').textContent;
+  sk.session.advance();   // MOVE
+  pump(2);
+  sk.session.advance();   // LOOK
+  pump(2);
+  assert.equal(title(), 'JUMP', 'on the jump step');
+
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Space', key: ' ' }));
+  pump(2);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space', key: ' ' }));
+  pump(4);
+  assert.notEqual(title(), 'JUMP', 'the jump step advanced after a real press');
+  assert.equal(title(), 'SPRINT', `moved on to sprint (${title()})`);
+
+  // and sprinting on foot advances the next one too
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ShiftLeft', key: 'Shift' }));
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyW', key: 'w' }));
+  pump(80);
+  assert.equal(title(), 'SPRINT JUMP', `sprinting advanced the step (${title()})`);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'KeyW', key: 'w' }));
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'ShiftLeft', key: 'Shift' }));
+  pump(2);
+});
+
+await test('tutorial starts, advances with N, and completes', async () => {
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Escape' }));
+  pump(2);
+  document.getElementById('leaveBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(3);
+  await sleep(120);
+
+  document.getElementById('tutorialBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(4);
+  const sk = window.SKYFALL;
+  assert.equal(sk.state.mode, 'tutorial');
+  assert.equal(document.getElementById('objective').classList.contains('hidden'), false, 'objective card visible');
+  assert.equal(document.getElementById('objTitle').textContent, 'MOVE');
+  assert.match(document.getElementById('objIndex').textContent, /1 \/ \d+/);
+
+  const total = sk.session.stepCount;
+  for (let i = 0; i < total + 2; i++) {
+    window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyN' }));
+    pump(2);
+  }
+  assert.equal(sk.session.completed, true, 'tutorial completed');
+  assert.equal(document.getElementById('objectiveDone').classList.contains('hidden'), false, 'completion overlay');
+  assert.equal(document.getElementById('objective').classList.contains('hidden'), true);
+});
+
+await test('completion overlay keeps you practising or returns to title', async () => {
+  const sk = window.SKYFALL;
+  document.getElementById('odPractice').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(4);
+  assert.equal(sk.state.mode, 'practice');
+  assert.equal(document.getElementById('practiceStats').classList.contains('hidden'), false);
+  assert.equal(document.getElementById('objectiveDone').classList.contains('hidden'), true);
+
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Escape' }));
+  pump(2);
+  document.getElementById('leaveBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(3);
+  assert.equal(sk.state.mode, 'online');
+  assert.equal(document.getElementById('title').classList.contains('hidden'), false);
+  assert.equal(document.getElementById('hud').classList.contains('hidden'), true);
+  assert.equal(sk.avatars.map.size, 0, 'dummies cleaned up');
 });
 
 await test('leaving returns to the title screen', async () => {

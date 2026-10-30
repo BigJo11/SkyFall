@@ -5,6 +5,8 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { Game } from './game.js';
+import { Leaderboard } from './leaderboard.js';
+import { RESERVED } from '../shared/constants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -27,7 +29,57 @@ const MIME = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
-const game = new Game().start();
+// all-time leaderboard, persisted next to the code (override with LEADERBOARD_FILE)
+const BOARD_FILE = process.env.LEADERBOARD_FILE
+  || path.join(ROOT, 'data', 'leaderboard.json');
+const leaderboard = new Leaderboard(BOARD_FILE);
+const game = new Game({ leaderboard }).start();
+console.log(`[board] ${leaderboard.size} all-time rows from ${path.relative(ROOT, BOARD_FILE)}`);
+
+// ---------------------------------------------------------------------------
+// Asset versioning. Players must never end up running a cached main.js against
+// a freshly served index.html: that looks exactly like "the buttons do
+// nothing". Every HTML/JS/CSS response gets a cache-busting ?v=<build> stamped
+// onto its asset URLs and relative imports, and the page carries the build id
+// so the client can detect a mismatch and say so.
+// ---------------------------------------------------------------------------
+function computeBuildId() {
+  let newest = 0;
+  const walk = (dir) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name === 'vendor' || e.name === 'node_modules') continue;
+        walk(p);
+      } else if (/\.(js|html|css)$/.test(e.name)) {
+        try { newest = Math.max(newest, fs.statSync(p).mtimeMs); } catch { /* ignore */ }
+      }
+    }
+  };
+  walk(PUBLIC);
+  walk(SHARED);
+  return Math.round(newest).toString(36);
+}
+
+let BUILD_ID = computeBuildId();
+
+// Add ?v=<build> to asset URLs in HTML and to relative imports in our own JS.
+function versionHtml(html) {
+  return html
+    .replace(/__BUILD__/g, BUILD_ID)
+    .replace(/((?:src|href)=")(\/(?:js|css)\/[^"?]+\.(?:js|css))(")/g, `$1$2?v=${BUILD_ID}$3`);
+}
+
+function versionJs(src) {
+  return src.replace(
+    /(\bfrom\s*['"])(\.{1,2}\/[^'"?]+\.js)(['"])/g,
+    `$1$2?v=${BUILD_ID}$3`
+  );
+}
+
+const VERSIONED = new Set(['.html', '.js', '.css']);
 
 function serveFile(res, filePath) {
   fs.readFile(filePath, (err, data) => {
@@ -36,12 +88,23 @@ function serveFile(res, filePath) {
       res.end('Not found');
       return;
     }
+    const ext = path.extname(filePath).toLowerCase();
+    // HTML and game code must never be served from a stale cache: a mismatch
+    // between an old page and new modules is impossible to debug for players.
+    const cacheControl = VERSIONED.has(ext) ? 'no-store, must-revalidate' : 'no-cache';
+
+    let body = data;
+    const isVendor = filePath.includes(`${path.sep}vendor${path.sep}`);
+    if (!isVendor && ext === '.html') body = Buffer.from(versionHtml(data.toString('utf8')));
+    else if (!isVendor && ext === '.js') body = Buffer.from(versionJs(data.toString('utf8')));
+
     res.writeHead(200, {
-      'Content-Type': MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream',
-      'Cache-Control': 'no-cache',
+      'Content-Type': MIME[ext] || 'application/octet-stream',
+      'Cache-Control': cacheControl,
       'Cross-Origin-Opener-Policy': 'same-origin',
+      'X-Skyfall-Build': BUILD_ID,
     });
-    res.end(data);
+    res.end(body);
   });
 }
 
@@ -51,6 +114,18 @@ const server = http.createServer((req, res) => {
     urlPath = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
   } catch {
     res.writeHead(400); res.end('Bad request'); return;
+  }
+
+  if (urlPath === '/api/leaderboard') {
+    const n = Number(new URL(req.url, 'http://localhost').searchParams.get('n')) || 10;
+    const body = {
+      rows: leaderboard.top(Math.max(1, Math.min(50, n))),
+      updatedAt: leaderboard.updatedAt,
+      total: leaderboard.size,
+    };
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(body));
+    return;
   }
 
   if (urlPath === '/api/status') {
@@ -87,7 +162,9 @@ wss.on('connection', (socket) => {
 
     if (!player) {
       if (msg.t === 'join') {
-        player = game.addPlayer(socket, msg.name);
+        // the crew code unlocks reserved callsigns and the glow skin
+        const crew = RESERVED.normaliseCode(msg.code) === RESERVED.code;
+        player = game.addPlayer(socket, msg.name, crew, msg.cosmetic);
       }
       return;
     }
@@ -100,6 +177,16 @@ wss.on('connection', (socket) => {
   });
   socket.on('error', () => {});
 });
+
+// Recompute the build id on every page load so edits show up without a restart.
+setInterval(() => { BUILD_ID = computeBuildId(); }, 2000).unref();
+
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => {
+    try { leaderboard.flush(); } catch { /* ignore */ }
+    process.exit(0);
+  });
+}
 
 server.listen(PORT, HOST, () => {
   const nets = os.networkInterfaces();

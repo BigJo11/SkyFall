@@ -1,9 +1,11 @@
 // End-to-end test: boots the real HTTP/WebSocket server and plays with two
 // clients.   node tests/live.test.mjs
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
 
+const LEADERBOARD = `/tmp/skyfall-board-${process.pid}.json`;
 const PORT = 3111 + Math.floor(Math.random() * 200);
 const BASE = `http://127.0.0.1:${PORT}`;
 let passed = 0;
@@ -49,14 +51,17 @@ function client(name) {
 
 const server = spawn(process.execPath, ['server/server.js'], {
   cwd: new URL('..', import.meta.url).pathname,
-  env: { ...process.env, PORT: String(PORT) },
+  env: { ...process.env, PORT: String(PORT), LEADERBOARD_FILE: LEADERBOARD },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let serverLog = '';
 server.stdout.on('data', (d) => { serverLog += d; });
 server.stderr.on('data', (d) => { serverLog += d; });
 
-const cleanup = () => { try { server.kill('SIGKILL'); } catch {} };
+const cleanup = () => {
+  try { server.kill('SIGKILL'); } catch {}
+  try { fs.rmSync(LEADERBOARD, { force: true }); } catch {}
+};
 process.on('exit', cleanup);
 
 // wait for the listener
@@ -79,6 +84,31 @@ await test('serves the client bundle and shared modules', async () => {
   }
   const status = await (await fetch(`${BASE}/api/status`)).json();
   assert.deepEqual(status.players, []);
+});
+
+await test('HTML gets build-stamped asset URLs and relative imports are versioned', async () => {
+  const html = await (await fetch(BASE + '/')).text();
+  const meta = html.match(/<meta name="skyfall-build" content="([^"]+)" \/>/);
+  assert.ok(meta, 'page advertises its build id');
+  const build = meta[1];
+  assert.notEqual(build, '__BUILD__', 'placeholder was substituted');
+
+  const script = html.match(/<script type="module" src="([^"]+)"/);
+  assert.ok(script, 'module entry present');
+  assert.equal(script[1], `/js/main.js?v=${build}`, 'entry point is cache-busted');
+
+  const css = html.match(/<link rel="stylesheet" href="([^"]+)"/);
+  assert.equal(css[1], `/css/style.css?v=${build}`, 'stylesheet is cache-busted');
+
+  assert.ok(html.includes(`window.__SKYFALL_BUILD__ = '${build}'`), 'page exposes its build to the client');
+
+  const js = await (await fetch(BASE + '/js/main.js')).text();
+  for (const m of js.matchAll(/(\bfrom\s*['"])(\.{1,2}\/[^'"]+\.js)(['"])/g)) {
+    assert.ok(m[2].includes(`?v=${build}`), `import ${m[2]} is versioned`);
+  }
+  // vendor libraries are served untouched
+  const three = await (await fetch(BASE + '/vendor/three/three.module.js')).text();
+  assert.ok(!three.includes('?v='), 'vendor bundle not rewritten');
 });
 
 await test('404s unknown files and blocks path traversal', async () => {
@@ -146,6 +176,64 @@ await test('movement input is accepted and reflected in snapshots', async () => 
   assert.ok(snap, 'server tracked the walk');
   a.ws.close();
   await sleep(200);
+});
+
+await test('the all-time leaderboard is served and records a death', async () => {
+  const a = await client('BOARDMAN');
+  const welcome = await a.waitFor((m) => m.t === 'welcome');
+  assert.ok(Array.isArray(welcome.leaderboard), 'welcome carries the table');
+
+  const before = await (await fetch(`${BASE}/api/leaderboard?n=50`)).json();
+  assert.ok(Array.isArray(before.rows));
+  assert.equal(before.rows.some((r) => r.name === 'BOARDMAN'), false, 'joining alone is not a row');
+
+  // step off the edge: the server kills the fall and the table moves
+  const p0 = welcome.you.pos;
+  for (let step = 1; step <= 11; step++) {   // ends around y = -33, below killY
+    a.send({ t: 'input', p: [p0[0], p0[1] - step * 3, p0[2]], yaw: 0, pitch: 0 });
+    await sleep(60);
+  }
+  const update = await a.waitFor((m) => m.t === 'leaderboard', 3000);
+  assert.ok(update.rows.length >= 1, 'a table was pushed');
+
+  const after = await (await fetch(`${BASE}/api/leaderboard?n=50`)).json();
+  const row = after.rows.find((r) => r.name === 'BOARDMAN');
+  assert.ok(row, 'the player is on the table');
+  assert.ok(row.deaths >= 1, `the death was recorded (${row.deaths})`);
+  a.ws.close();
+  await sleep(150);
+});
+
+await test('a cosmetic is accepted over the wire and locked materials are enforced', async () => {
+  const plain = await client('PLAINLOOK');
+  const pw = await plain.waitFor((m) => m.t === 'welcome');
+  assert.equal(pw.you.cosmetic, null, 'nothing invented without one');
+
+  const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
+  const inbox = [];
+  ws.on('message', (raw) => inbox.push(JSON.parse(raw.toString())));
+  await new Promise((r) => ws.on('open', r));
+  ws.send(JSON.stringify({
+    t: 'join', name: 'STYLED2', code: '',
+    cosmetic: { primary: 0xff6b6b, secondary: 0x1d2534, material: 'metal' },
+  }));
+  await sleep(200);
+  const welcome = inbox.find((m) => m.t === 'welcome');
+  assert.deepEqual(welcome.you.cosmetic, { primary: 0xff6b6b, secondary: 0x1d2534, material: 'metal' });
+
+  // the same thing with a crew material and no code gets downgraded
+  const ws2 = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
+  const inbox2 = [];
+  ws2.on('message', (raw) => inbox2.push(JSON.parse(raw.toString())));
+  await new Promise((r) => ws2.on('open', r));
+  ws2.send(JSON.stringify({
+    t: 'join', name: 'NEONWISH', cosmetic: { primary: 0x62d6ff, material: 'neon' },
+  }));
+  await sleep(200);
+  assert.equal(inbox2.find((m) => m.t === 'welcome').you.cosmetic.material, 'matte');
+
+  ws.close(); ws2.close(); plain.ws.close();
+  await sleep(150);
 });
 
 await test('malformed frames do not crash the server', async () => {

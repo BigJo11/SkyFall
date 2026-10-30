@@ -1,8 +1,10 @@
-import { PLAYER, WEAPONS, PLAYER_COLORS, NET } from '../shared/constants.js';
+import { PLAYER, WEAPONS, PLAYER_COLORS, NET, MAX_LEGIT_SPEED, RESERVED, CREW_GLOW, COSMETIC, isHeadHit, headshotDamage } from '../shared/constants.js';
 import ARENA from '../shared/map.js';
 import { solidAABBs, raycastAABBs, rayCapsule } from '../shared/collision.js';
+import { Leaderboard } from './leaderboard.js';
 
 const now = () => Date.now();
+const LEADERBOARD_ROWS = 10;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 function sanitizeName(raw, fallback) {
@@ -20,8 +22,10 @@ function norm3(v) {
 }
 
 export class Game {
-  constructor() {
+  constructor({ leaderboard = null } = {}) {
     this.players = new Map();
+    // all-time table; the server passes a file-backed one, tests get memory
+    this.leaderboard = leaderboard || new Leaderboard(null);
     this.solids = solidAABBs(ARENA.boxes);
     this.nextId = 1;
     this.tickTimer = null;
@@ -41,18 +45,29 @@ export class Game {
 
   // ------------------------------------------------------------- connections
 
-  addPlayer(socket, requestedName) {
+  addPlayer(socket, requestedName, crew = false, cosmetic = null) {
     const id = this.nextId++;
     const taken = new Set([...this.players.values()].map((p) => p.name));
     let name = sanitizeName(requestedName, `PLAYER ${id}`);
+    // reserved callsigns need the crew code
+    if (!crew && RESERVED.isReserved(name)) name = `PLAYER ${id}`;
     if (taken.has(name)) name = `${name} (${id})`.slice(0, NET.MAX_NAME + 4);
+
+    // cosmetics are validated here, not trusted: a locked material silently
+    // falls back unless this connection actually passed the crew check
+    const hasCosmetic = !!cosmetic && typeof cosmetic === 'object';
+    const look = COSMETIC.normalise(cosmetic, { crew });
 
     const spawn = this.pickSpawn();
     const player = {
       id,
       name,
       socket,
-      color: PLAYER_COLORS[(id - 1) % PLAYER_COLORS.length],
+      cosmetic: hasCosmetic ? look : null,
+      color: hasCosmetic
+        ? look.primary
+        : (crew ? CREW_GLOW : PLAYER_COLORS[(id - 1) % PLAYER_COLORS.length]),
+      crew: !!crew,
       pos: spawn.pos.slice(),
       yaw: spawn.yaw,
       pitch: 0,
@@ -72,6 +87,7 @@ export class Game {
       lastFallDeath: 0,
     };
     this.players.set(id, player);
+    this.leaderboard.recordJoin(name, { crew });
 
     this.send(player, {
       t: 'welcome',
@@ -80,6 +96,7 @@ export class Game {
       color: player.color,
       you: this.pub(player),
       players: [...this.players.values()].filter((p) => p.id !== id).map((p) => this.pub(p)),
+      leaderboard: this.leaderboard.top(LEADERBOARD_ROWS),
       snapshotHz: NET.TICK_HZ,
     });
     this.broadcast({ t: 'join', player: this.pub(player) }, id);
@@ -116,6 +133,8 @@ export class Game {
       id: p.id,
       name: p.name,
       color: p.color,
+      crew: !!p.crew,
+      cosmetic: p.cosmetic,
       pos: [round2(p.pos[0]), round2(p.pos[1]), round2(p.pos[2])],
       yaw: round3(p.yaw),
       pitch: round3(p.pitch),
@@ -192,7 +211,8 @@ export class Game {
 
     // basic sanity: reject teleports that no walking player could make
     const d = Math.hypot(nx - p.pos[0], nz - p.pos[2]);
-    const maxStep = PLAYER.sprintSpeed * PLAYER.hspeedTolerance * dt + 1.2;
+    // generous enough for sprint jumps, slides, wall kicks and top momentum
+    const maxStep = Math.max(MAX_LEGIT_SPEED, PLAYER.sprintSpeed * PLAYER.hspeedTolerance) * dt + 1.2;
     const rise = ny - p.pos[1];
 
     // reject teleports: sideways faster than sprinting, climbing faster than a
@@ -201,7 +221,10 @@ export class Game {
       this.send(p, { t: 'correct', pos: p.pos.slice() });
       return;
     }
-    if (ny < PLAYER.fallKillY - 6 || ny > 120 || Math.abs(nx) > 400 || Math.abs(nz) > 400) {
+    const bx = ARENA.bounds || { minX: -400, maxX: 400, minZ: -400, maxZ: 400 };
+    if (ny < PLAYER.fallKillY - 6 || ny > 120
+      || nx < bx.minX - 60 || nx > bx.maxX + 60
+      || nz < bx.minZ - 60 || nz > bx.maxZ + 60) {
       this.send(p, { t: 'correct', pos: p.pos.slice() });
       return;
     }
@@ -275,6 +298,11 @@ export class Game {
 
     const end = [origin[0] + dir[0] * endT, origin[1] + dir[1] * endT, origin[2] + dir[2] * endT];
 
+    // Headshots: the shot landed in the top slice of the victim's capsule.
+    const hitY = origin[1] + dir[1] * endT;
+    const head = !!victim && !w.melee && isHeadHit(hitY - victim.pos[1]);
+    const dmg = head ? headshotDamage(w, true) : w.damage;
+
     this.broadcast({
       t: 'shot',
       id: p.id,
@@ -282,17 +310,18 @@ export class Game {
       from: origin.map(round2),
       to: end.map(round2),
       hit: victim ? victim.id : 0,
+      head,
     });
 
     if (victim) {
-      const killed = this.damage(victim, w.damage, p, w.id);
-      this.send(p, { t: 'hitmark', dmg: w.damage, kill: killed, id: victim.id });
+      const killed = this.damage(victim, dmg, p, w.id, head);
+      this.send(p, { t: 'hitmark', dmg, kill: killed, id: victim.id, head });
     }
   }
 
   // ------------------------------------------------------------- damage / death
 
-  damage(target, dmg, attacker, weaponId) {
+  damage(target, dmg, attacker, weaponId, head = false) {
     if (!target.alive) return false;
     target.hp -= dmg;
     target.lastDamage = now();
@@ -305,16 +334,17 @@ export class Game {
       from,
       by: attacker ? attacker.id : 0,
       weapon: weaponId,
+      head: !!head,
     });
 
     if (target.hp <= 0) {
-      this.kill(target, attacker, weaponId);
+      this.kill(target, attacker, weaponId, head);
       return true;
     }
     return false;
   }
 
-  kill(victim, killer, weaponId) {
+  kill(victim, killer, weaponId, head = false) {
     if (!victim.alive) return;
     victim.alive = false;
     victim.hp = 0;
@@ -323,6 +353,14 @@ export class Game {
     victim.respawnAt = now() + PLAYER.respawnTime;
     if (killer && killer !== victim) killer.kills++;
 
+    // fold the kill into the all-time table (a fall has no killer)
+    this.leaderboard.recordKill(
+      killer && killer !== victim ? killer.name : null,
+      victim.name,
+      { crew: !!killer?.crew },
+    );
+    this.broadcast({ t: 'leaderboard', rows: this.leaderboard.top(LEADERBOARD_ROWS) });
+
     this.broadcast({
       t: 'kill',
       killer: killer ? killer.id : 0,
@@ -330,6 +368,7 @@ export class Game {
       victim: victim.id,
       victimName: victim.name,
       weapon: weaponId || null,
+      head: !!head,
       respawnIn: PLAYER.respawnTime,
     });
     this.send(victim, { t: 'died', respawnAt: victim.respawnAt, by: killer ? killer.name : null, weapon: weaponId || null });

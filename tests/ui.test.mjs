@@ -16,9 +16,9 @@ globalThis.document = window.document;
 globalThis.HTMLElement = window.HTMLElement;
 globalThis.requestAnimationFrame = window.requestAnimationFrame.bind(window);
 
+const { WEAPONS } = await import('../shared/constants.js');
 const { Hud } = await import('../public/js/hud.js');
 const { Input } = await import('../public/js/input.js');
-const { WEAPONS } = await import('../shared/constants.js');
 
 let passed = 0;
 let failed = 0;
@@ -35,13 +35,37 @@ test('title screen shows the SKYFALL logo and deploy flow', () => {
   assert.equal(logo.getAttribute('data-text'), 'SKYFALL');
   assert.ok(document.getElementById('deployBtn'), 'deploy button');
   assert.ok(document.getElementById('nameInput'), 'callsign input');
-  // arsenal copy matches the balance numbers
+  // arsenal copy is derived from the balance numbers, so it cannot drift
   const arsenal = document.querySelector('.arsenal').textContent;
-  assert.match(arsenal, /4 shots\/sec/);
-  assert.match(arsenal, /6 shots to kill/);
+  const byId = (id) => WEAPONS.find((w) => w.id === id);
+  const rifle = byId('rifle');
+  const smg = byId('smg');
+  assert.match(arsenal, new RegExp(`${Math.round(1000 / rifle.interval)} shots/sec`), 'rifle fire rate on the title screen');
+  assert.match(arsenal, new RegExp(`${Math.ceil(100 / rifle.damage)} shots to kill`), 'rifle kill count on the title screen');
   assert.match(arsenal, /3\.5s/);
-  assert.match(arsenal, /15 shots\/sec/);
+  assert.match(arsenal, new RegExp(`${Math.round(1000 / smg.interval)} shots/sec`), 'smg fire rate on the title screen');
+  assert.match(arsenal, new RegExp(`${smg.damage} damage`), 'smg damage on the title screen');
   assert.match(arsenal, /0\.5s swing/);
+  // the update history is reachable from the title screen
+  assert.ok(document.getElementById('changelogBtn'), 'UPDATES button');
+  const cl = document.getElementById('changelog');
+  assert.ok(cl, 'updates panel exists');
+  assert.ok(cl.classList.contains('hidden'), 'panel starts closed');
+  assert.equal(cl.getAttribute('role'), 'dialog', 'announced as a dialog');
+  assert.ok(document.getElementById('changelogTabs'), 'tab strip');
+  assert.ok(document.getElementById('changelogBody'), 'content area');
+  assert.ok(document.getElementById('changelogClose'), 'close button');
+  // it lives inside the title screen, so it cannot outlive the menu
+  assert.ok(document.getElementById('title').contains(cl), 'panel is part of the title screen');
+
+  // all three entry points
+  assert.ok(document.getElementById('deployBtn'), 'deploy');
+  assert.ok(document.getElementById('practiceBtn'), 'practice');
+  assert.ok(document.getElementById('tutorialBtn'), 'tutorial');
+  const controls = document.querySelector('.keys').textContent;
+  assert.match(controls, /double jump/i);
+  assert.match(controls, /slide/i);
+  assert.equal(document.querySelector('.momentum-note'), null, 'no movement blurb on the title');
 });
 
 const hud = new Hud();
@@ -72,21 +96,39 @@ test('hud health / ammo / weapon slots', () => {
 });
 
 test('killfeed, hitmarker, damage numbers and messages', () => {
-  hud.killFeed('ALPHA', 'BRAVO', 'rifle', { killerIsMe: true });
   const feed = document.getElementById('killfeed');
+  // a headshot kill is marked in the feed
+  hud.killFeed('ALPHA', 'BRAVO', 'rifle', { killerIsMe: true, head: true });
   assert.equal(feed.children.length, 1);
   assert.match(feed.textContent, /ALPHA/);
   assert.match(feed.textContent, /RIFLE/);
   assert.match(feed.textContent, /BRAVO/);
+  assert.match(feed.textContent, /HEADSHOT/, 'crit marked in the feed');
+  assert.ok(feed.querySelector('.crit'), 'crit element rendered');
+
+  hud.killFeed('ALPHA', 'BRAVO', 'rifle', { killerIsMe: true });
+  assert.equal(feed.lastElementChild.querySelector('.crit'), null, 'body kill is not marked');
 
   hud.killFeed('CHARLIE', 'DELTA', 'fall', {});
   assert.match(feed.textContent, /THE VOID|DELTA/);
 
   hud.hitmarker(true);
-  assert.ok(document.getElementById('hitmarker').classList.contains('show'));
+  const hm = document.getElementById('hitmarker');
+  assert.ok(hm.classList.contains('show'));
+  assert.equal(hm.classList.contains('head'), false, 'body hit is not a crit marker');
+
+  hud.hitmarker(false, true);
+  assert.ok(hm.classList.contains('show'));
+  assert.ok(hm.classList.contains('head'), 'headshot marker styled');
+  hud.hitmarker(false);
+  assert.equal(hm.classList.contains('head'), false, 'crit class cleared on the next hit');
 
   hud.damageNumber(17, 10, -20);
   assert.equal(document.getElementById('dmgNumbers').children.length, 1);
+  hud.damageNumber(50, 10, -20, { head: true });
+  const crit = document.getElementById('dmgNumbers').lastElementChild;
+  assert.ok(crit.classList.contains('head'), 'crit damage number styled');
+  assert.match(crit.textContent, /50/, 'shows the damage dealt');
 
   hud.centerMessage('TEST MESSAGE', 50);
   assert.ok(document.getElementById('centerMsg').classList.contains('show'));
@@ -120,6 +162,50 @@ test('scoreboard sorts by kills and marks the local player', () => {
   assert.match(rows[1].textContent, /you/);
 });
 
+test('the appearance panel exists with colours and materials', () => {
+  const panel = document.querySelector('.cos-panel');
+  assert.ok(panel, 'appearance panel on the title screen');
+  assert.ok(document.getElementById('cosPreview'), 'preview figure');
+  assert.ok(document.getElementById('primarySwatches'), 'primary swatches');
+  assert.ok(document.getElementById('secondarySwatches'), 'secondary swatches');
+  assert.ok(document.getElementById('materialList'), 'material buttons');
+  assert.match(panel.textContent, /APPEARANCE/);
+});
+
+test('leaderboard renders ranks, crew rows and stays empty-safe', () => {
+  const rows = [
+    { rank: 1, name: 'BIG JOE', kills: 42, deaths: 7, kd: 6, bestStreak: 9, crew: true },
+    { rank: 2, name: 'ALPHA', kills: 12, deaths: 12, kd: 1, bestStreak: 3, crew: false },
+  ];
+  hud.titleLeaderboard(rows, 2);
+  const title = document.getElementById('lbList');
+  assert.equal(title.querySelectorAll('tr').length, 2, 'title table filled');
+  assert.match(title.textContent, /BIG JOE/);
+  assert.match(title.textContent, /42/);
+  assert.ok(title.querySelector('.lb-crew'), 'crew row is marked');
+  assert.match(document.getElementById('lbSub').textContent, /2 operators/);
+
+  hud.leaderboard(rows, true);
+  assert.equal(document.getElementById('leaderboard').classList.contains('hidden'), false, 'overlay open');
+  assert.equal(document.getElementById('lbOverlayBody').querySelectorAll('tr').length, 2);
+
+  hud.leaderboard([], false);
+  assert.equal(document.getElementById('leaderboard').classList.contains('hidden'), true, 'overlay closed');
+
+  hud.titleLeaderboard([], 0);
+  assert.match(title.textContent, /no recorded kills yet/, 'empty state');
+});
+
+test('a saved momentum landing only flashes the speedometer', () => {
+  hud.setSpeed(14.2);
+  hud.momentumSaved();
+  const el = document.getElementById('speedometer');
+  assert.ok(el.classList.contains('saved'));
+  // no words appear anywhere in the movement HUD
+  assert.doesNotMatch(el.textContent, /perfect|momentum|saved/i);
+  el.classList.remove('saved');
+});
+
 test('death screen + respawn countdown', () => {
   hud.showDeath('BRAVO', 'sniper');
   assert.equal(document.getElementById('deathScreen').classList.contains('hidden'), false);
@@ -128,6 +214,55 @@ test('death screen + respawn countdown', () => {
   assert.equal(document.getElementById('respawnTimer').textContent, '1.2');
   hud.hideDeath();
   assert.equal(document.getElementById('deathScreen').classList.contains('hidden'), true);
+});
+
+test('speedometer shows numbers only — movement is never named on screen', () => {
+  hud.setSpeed(0);
+  assert.equal(parseFloat(document.getElementById('speedFill').style.width), 0);
+  assert.equal(document.getElementById('speedVal').textContent, '0.0');
+
+  hud.setSpeed(14.3);
+  assert.equal(document.getElementById('speedVal').textContent, '14.3');
+  assert.ok(document.getElementById('speedometer').classList.contains('hot'), 'hot at speed');
+  assert.ok(Math.abs(parseFloat(document.getElementById('speedFill').style.width) - 59.6) < 0.05);
+  hud.setSpeed(99); // clamped bar
+  assert.equal(parseFloat(document.getElementById('speedFill').style.width), 100);
+  hud.setSpeed(0);
+  assert.equal(document.getElementById('speedometer').classList.contains('hot'), false);
+
+  // the old WALK / SPRINT / MOMENTUM tag and the move-name callout are gone
+  assert.equal(document.getElementById('speedTag'), null, 'no speed tag');
+  assert.equal(document.getElementById('moveState'), null, 'no move callout');
+  // the speedometer itself carries no words beyond the unit
+  const speedText = document.getElementById('speedometer').textContent.toUpperCase();
+  for (const w of ['RIT', 'MOMENTUM', 'WALL RUN', 'SLIDE', 'AIRBORNE', 'WALK']) {
+    assert.equal(speedText.includes(w), false, `"${w}" is not written on the speedometer`);
+  }
+
+  hud.showPractice(true);
+  assert.equal(document.getElementById('practiceStats').classList.contains('hidden'), false);
+  hud.practiceStats({ kills: 4, jumps: 12, wallRuns: 3, slides: 5, bestSpeed: 16.42 });
+  assert.equal(document.getElementById('psKills').textContent, '4');
+  assert.equal(document.getElementById('psWallRuns').textContent, '3');
+  assert.equal(document.getElementById('psMomentum').textContent, '16.4 m/s');
+  hud.showPractice(false);
+});
+
+test('tutorial objective card + completion overlay', () => {
+  hud.showObjective({ id: 'step1', title: 'WALL RUN', text: 'Run along a wall.', tip: 'SPACE' }, 7, 15);
+  assert.equal(document.getElementById('objective').classList.contains('hidden'), false);
+  assert.equal(document.getElementById('objTitle').textContent, 'WALL RUN');
+  assert.equal(document.getElementById('objIndex').textContent, '7 / 15');
+  assert.equal(document.getElementById('objTip').textContent, 'SPACE');
+  hud.showObjective({ id: 'step2', title: 'SLIDE', text: 'Slide!', tip: '' }, 9, 15);
+  assert.equal(document.getElementById('objTip').classList.contains('hidden'), true, 'no tip hides the chip');
+  hud.showObjective(null);
+  assert.equal(document.getElementById('objective').classList.contains('hidden'), true);
+
+  hud.showObjectiveDone(true);
+  assert.equal(document.getElementById('objectiveDone').classList.contains('hidden'), false);
+  hud.showObjectiveDone(false);
+  assert.equal(document.getElementById('objectiveDone').classList.contains('hidden'), true);
 });
 
 test('ping readout', () => {
