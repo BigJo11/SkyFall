@@ -331,14 +331,21 @@ await test('practice mode spawns dummies and lets you shoot them', async () => {
   assert.equal(sk.avatars.map.size, 6, 'six dummies rendered');
   assert.equal(document.getElementById('title').classList.contains('hidden'), true);
 
-  // the range looks down -x; dummy #5 sits straight ahead on that line
-  const dummy = sk.session.dummies[4];
-  const dist = Math.hypot(dummy.pos[0] - sk.body.x, dummy.pos[2] - sk.body.z);
-  sk.state.yaw = Math.PI / 2;
+  // aim at the nearest dummy down the range lane (the lane is 30 m long)
+  const dummy = sk.session.dummies
+    .slice()
+    .sort((p, q) => Math.hypot(p.pos[0] - sk.body.x, p.pos[2] - sk.body.z)
+      - Math.hypot(q.pos[0] - sk.body.x, q.pos[2] - sk.body.z))[0];
+  const dx = dummy.pos[0] - sk.body.x;
+  const dz = dummy.pos[2] - sk.body.z;
+  const dist = Math.hypot(dx, dz);
+  sk.state.yaw = Math.atan2(-dx, -dz);
   sk.state.pitch = Math.atan2(dummy.pos[1] + 1.0 - (sk.body.y + 1.62), dist);
   pump(2);
   const hpBefore = dummy.hp;
   const canvas = document.getElementById('gl');
+  const tr = sk.aimTrace();
+  assert.equal(tr.victim && tr.victim.id, dummy.id, 'the crosshair is on the dummy');
   // tap the trigger: hold for a couple of frames, then release and wait out
   // the rifle cooldown
   for (let i = 0; i < 3; i++) {
@@ -399,13 +406,13 @@ await test('practice mode runs the movement mechanics end to end', async () => {
 
 await test('speed HUD and speed preservation work in the live client', async () => {
   const sk = window.SKYFALL;
-  // stand on a known-clear runway: x = 34, looking down +z
-  sk.body.teleport(34, 0.05, 0);
+  // stand on a known-clear runway: x = 40, looking down +z
+  sk.body.teleport(40, 0.05, -6);
   sk.state.yaw = Math.PI;
   sk.state.pitch = 0;
   // stand still first
   for (let i = 0; i < 30; i++) pump(1);
-  assert.equal(document.getElementById('speedTag').textContent, 'WALK');
+  assert.equal(document.getElementById('speedVal').textContent, '0.0');
 
   // sprint into a jump and check that air speed is kept
   window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyW' }));
@@ -413,7 +420,7 @@ await test('speed HUD and speed preservation work in the live client', async () 
   for (let i = 0; i < 80; i++) pump(1);
   const groundSpeed = sk.body.speed;
   assert.ok(groundSpeed > 9, `sprinting (${groundSpeed.toFixed(2)} m/s)`);
-  assert.equal(document.getElementById('speedTag').textContent, 'SPRINT');
+  assert.ok(parseFloat(document.getElementById('speedVal').textContent) > 9, 'readout follows speed');
 
   window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Space' }));
   pump(2);

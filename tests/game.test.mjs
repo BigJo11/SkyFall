@@ -31,9 +31,10 @@ function makeGame() {
   const sb = fakeSocket();
   const a = game.addPlayer(sa, 'ALPHA');
   const b = game.addPlayer(sb, 'BRAVO');
-  // deterministic positions in an open lane of the arena (x = 20, z 0..20)
-  a.pos = [20, 0.01, 0]; a.yaw = 0;
-  b.pos = [20, 0.01, 12]; b.yaw = Math.PI;
+  // deterministic positions in an open lane of the arena (x = 40, z -6..4,
+  // verified ray-clear for 14 m in tests/map.test.mjs)
+  a.pos = [40, 0.01, -6]; a.yaw = 0;
+  b.pos = [40, 0.01, 4]; b.yaw = Math.PI;
   game.broadcast = () => {};
   return { game, a, b, sa, sb };
 }
@@ -126,7 +127,7 @@ await test('smg: 5 damage per shot at 15 shots/sec', async () => {
 await test('knife one-shots at close range with a 0.5s cooldown', async () => {
   const { game, a, b } = makeGame();
   a.weapon = 3;
-  b.pos = [20, 0.01, 2]; // 2m in front
+  b.pos = [40, 0.01, -4]; // 2m in front
   const dir = dirTo(a.pos, b.pos);
   game.handle(a, { t: 'fire', dir });
   assert.equal(b.alive, false, 'knife one-shot kill');
@@ -141,7 +142,7 @@ await test('knife one-shots at close range with a 0.5s cooldown', async () => {
 await test('knife cannot reach across the map', async () => {
   const { game, a, b } = makeGame();
   a.weapon = 3;
-  const dir = dirTo(a.pos, b.pos); // 12 m apart
+  const dir = dirTo(a.pos, b.pos); // 10 m apart
   game.handle(a, { t: 'fire', dir });
   assert.equal(b.hp, 100, 'out of knife range');
 });

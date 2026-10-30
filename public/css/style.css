@@ -536,24 +536,6 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
 }
 #speedVal { color: #cfeeff; font-family: var(--mono); letter-spacing: .04em; font-size: 12px; }
 #speedometer .unit { opacity: .5; margin: 0 6px; }
-#speedometer .tag {
-  font-family: var(--mono); font-size: 9px; letter-spacing: .18em;
-  padding: 1px 6px; border-radius: 3px; color: #04121c; background: #7f9ec4;
-}
-#speedometer.hot .tag { background: var(--amber); }
-#speedometer .tag.momentum { background: var(--cyan); }
-
-/* movement state callout */
-#moveState {
-  position: absolute; left: 50%; top: 58%; transform: translate(-50%, 0) skewX(-12deg);
-  font-size: 15px; font-weight: 800; letter-spacing: .38em;
-  color: #cdeeff; text-shadow: 0 0 18px rgba(80, 200, 255, .8);
-  opacity: 0; transition: opacity .18s;
-}
-#moveState.on { opacity: 1; }
-#moveState.wall { color: #ffd479; text-shadow: 0 0 18px rgba(255, 190, 100, .85); }
-#moveState.slide { color: #8affc1; text-shadow: 0 0 18px rgba(110, 255, 180, .8); }
-
 /* tutorial objective card */
 #objective {
   position: absolute; top: 62px; left: 20px; width: min(300px, 40vw);

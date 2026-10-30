@@ -2,22 +2,23 @@
 // Both run with no server: dummies are local, damage is local, respawns are
 // local. `ctx` is supplied by main.js and gives access to the live game state.
 import { PLAYER, MOVE } from '../../shared/constants.js';
-import ARENA from '../../shared/map.js';
+import { PRACTICE } from '../../shared/map.js';
 
-// The firing line: an open lane on the east side of the plate (verified clear
-// of geometry) with a long cover wall just behind the dummies to shoot at.
-export const PRACTICE_SPAWN = { pos: [34, 0.05, 0], yaw: Math.PI / 2 };
+// The firing line: the long open lane down the eastern ring road. The map
+// exports it so the spawn, the lane and the wall-run wall stay in sync with
+// the geometry (tests/map.test.mjs proves the lane is clear).
+export const PRACTICE_SPAWN = { pos: PRACTICE.spawn.slice(), yaw: PRACTICE.yaw };
 
-// A stretch of wall used to stage the wall-run lesson.
-export const WALLRUN_SPOT = { pos: [22.75, 0.05, -5.5], yaw: Math.PI };
+export const WALLRUN_SPOT = { pos: PRACTICE.wallRunSpot.slice(), yaw: PRACTICE.yaw };
 
+// Dummies stand down the lane at increasing range so every weapon has a target.
 const DUMMY_SPOTS = [
-  { pos: [30, 0, -4], color: 0xff6b6b },
-  { pos: [30, 0, 4], color: 0xffd166 },
-  { pos: [26, 0, -8], color: 0x9dff6b },
-  { pos: [26, 0, 8], color: 0x62d6ff },
-  { pos: [27.5, 0, 0], color: 0xc792ff },
-  { pos: [24, 0, 12], color: 0x64ffda },
+  { pos: [60, 0, -21], color: 0xff6b6b },
+  { pos: [61, 0, -17], color: 0xffd166 },
+  { pos: [59, 0, -13], color: 0x9dff6b },
+  { pos: [62, 0, -9], color: 0x62d6ff },
+  { pos: [58, 0, -5], color: 0xc792ff },
+  { pos: [60, 0, -2], color: 0x64ffda },
 ];
 
 const DUMMY_HP = 100;
@@ -328,7 +329,7 @@ export const TUTORIAL_STEPS = [
     text: 'Sprint along the wall and jump: you will run along it instead of falling. Jump again to kick off.',
     tip: 'SPRINT + JUMP NEXT TO A WALL',
     enter: (ctx) => {
-      ctx.place([22.75, 0.05, -5.5], Math.PI);
+      ctx.place(WALLRUN_SPOT.pos, WALLRUN_SPOT.yaw);
       ctx.hud.toast('Sprint forward (SHIFT+W) and jump next to the wall', 5000);
     },
     done: (c) => c.flags.wallRunStarted,

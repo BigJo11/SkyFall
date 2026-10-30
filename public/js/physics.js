@@ -39,6 +39,8 @@ export class Body {
     this.wallRunTime = 0;
     this.wallNormal = null;
     this.wallSide = 0;
+    this.wallRunSpeed = 0;
+    this.wallRunCooldown = 0;
     this.lastWallBox = null;
     this.eyeOffset = 0;
     this.airTime = 0;
@@ -111,14 +113,36 @@ export class Body {
       if (dist < 1e-4) continue;
       if (dist > this.radius + reach) continue;
       if (b.maxY <= this.y + this.stepHeight + 0.05) continue;
-      // a corner (offset on both axes) gives a diagonal normal — wall running
-      // along one needs a flat face, so skip those
-      if (Math.abs(dx) > 1e-4 && Math.abs(dz) > 1e-4) continue;
       const nx = dx / dist;
       const nz = dz / dist;
       if (!best || dist < best.dist) best = { nx, nz, dist, box: b };
     }
     return best;
+  }
+
+  // Titanfall lets you pull yourself over a ledge you run into. If the top of
+  // the thing blocking you is within reach and there is room to stand, hop up.
+  tryMantle() {
+    if (this.onGround || this.wallRun) return false;
+    const wall = this.findWall(this.radius + 0.25);
+    if (!wall) return false;
+    const top = wall.box.maxY;
+    const rise = top - this.y;
+    if (rise < 0.25 || rise > MOVE.mantleHeight) return false;
+    // room to stand on top?
+    const feetY = top + 0.02;
+    for (const b of this.solids) {
+      const overX = this.x + this.radius > b.minX && this.x - this.radius < b.maxX;
+      const overZ = this.z + this.radius > b.minZ && this.z - this.radius < b.maxZ;
+      if (!overX || !overZ) continue;
+      if (b.maxY <= feetY + 0.02) continue;
+      if (b.minY < feetY + this.height - 0.1) return false;  // no headroom
+    }
+    this.y = feetY;
+    this.vy = Math.max(this.vy, MOVE.mantleHop);
+    this.airJumps = 1;
+    this.events.mantled = true;
+    return true;
   }
 
   // ------------------------------------------------------------- collision
@@ -168,7 +192,8 @@ export class Body {
   }
 
   // ------------------------------------------------------------- wall running
-  endWallRun() {
+  endWallRun(cooldown = 0) {
+    if (this.wallRun && cooldown > 0) this.wallRunCooldown = cooldown;
     this.wallRun = false;
     this.wallRunTime = 0;
     this.wallNormal = null;
@@ -177,7 +202,10 @@ export class Body {
 
   tryStartWallRun(wishX, wishZ, moveSpeed, yaw = 0) {
     if (this.onGround || this.wallRun) return false;
-    if (this.vy > 4.5) return false;                 // just jumped, too early
+    if (this.wallRunCooldown > 0) return false;
+    // a Titanfall wall run latches the moment you touch the wall, even on
+    // the way up — but not while you are still rocketing off a kick
+    if (this.vy > 9.5) return false;
     if (moveSpeed < MOVE.wallRunMinSpeed) return false;
     const wall = this.findWall();
     if (!wall) return false;
@@ -194,6 +222,7 @@ export class Body {
     const rightZ = -Math.sin(yaw);
     this.wallSide = Math.sign(wall.nx * rightX + wall.nz * rightZ) || 0;
     this.vy = Math.max(this.vy, MOVE.wallRunLift);
+    this.wallRunSpeed = Math.max(moveSpeed, MOVE.wallRunMinSpeed);
     this.airJumps = 1;
     // scrub only the component pushing into the wall — speed along it is kept
     const keep = Math.hypot(this.vx, this.vz);
@@ -267,6 +296,7 @@ export class Body {
 
     // ---- timers
     if (this.slideCooldown > 0) this.slideCooldown = Math.max(0, this.slideCooldown - dt);
+    if (this.wallRunCooldown > 0) this.wallRunCooldown = Math.max(0, this.wallRunCooldown - dt);
     if (this.slideBuffer > 0) this.slideBuffer = Math.max(0, this.slideBuffer - dt);
 
     // pressing slide in the air pre-arms it for the landing
@@ -291,15 +321,20 @@ export class Body {
       this.wallRunTime -= dt;
       const wall = this.findWall(MOVE.wallRunStick + 0.45);
       if (this.onGround || this.wallRunTime <= 0 || !wall) {
-        this.endWallRun();
+        this.endWallRun(MOVE.wallRunCooldown);
       } else {
         const tx = -this.wallNormal.z;
         const tz = this.wallNormal.x;
         const along = this.vx * tx + this.vz * tz;
         const dir = Math.sign(along) || 1;
+        const entry = this.wallRunSpeed || startSpeed;
         if (hasWish) {
+          // steering swings you along the wall; it never injects free speed
+          const sNow = this.horizontalSpeed;
+          const steerCap = Math.min(sNow + MOVE.wallRunSteer * dt, entry);
           this.vx += tx * dir * MOVE.wallRunSteer * dt;
           this.vz += tz * dir * MOVE.wallRunSteer * dt;
+          if (this.horizontalSpeed > steerCap) this.setHorizontal(steerCap);
         }
         // never drift into the wall: drop only the component pressing into it
         const into = this.vx * -this.wallNormal.x + this.vz * -this.wallNormal.z;
@@ -307,9 +342,10 @@ export class Body {
           this.vx += this.wallNormal.x * into;
           this.vz += this.wallNormal.z * into;
         }
-        // ...and wall running costs you nothing, so restore any lost speed
-        const s = this.horizontalSpeed;
-        if (s < startSpeed && s > 1e-3) this.setHorizontal(startSpeed * MOVE.wallRunKeep);
+        // a wall run carries your speed and builds a small amount on top
+        const goal = Math.min(entry + MOVE.wallRunAccel * (MOVE.wallRunMaxTime - this.wallRunTime),
+          MOVE.airSpeedCap);
+        if (this.horizontalSpeed < goal) this.setHorizontal(goal);
       }
     }
 
@@ -375,12 +411,13 @@ export class Body {
       // Classic air-strafe: only add speed up to the wish speed along that
       // direction, so turning while strafing lets you build momentum.
       if (hasWish) {
-        const wishSpeed = (wish.sprint ? PLAYER.sprintSpeed : PLAYER.walkSpeed) * 1.25;
         const along = this.vx * wx + this.vz * wz;
-        const addSpeed = wishSpeed - along;
+        const addSpeed = MOVE.airWishSpeed - along;
         if (addSpeed > 0) {
-          const control = Math.abs(wish.forward) > 0.05 && Math.abs(wish.right) < 0.05
-            ? MOVE.airControlMin : 1;
+          // holding forward alone steers weakly; a strafe (or forward+strafe)
+          // is what lets you carve and gain speed, exactly like airstrafing
+          const strafing = Math.abs(wish.right) > 0.05;
+          const control = strafing ? 1 : MOVE.airControlMin;
           const accel = Math.min(MOVE.airStrafeAccel * control * dt, addSpeed);
           this.vx += wx * accel;
           this.vz += wz * accel;
@@ -396,8 +433,18 @@ export class Body {
     }
 
     // ---- integrate horizontal
-    this.moveAxis('x', this.vx * dt);
-    this.moveAxis('z', this.vz * dt);
+    const wantX = this.vx * dt;
+    const wantZ = this.vz * dt;
+    const wasX = this.x;
+    const wasZ = this.z;
+    this.moveAxis('x', wantX);
+    this.moveAxis('z', wantZ);
+    const blocked = Math.hypot(this.x - wasX, this.z - wasZ)
+      < Math.hypot(wantX, wantZ) * 0.55;
+    if (blocked) {
+      if (this.events.wallRunStarted) this.events.wallRunStarted = false;
+      this.tryMantle();
+    }
 
     // ---- integrate vertical
     const prevFeet = this.y;

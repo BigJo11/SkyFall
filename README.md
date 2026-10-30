@@ -47,40 +47,52 @@ cheat a cooldown.
 
 ## Movement
 
-Titanfall-flavoured speed preservation. There is no stamina and no meter to
-manage — **speed is the resource**:
+Built to feel like **Titanfall 2**: fast, fluid, and entirely free of meters or
+stamina. Speed is the resource — in the air you keep whatever you left the
+ground with, and the trick is never to touch down flat.
 
-* In the air you **keep whatever speed you left the ground with**. Nothing drags
-  you down mid-jump.
-* **Air strafing** (holding forward + a strafe direction while turning) lets you
-  build *more* speed than sprinting.
-* A **double jump** costs you a little speed (~14%) — not all of it.
-* Touching the ground normally **throws your momentum away**. Land in a **slide**
-  (press `C` just before you touch down) and you keep every bit of it, plus a
-  small boost.
-* **Wall running** never costs speed, so you can chain wall runs with jumps.
+* **Air speed is untouched.** No drag, no falloff. What you jump with is what
+  you land with.
+* **Air strafing** — hold forward + a strafe key and turn. Air acceleration only
+  pushes you as far as `airWishSpeed` *along the wish direction*, so rotating
+  your wish vector lets you carve past sprint speed. Holding forward alone will
+  not turn you into a rocket.
+* **Double jump** — one per airtime, costs ~13% of your horizontal speed plus a
+  fixed upward kick. Refreshed by landing and by every wall kick.
+* **Landing flat kills your speed** (capped at ~half sprint speed). Land in a
+  **slide** and you keep 100% of it with a small boost — that is the skill.
+* **Wall running** carries your momentum and builds a little on top
+  (about +1.2 m/s/s), lasts ~1.9 s, softens gravity, allows corner faces, and
+  cannot be re-latched instantly onto the next panel. Kicking off a wall keeps
+  your speed, refreshes the double jump, and pushes along the wall normal.
+* **Mantling** — run into a ledge up to 1.45 m above your feet and you pull
+  yourself over it instead of bouncing off.
 
 | Move | Input | Notes |
 | --- | --- | --- |
 | **Sprint** | `Shift` + `WASD` | 10.2 m/s on the ground |
 | **Sprint jump** | `Space` while sprinting | speed carries through the whole jump |
-| **Double jump** | `Space` again in mid-air | one per airtime, costs ~14% speed |
-| **Wall run** | sprint along a wall and jump | softened gravity, steered along flat faces, no speed loss, once per wall until you land |
-| **Wall kick** | `Space` during a wall run | pushes off the wall, refreshes the double jump, keeps speed |
+| **Double jump** | `Space` again in mid-air | one per airtime, costs ~13% speed |
+| **Air strafe** | forward + `A`/`D` while turning | the only way to go faster than sprint |
+| **Wall run** | sprint along a wall and jump | ~1.9 s, soft gravity, no speed loss, latches even while rising |
+| **Wall kick** | `Space` during a wall run | pushes off the wall, refreshes the double jump |
 | **Slide** | `C` / `Ctrl` while sprinting, or while falling | fast, steerable, preserves momentum on landing |
 | **Slide jump** | `Space` during a slide | keeps the slide speed in the air |
+| **Mantle** | run at a low ledge | automatic ledge grab |
 
-The HUD speedometer shows your live speed in m/s and tags it `WALK` /
-`SPRINT` / `MOMENTUM`, so you can see exactly when a landing costs you speed.
+The HUD carries **no movement labels** — just a speedometer bar and a number in
+m/s, so you read your momentum off the bar. Tutorial objectives are the only
+place moves are named, and they only appear in the tutorial.
 
 ## Practice & tutorial
 
 Both run **offline in the browser** — no server, no sign-in, no other players.
 
-* **Practice** — a live-fire range on the east side of the plate: six dummies
-  that respawn 1.6 s after you destroy them, an endless magazine economy, and a
-  stats panel counting dummies downed, jumps, wall runs, slides and your best
-  momentum. Fall off the edge and you are dropped back on the firing line.
+* **Practice** — a live-fire range down the eastern ring road of the map: a
+  30 m clear lane with six dummies at staggered ranges that respawn 1.6 s after
+  you destroy them, an endless magazine economy, and a stats panel counting
+  dummies downed, jumps, wall runs, slides and your top speed. Fall off the edge
+  and you are dropped back on the firing line.
 * **Tutorial** — 15 objectives that teach the whole game in order: move, look,
   jump, sprint, sprint jump, double jump, wall run, wall kick, slide,
   carry speed (land in a slide), then rifle → sniper → knife → reload. Each step advances the moment you
@@ -105,6 +117,31 @@ Both run **offline in the browser** — no server, no sign-in, no other players.
 | `Esc` | pause menu (sensitivity, volume, FOV) |
 | `M` | mute |
 | `N` | skip a tutorial step |
+
+## The map
+
+One big arena, **150 × 150 m**, built entirely from boxes in `shared/map.js` and
+merged into a single draw call on load.
+
+* **Central keep** — 30 × 30 m, roof at 9 m, four staircases up, parapet gaps to
+  shoot through, rooftop cover and a courtyard with pillars.
+* **Four quadrant towers** — 20 × 20 m, roofs at 8 m, stairs on two faces,
+  parapets and crate stacks.
+* **Catwalks** at `z = ±30` with gaps and support pylons, linking the quadrants.
+* **Eight wall-run spokes** — 26 m long, 8 m tall, 1.4 m thick, radiating from
+  the keep, so there is always a wall to chain off.
+* **A broken outer ring** at ±66 m (9 m tall, buttress posts) that fences the
+  play area and doubles as the longest wall-run surface on the map.
+* **Cover everywhere** — ~28 crates, six crate stacks, eight 5.4 m cover pillars
+  and twelve funnel walls spread across all four quadrants, so you are never
+  more than a few metres from something to break a sightline.
+* **Sky islands** at `z = ±94` with stub bridges, plus decorative debris, for
+  players who want to fight above the plate.
+* **12 spawn points** verified clear, each facing the middle of the map.
+
+`tests/map.test.mjs` asserts the plate has no holes, every spawn is standing
+room, every staircase can actually be walked up, the practice lane is clear, and
+the wall-run staging spot produces a real wall run.
 
 ## How it works
 
@@ -131,7 +168,7 @@ Both run **offline in the browser** — no server, no sign-in, no other players.
 server/server.js      static file server + WebSocket lobby
 server/game.js        authoritative match state, weapons, damage, respawns
 shared/constants.js   weapon and movement balance
-shared/map.js         arena geometry + spawn points
+shared/map.js         150 m arena, spawns, practice-range markers
 shared/collision.js   ray/AABB + ray/capsule maths used by server and client
 public/index.html     title screen, HUD, menus
 public/js/main.js     game loop, input, prediction, networking glue
@@ -191,7 +228,7 @@ nothing"). The build id is also shown in the bottom-right of the title screen an
 sent as an `X-Skyfall-Build` header, and the client flags a mismatch on screen if
 it ever sees one.
 
-If a menu button ever seems dead, check the tag: `build <id> · movement v3`
+If a menu button ever seems dead, check the tag: `build <id> · tf2 movement v4`
 means the current code is running. Press `Ctrl/Cmd + Shift + R` to force a fresh
 load.
 
@@ -201,13 +238,14 @@ load.
 npm test
 ```
 
-99 checks across eight suites:
+118 checks across nine suites:
 
 | Suite | Covers |
 | --- | --- |
 | `tests/game.test.mjs` | weapon damage, fire rates, cooldowns, hit detection, regen, respawn, anti-cheat |
-| `tests/physics.test.mjs` | walking, stairs, walls, jumping, ledges, crates |
-| `tests/movement.test.mjs` | air speed preservation, air-strafe gains, landing loss vs slide landing, double-jump cost, wall run speed/lifetime/corners/wall kicks, slides, chained combos |
+| `tests/physics.test.mjs` | walking, stairs, walls, jumping, ledges, crates, plus the real arena (spawns, stairs, cover, void) |
+| `tests/map.test.mjs` | map size and cover distribution, spawn clearance, walkable staircases, practice lane and dummies, wall-run staging spot |
+| `tests/movement.test.mjs` | air speed preservation, air-strafe gains, landing loss vs slide landing, double-jump cost, wall run speed/lifetime/corners/cooldown/wall kicks, mantling, slides, chained combos |
 | `tests/tutorial.test.mjs` | practice dummies, respawns, stats, and the full 15-step tutorial state machine |
 | `tests/scene.test.mjs` | every 3D module built against real Three.js (no GPU needed) |
 | `tests/ui.test.mjs` | the real `index.html` driven through jsdom: HUD, killfeed, scoreboard, input |

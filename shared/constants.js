@@ -27,45 +27,55 @@ export const PLAYER = {
   hspeedTolerance: 2.1,   // server sanity multiplier for client reported speed
 };
 
-// Advanced movement: Titanfall-flavoured speed preservation.
+// Movement tuned after Titanfall 2:
 //
-//  * in the air you KEEP your speed — nothing bleeds it away
-//  * a double jump only costs you SOME of it
-//  * touching the ground costs you ALL of it ... unless you slide into the
-//    landing, which preserves everything (and can even add a little)
-//  * wall runs preserve speed too, so you can chain them
+//  * air control is generous — holding a strafe and turning builds speed
+//  * the air never drags you down; you keep whatever you left the ground with
+//  * wall running ACCELERATES you, keeps your momentum and can be chained from
+//    wall to wall; corners are runnable
+//  * a double jump costs only a slice of your horizontal speed
+//  * landing on your feet bleeds speed down to run speed, but slamming into a
+//    slide instead keeps everything (slide hopping)
 export const MOVE = {
-  airSpeedCap: 30,          // hard sanity cap, only reachable by long chains
-  airStrafeAccel: 46,       // m/s^2 of wish-directed acceleration in the air
-  airControlMin: 0.55,      // fraction of strafe accel when holding forward only
+  airSpeedCap: 32,          // hard sanity cap for long chains
+  airStrafeAccel: 150,      // m/s^2 of wish-directed air acceleration
+  airWishSpeed: 10.5,       // air control tops out at sprint speed along the
+                            // wish direction — extra speed comes from carving
+  airControlMin: 0.4,       // holding forward only steers weakly
 
-  doubleJumpSpeed: 7.6,
-  doubleJumpKeep: 0.86,     // you only lose ~14% of your horizontal speed
+  doubleJumpSpeed: 7.8,
+  doubleJumpKeep: 0.87,     // you only lose ~13% of your horizontal speed
 
-  landKeep: 0.3,            // normal landing: momentum is gone
-  landCap: 0.45,            // ...and never above this fraction of sprint speed
+  landKeep: 0.35,           // normal landing: momentum is gone
+  landCap: 0.42,            // ...and never above this fraction of sprint speed
   slideLandKeep: 1.0,       // landing into a slide keeps everything
 
-  wallRunMaxTime: 1.15,
-  wallRunGravity: 5.5,
-  wallRunLift: 2.2,
+  wallRunMaxTime: 1.9,
+  wallRunCooldown: 0.3,     // you cannot latch straight onto the next panel
+  wallRunGravity: 4.6,
+  wallRunLift: 2.4,
+  wallRunAccel: 1.2,        // sped up while running a wall
   wallRunMinSpeed: 3.4,
-  wallRunStick: 0.62,
-  wallRunSteer: 7.0,
-  wallRunKeep: 1.0,         // wall running does not cost speed
+  wallRunStick: 0.65,
+  wallRunSteer: 9.0,
+  wallRunKeep: 1.0,         // wall running never costs speed
 
-  wallJumpPush: 6.4,
-  wallJumpUp: 7.8,
+  mantleHeight: 1.45,       // ledge grab reach above your feet
+  mantleHop: 1.6,           // small upward nudge when you pull yourself up
 
-  slideSpeed: 13.6,
-  slideMinSpeed: 6.0,
-  slideDuration: 1.35,
-  slideFriction: 1.7,
-  slideSteer: 5.0,
-  slideBoost: 1.04,
+  wallJumpPush: 6.8,
+  wallJumpUp: 8.0,
+  wallJumpKeep: 1.0,
+
+  slideSpeed: 14.2,
+  slideMinSpeed: 5.5,
+  slideDuration: 1.5,
+  slideFriction: 1.5,
+  slideSteer: 5.4,
+  slideBoost: 1.05,
   slideEyeOffset: -0.55,
-  slideCooldown: 0.3,
-  slideBuffer: 0.35,        // press slide this long before landing and it sticks
+  slideCooldown: 0.25,
+  slideBuffer: 0.4,         // press slide this long before landing and it sticks
   slideJumpKeep: 1.0,
 };
 

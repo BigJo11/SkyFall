@@ -144,7 +144,7 @@ let session = null;
 // Build stamp: makes it obvious which version the browser actually loaded, and
 // catches the classic "new page, old cached scripts" situation where every
 // button appears dead.
-const BUILD = 'movement v3';
+const BUILD = 'tf2 movement v4';
 
 function detectStaleBuild() {
   try {
@@ -516,7 +516,6 @@ function startLocalMode(kind) {
   hud.scope(false);
   hud.showObjectiveDone(false);
   hud.setSpeed(0);
-  hud.moveState('');
   $('title').classList.add('hidden');
   $('loading').classList.add('hidden');
   $('pause').classList.add('hidden');
@@ -858,7 +857,6 @@ function leaveToTitle(reason) {
   hud.showObjectiveDone(false);
   hud.showObjective(null);
   hud.setSpeed(0);
-  hud.moveState('');
   avatars.map.forEach((a) => a.dispose(scene));
   avatars.map.clear();
   $('pause').classList.add('hidden');
@@ -1079,11 +1077,8 @@ function frame(now) {
   hud.crosshairGap(currentGap + (targetGap - currentGap) * Math.min(1, dt * 14));
   gapEl.style.opacity = state.alive ? '1' : '0.25';
 
-  // momentum meter + movement callout
-  hud.setSpeed(body.speed, PLAYER.sprintSpeed, PLAYER.walkSpeed);
-  if (body.wallRun) hud.moveState('WALL RUN', 'wall');
-  else if (body.sliding) hud.moveState('SLIDE', 'slide');
-  else if (!body.onGround && body.airJumps === 0) hud.moveState('AIRBORNE');
+  // speed readout only — no move names on screen
+  hud.setSpeed(body.speed);
 
   world.update(dt, camera.position);
   effects.update(dt);
@@ -1114,6 +1109,7 @@ requestAnimationFrame(frame);
 window.SKYFALL = {
   state, hud, net, body, camera, avatars, viewmodel, effects, world, settings, input,
   get session() { return session; },
+  aimTrace: () => localRaycast(240),
   startLocalMode, leaveToTitle,
 };
 

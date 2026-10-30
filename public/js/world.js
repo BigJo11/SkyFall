@@ -9,7 +9,7 @@ const SKY_MID = 0x4a7ea8;
 const SKY_LOW = 0xa9c6dc;
 
 export function buildWorld(renderer, scene, camera) {
-  scene.fog = new THREE.Fog(0x9db9cf, 90, 300);
+  scene.fog = new THREE.Fog(0x9db9cf, 160, 520);
 
   // ---------------------------------------------------------------- sky dome
   const skyGeo = new THREE.SphereGeometry(600, 32, 24);
@@ -58,10 +58,10 @@ export function buildWorld(renderer, scene, camera) {
   sun.position.set(-60, 74, -120);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -62;
-  sun.shadow.camera.right = 62;
-  sun.shadow.camera.top = 62;
-  sun.shadow.camera.bottom = -62;
+  sun.shadow.camera.left = -78;
+  sun.shadow.camera.right = 78;
+  sun.shadow.camera.top = 78;
+  sun.shadow.camera.bottom = -78;
   sun.shadow.camera.near = 1;
   sun.shadow.camera.far = 320;
   sun.shadow.bias = -0.0008;
@@ -86,21 +86,16 @@ export function buildWorld(renderer, scene, camera) {
   const world = new THREE.Group();
   scene.add(world);
 
+  // The arena is a few hundred boxes, so they are merged into ONE vertex
+  // coloured mesh: a single draw call instead of thousands.
+  const merged = buildArenaGeometry(ARENA.boxes);
+  const arenaMesh = new THREE.Mesh(merged, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  arenaMesh.castShadow = true;
+  arenaMesh.receiveShadow = true;
+  arenaMesh.frustumCulled = false;
+  world.add(arenaMesh);
+
   const geo = new THREE.BoxGeometry(1, 1, 1);
-  for (const b of ARENA.boxes) {
-    const side = b.c;
-    const top = b.ct ?? b.c;
-    const bottom = new THREE.Color(b.c).multiplyScalar(0.45).getHex();
-    const mats = [
-      mat(side), mat(side), mat(top), mat(bottom), mat(side), mat(side),
-    ];
-    const m = new THREE.Mesh(geo, mats);
-    m.position.set(b.p[0], b.p[1], b.p[2]);
-    m.scale.set(b.s[0], b.s[1], b.s[2]);
-    m.castShadow = b.solid !== false;
-    m.receiveShadow = true;
-    world.add(m);
-  }
 
   // ---------------------------------------------------------------- accents
   const accents = [];
@@ -117,25 +112,28 @@ export function buildWorld(renderer, scene, camera) {
   }
 
   // glowing edge lines along the four sides of the main plate
+  const HALF = ARENA.size / 2;
   for (const s of [-1, 1]) {
-    strip(0, -0.02, s * 36.1, 72, 0.06, 0.24, accentMat);
-    strip(s * 36.1, -0.02, 0, 0.24, 0.06, 72, accentMat);
+    strip(0, -0.02, s * (HALF + 0.1), ARENA.size, 0.06, 0.24, accentMat);
+    strip(s * (HALF + 0.1), -0.02, 0, 0.24, 0.06, ARENA.size, accentMat);
   }
-  // deck ring
+  // keep roof edge lighting
   for (const s of [-1, 1]) {
-    strip(0, 2.82, s * 10, 20, 0.05, 0.18, accentMat);
-    strip(s * 10, 2.82, 0, 0.18, 0.05, 20, accentMat);
+    strip(0, 9.02, s * 15, 30, 0.05, 0.2, accentMat);
+    strip(s * 15, 9.02, 0, 0.2, 0.05, 30, accentMat);
   }
-  // tower beacons
+  // keep / quadrant beacons
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
-      const beac = strip(sx * 26, 6.0, sz * 26, 0.5, 0.5, 0.5, accentRed.clone());
-      accents.push({ mesh: beac, base: sx * 26, phase: Math.random() * 6 });
+      const beac = strip(sx * 42, 9.4, sz * 42, 0.7, 0.7, 0.7, accentRed.clone());
+      accents.push({ mesh: beac, base: sx * 42, phase: Math.random() * 6 });
+      const ring = strip(sx * 66, 10.2, sz * 22.7, 0.6, 0.6, 0.6, accentMat.clone());
+      accents.push({ mesh: ring, base: 66, phase: Math.random() * 6 });
     }
   }
   // island beacons
   for (const sz of [-1, 1]) {
-    const b = strip(0, 1.6, sz * 53.5, 0.4, 0.4, 0.4, accentMat.clone());
+    const b = strip(0, 5.2, sz * 94, 0.5, 0.5, 0.5, accentMat.clone());
     accents.push({ mesh: b, base: 0.4, phase: Math.random() * 6, island: true });
   }
 
@@ -143,13 +141,13 @@ export function buildWorld(renderer, scene, camera) {
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
       const g = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.35, 1.4, 26, 8, 1, true),
+        new THREE.CylinderGeometry(0.5, 2.2, 34, 8, 1, true),
         new THREE.MeshBasicMaterial({
           color: 0x5fb8e8, transparent: true, opacity: 0.055,
           blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
         })
       );
-      g.position.set(sx * 26, -13, sz * 26);
+      g.position.set(sx * 12, -17, sz * 12);
       world.add(g);
     }
   }
@@ -166,9 +164,9 @@ export function buildWorld(renderer, scene, camera) {
   for (let i = 0; i < 46; i++) {
     const s = new THREE.Sprite(cloudMat);
     const angle = Math.random() * Math.PI * 2;
-    const radius = 55 + Math.random() * 260;
+    const radius = 110 + Math.random() * 300;
     s.position.set(Math.cos(angle) * radius, -34 - Math.random() * 60, Math.sin(angle) * radius);
-    const sc = 45 + Math.random() * 110;
+    const sc = 60 + Math.random() * 140;
     s.scale.set(sc, sc * 0.5, 1);
     s.userData.spin = (Math.random() - 0.5) * 0.05;
     s.userData.baseY = s.position.y;
@@ -180,27 +178,27 @@ export function buildWorld(renderer, scene, camera) {
   // cloud layer directly below the arena so looking down reads as sky
   const layerTex = cloudTexture();
   layerTex.wrapS = layerTex.wrapT = THREE.RepeatWrapping;
-  layerTex.repeat.set(5, 5);
+  layerTex.repeat.set(7, 7);
   const layer = new THREE.Mesh(
-    new THREE.PlaneGeometry(700, 700),
+    new THREE.PlaneGeometry(1100, 1100),
     new THREE.MeshBasicMaterial({
       map: layerTex, transparent: true, opacity: 0.5, depthWrite: false,
       color: 0xeaf4ff, blending: THREE.NormalBlending, side: THREE.DoubleSide,
     })
   );
   layer.rotation.x = -Math.PI / 2;
-  layer.position.y = -48;
+  layer.position.y = -60;
   scene.add(layer);
 
   // ---------------------------------------------------------------- particles
   const dustTex = softCircleTexture(64);
-  const dustCount = 260;
+  const dustCount = 420;
   const dustPos = new Float32Array(dustCount * 3);
   const dustSeed = [];
   for (let i = 0; i < dustCount; i++) {
-    dustPos[i * 3] = (Math.random() - 0.5) * 130;
-    dustPos[i * 3 + 1] = Math.random() * 40 - 12;
-    dustPos[i * 3 + 2] = (Math.random() - 0.5) * 130;
+    dustPos[i * 3] = (Math.random() - 0.5) * 220;
+    dustPos[i * 3 + 1] = Math.random() * 55 - 16;
+    dustPos[i * 3 + 2] = (Math.random() - 0.5) * 220;
     dustSeed.push(Math.random() * Math.PI * 2);
   }
   const dustGeo = new THREE.BufferGeometry();
@@ -238,7 +236,7 @@ export function buildWorld(renderer, scene, camera) {
     }
     dust.material.opacity = 0.35 + Math.sin(time * 0.4) * 0.1;
     // sun target follows the player loosely so shadows stay crisp locally
-    sun.position.set(camPos.x - 60, camPos.y + 74, camPos.z - 120);
+    sun.position.set(camPos.x - 60, camPos.y + 96, camPos.z - 120);
     sun.target.position.set(camPos.x, camPos.y - 6, camPos.z);
     sun.target.updateMatrixWorld();
   }
@@ -250,4 +248,57 @@ export function buildWorld(renderer, scene, camera) {
     sunDir: skyMat.uniforms.sunDir.value.clone(),
     boxGeometry: geo,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Merge every arena box into a single vertex-coloured geometry.
+// 36 vertices per box (non-indexed box), colour picked per face from the box's
+// side / top / bottom colours.
+// ---------------------------------------------------------------------------
+export function buildArenaGeometry(boxes) {
+  const template = new THREE.BoxGeometry(1, 1, 1).toNonIndexed();
+  const tPos = template.attributes.position.array;
+  const tNrm = template.attributes.normal.array;
+
+  const count = boxes.length;
+  const positions = new Float32Array(count * 36 * 3);
+  const normals = new Float32Array(count * 36 * 3);
+  const colors = new Float32Array(count * 36 * 3);
+  const color = new THREE.Color();
+  const bottomColor = new THREE.Color();
+
+  let p = 0;
+  for (const b of boxes) {
+    const [px, py, pz] = b.p;
+    const [sx, sy, sz] = b.s;
+    bottomColor.setHex(b.c).multiplyScalar(0.45);
+    for (let i = 0; i < 36; i++) {
+      const ix = i * 3;
+      positions[p + ix] = tPos[ix] * sx + px;
+      positions[p + ix + 1] = tPos[ix + 1] * sy + py;
+      positions[p + ix + 2] = tPos[ix + 2] * sz + pz;
+      normals[p + ix] = tNrm[ix];
+      normals[p + ix + 1] = tNrm[ix + 1];
+      normals[p + ix + 2] = tNrm[ix + 2];
+
+      const ny = tNrm[ix + 1];
+      if (ny > 0.5) color.setHex(b.ct ?? b.c);
+      else if (ny < -0.5) color.copy(bottomColor);
+      else color.setHex(b.c);
+
+      // per-vertex shading nudge so big flat walls still read as surfaces
+      colors[p + ix] = color.r;
+      colors[p + ix + 1] = color.g;
+      colors[p + ix + 2] = color.b;
+    }
+    p += 108;
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.computeBoundingSphere();
+  template.dispose();
+  return geo;
 }

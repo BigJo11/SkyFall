@@ -37,8 +37,6 @@ export class Hud {
       speedometer: $('speedometer'),
       speedFill: $('speedFill'),
       speedVal: $('speedVal'),
-      speedTag: $('speedTag'),
-      moveState: $('moveState'),
       objective: $('objective'),
       objIndex: $('objIndex'),
       objTitle: $('objTitle'),
@@ -52,7 +50,6 @@ export class Hud {
       psMomentum: $('psMomentum'),
       objectiveDone: $('objectiveDone'),
     };
-    this.moveStateTimer = 0;
     this.objectiveId = null;
     this.killfeedEntries = [];
     this.vignette = 0;
@@ -233,31 +230,13 @@ export class Hud {
   }
 
   // ---------------------------------------------------------- movement
-  // Speedometer: the bar fills against 24 m/s, the tag tells you whether you
-  // are walking, sprinting or carrying momentum above sprint speed.
-  setSpeed(mps = 0, sprint = 10.2, walk = 7.4) {
+  // Speedometer: just the number and a bar. No words — movement is not named
+  // on screen, you read it off the bar.
+  setSpeed(mps = 0) {
     const pct = Math.max(0, Math.min(1, mps / 24));
     this.el.speedFill.style.width = (pct * 100).toFixed(1) + '%';
     this.el.speedVal.textContent = mps.toFixed(1);
-    const tag = this.el.speedTag;
-    const carrying = mps > sprint + 0.25;
-    tag.textContent = carrying ? 'MOMENTUM' : mps > walk + 0.25 ? 'SPRINT' : 'WALK';
-    tag.classList.toggle('momentum', carrying);
-    this.el.speedometer.classList.toggle('hot', carrying);
-  }
-
-  moveState(text, kind = '') {
-    const el = this.el.moveState;
-    if (!text) {
-      el.classList.remove('on', 'wall', 'slide');
-      this.moveStateTimer = 0;
-      return;
-    }
-    if (el.textContent !== text) el.textContent = text;
-    el.classList.add('on');
-    el.classList.toggle('wall', kind === 'wall');
-    el.classList.toggle('slide', kind === 'slide');
-    this.moveStateTimer = 0.6;
+    this.el.speedometer.classList.toggle('hot', mps > 13.6);
   }
 
   // ---------------------------------------------------------- practice / tutorial
@@ -308,10 +287,6 @@ export class Hud {
   }
 
   update(dt) {
-    if (this.moveStateTimer > 0) {
-      this.moveStateTimer -= dt;
-      if (this.moveStateTimer <= 0) this.el.moveState.classList.remove('on');
-    }
     if (this.vignette > 0) {
       this.vignette = Math.max(0, this.vignette - dt * 1.6);
       this.el.vignette.style.opacity = String(this.vignette * 0.9);

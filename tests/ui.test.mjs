@@ -49,7 +49,7 @@ test('title screen shows the SKYFALL logo and deploy flow', () => {
   const controls = document.querySelector('.keys').textContent;
   assert.match(controls, /double jump/i);
   assert.match(controls, /slide/i);
-  assert.match(document.querySelector('.momentum-note').textContent, /KEEP YOUR SPEED/i);
+  assert.equal(document.querySelector('.momentum-note'), null, 'no movement blurb on the title');
 });
 
 const hud = new Hud();
@@ -138,29 +138,28 @@ test('death screen + respawn countdown', () => {
   assert.equal(document.getElementById('deathScreen').classList.contains('hidden'), true);
 });
 
-test('speedometer, movement callout and practice stats', () => {
+test('speedometer shows numbers only — movement is never named on screen', () => {
   hud.setSpeed(0);
   assert.equal(parseFloat(document.getElementById('speedFill').style.width), 0);
   assert.equal(document.getElementById('speedVal').textContent, '0.0');
-  assert.equal(document.getElementById('speedTag').textContent, 'WALK');
 
-  hud.setSpeed(8.5);
-  assert.equal(document.getElementById('speedTag').textContent, 'SPRINT');
   hud.setSpeed(14.3);
   assert.equal(document.getElementById('speedVal').textContent, '14.3');
-  assert.equal(document.getElementById('speedTag').textContent, 'MOMENTUM');
-  assert.ok(document.getElementById('speedometer').classList.contains('hot'), 'hot above sprint');
+  assert.ok(document.getElementById('speedometer').classList.contains('hot'), 'hot at speed');
   assert.ok(Math.abs(parseFloat(document.getElementById('speedFill').style.width) - 59.6) < 0.05);
   hud.setSpeed(99); // clamped bar
   assert.equal(parseFloat(document.getElementById('speedFill').style.width), 100);
   hud.setSpeed(0);
+  assert.equal(document.getElementById('speedometer').classList.contains('hot'), false);
 
-  hud.moveState('WALL RUN', 'wall');
-  const ms = document.getElementById('moveState');
-  assert.equal(ms.textContent, 'WALL RUN');
-  assert.ok(ms.classList.contains('on') && ms.classList.contains('wall'));
-  hud.moveState('');
-  assert.equal(ms.classList.contains('on'), false);
+  // the old WALK / SPRINT / MOMENTUM tag and the move-name callout are gone
+  assert.equal(document.getElementById('speedTag'), null, 'no speed tag');
+  assert.equal(document.getElementById('moveState'), null, 'no move callout');
+  // the speedometer itself carries no words beyond the unit
+  const speedText = document.getElementById('speedometer').textContent.toUpperCase();
+  for (const w of ['RIT', 'MOMENTUM', 'WALL RUN', 'SLIDE', 'AIRBORNE', 'WALK']) {
+    assert.equal(speedText.includes(w), false, `"${w}" is not written on the speedometer`);
+  }
 
   hud.showPractice(true);
   assert.equal(document.getElementById('practiceStats').classList.contains('hidden'), false);

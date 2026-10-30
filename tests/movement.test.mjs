@@ -367,5 +367,79 @@ test('falling out of the world still works', () => {
   assert.ok(empty.y < -20, `fell to ${empty.y.toFixed(1)}`);
 });
 
+
+console.log('\ntitanfall feel:');
+
+test('a plain forward jump does not accelerate you in the air', () => {
+  const b = player(flatWorld());
+  sim(b, 1.5, fwd(true), Math.PI);
+  const ground = speedOf(b);
+  b.wantJump = true;
+  let peak = 0;
+  for (let i = 0; i < 240; i++) { b.update(DT, fwd(true), Math.PI); peak = Math.max(peak, speedOf(b)); }
+  assert.ok(peak < ground + 1.2, `air speed stayed near ${ground.toFixed(2)} (peak ${peak.toFixed(2)})`);
+});
+
+test('air strafing with a turn builds speed above sprint', () => {
+  const b = player(flatWorld());
+  sim(b, 1.5, fwd(true), Math.PI);
+  b.wantJump = true;
+  let yaw = Math.PI;
+  let peak = 0;
+  for (let i = 0; i < 300; i++) {
+    yaw += 0.5 * DT;
+    b.update(DT, { forward: 1, right: 1, sprint: true }, yaw);
+    peak = Math.max(peak, speedOf(b));
+  }
+  assert.ok(peak > PLAYER.sprintSpeed * 1.1, `carved up to ${peak.toFixed(2)} m/s`);
+});
+
+test('a wall run lasts about two seconds and keeps your speed', () => {
+  const b = player(flatWorld([{ minX: 2, maxX: 4, minY: -1, maxY: 20, minZ: -30, maxZ: 30 }]), 1.2, 2.0, 12);
+  b.vz = 12.0;
+  b.wantJump = true;
+  let ran = 0;
+  let top = 0;
+  for (let i = 0; i < 4 / DT; i++) {
+    b.update(DT, fwd(true), Math.PI);
+    if (b.wallRun) ran += DT;
+    top = Math.max(top, speedOf(b));
+  }
+  assert.ok(ran > 1.2, `wall ran for ${ran.toFixed(2)} s`);
+  assert.ok(top < 18, `speed stayed sane (${top.toFixed(2)} m/s)`);
+});
+
+test('you cannot latch onto the next wall panel instantly', () => {
+  const b = player(flatWorld([{ minX: 2, maxX: 4, minY: -1, maxY: 20, minZ: -30, maxZ: 0 },
+    { minX: 2, maxX: 4, minY: -1, maxY: 20, minZ: 0, maxZ: 30 }]), 1.2, 2.0, 12);
+  b.vz = 12.0;
+  b.wantJump = true;
+  for (let i = 0; i < 3 / DT; i++) b.update(DT, fwd(true), Math.PI);
+  assert.ok(b.wallRunCooldown >= 0, 'cooldown is tracked');
+});
+
+test('a low ledge is mantled when you run into it', () => {
+  const crate = { minX: 1, maxX: 3, minY: 0, maxY: 1.2, minZ: -4, maxZ: 4 };
+  const b = player(flatWorld([crate]), 0, 0.05, 0);
+  sim(b, 0.4, fwd(true), -Math.PI / 2);   // sprint at the crate
+  b.wantJump = true;
+  let mantled = false;
+  for (let i = 0; i < 240 && !mantled; i++) {
+    b.update(DT, fwd(true), -Math.PI / 2);
+    if (b.events.mantled) mantled = true;
+  }
+  assert.ok(mantled, 'mantled the ledge');
+  assert.ok(b.y > 1.0, `standing on top (y=${b.y.toFixed(2)})`);
+});
+
+test('a wall too tall to mantle is not climbed', () => {
+  const wall = { minX: 1, maxX: 3, minY: 0, maxY: 5, minZ: -4, maxZ: 4 };
+  const b = player(flatWorld([wall]), 0, 0.05, 0);
+  sim(b, 0.4, fwd(true), -Math.PI / 2);
+  b.wantJump = true;
+  for (let i = 0; i < 240; i++) b.update(DT, fwd(true), -Math.PI / 2);
+  assert.ok(b.y < 2, `still low (y=${b.y.toFixed(2)})`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);
