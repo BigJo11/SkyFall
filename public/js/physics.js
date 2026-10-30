@@ -1,6 +1,11 @@
-// Local player movement: momentum, sprint jumps, double jump, wall running,
-// wall kicks and sliding. Boxes whose top is within step height become
-// walkable (stairs); taller boxes and boxes above the feet become walls.
+// Local player movement.
+//
+// Speed is the resource: in the air you keep whatever speed you left the ground
+// with, air strafing lets you build more, a double jump costs a little, and
+// touching the ground costs all of it — unless you land into a slide.
+//
+// Boxes whose top is within step height become walkable (stairs); taller boxes
+// and boxes above the feet become walls (used for wall running).
 import { PLAYER, MOVE } from '../../shared/constants.js';
 
 const EPS = 0.0015;
@@ -21,31 +26,35 @@ export class Body {
     this.wantJump = false;
     this.wantSlide = false;
 
-    // ---- advanced movement state
-    this.momentum = 0;
-    this.airJumps = MOVE.airJumps;
+    // ---- movement state
+    this.airJumps = 1;
+    this.speed = 0;
+    this.peakSpeed = 0;
     this.sliding = false;
     this.slideTime = 0;
     this.slideCooldown = 0;
+    this.slideBuffer = 0;
+    this.slideDir = 0;
     this.wallRun = false;
     this.wallRunTime = 0;
-    this.wallNormal = null;   // {x, z} pointing away from the wall
-    this.wallSide = 0;        // -1 left, +1 right (for camera roll)
-    this.lastWallBox = null;  // no re-grabbing the same wall without landing
-    this.eyeOffset = 0;       // smoothed slide crouch
-    this.speed = 0;
-    this.groundedLastFrame = true;
+    this.wallNormal = null;
+    this.wallSide = 0;
+    this.lastWallBox = null;
+    this.eyeOffset = 0;
     this.airTime = 0;
     this.events = {};
   }
 
   reset() {
     this.vx = this.vy = this.vz = 0;
-    this.momentum = 0;
-    this.airJumps = MOVE.airJumps;
+    this.airJumps = 1;
+    this.speed = 0;
+    this.peakSpeed = 0;
     this.sliding = false;
     this.slideTime = 0;
     this.slideCooldown = 0;
+    this.slideBuffer = 0;
+    this.lastWallBox = null;
     this.endWallRun();
   }
 
@@ -53,10 +62,11 @@ export class Body {
     this.x = x; this.y = y; this.z = z;
     this.vx = this.vy = this.vz = 0;
     this.onGround = false;
-    this.momentum = 0;
-    this.airJumps = MOVE.airJumps;
+    this.airJumps = 1;
+    this.speed = 0;
     this.sliding = false;
     this.slideTime = 0;
+    this.slideBuffer = 0;
     this.lastWallBox = null;
     this.endWallRun();
   }
@@ -86,8 +96,7 @@ export class Body {
     return best;
   }
 
-  // Nearest wall beside the body within `reach` metres. Returns
-  // { nx, nz, dist } with the normal pointing away from the wall.
+  // Nearest wall beside the body within `reach` metres, normal pointing away.
   findWall(reach = MOVE.wallRunStick) {
     let best = null;
     const lo = this.y + 0.35;
@@ -99,10 +108,12 @@ export class Body {
       const dx = this.x - cx;
       const dz = this.z - cz;
       const dist = Math.hypot(dx, dz);
-      if (dist < 1e-4) continue;                 // inside/under the box
+      if (dist < 1e-4) continue;
       if (dist > this.radius + reach) continue;
-      // must be a vertical face, not a ledge we could step onto
       if (b.maxY <= this.y + this.stepHeight + 0.05) continue;
+      // a corner (offset on both axes) gives a diagonal normal — wall running
+      // along one needs a flat face, so skip those
+      if (Math.abs(dx) > 1e-4 && Math.abs(dz) > 1e-4) continue;
       const nx = dx / dist;
       const nz = dz / dist;
       if (!best || dist < best.dist) best = { nx, nz, dist, box: b };
@@ -138,13 +149,22 @@ export class Body {
     }
   }
 
-  // ------------------------------------------------------------- momentum
-  addMomentum(amount) {
-    this.momentum = clamp(this.momentum + amount, 0, MOVE.momentumMax);
+  // ------------------------------------------------------------- helpers
+  get horizontalSpeed() { return Math.hypot(this.vx, this.vz); }
+
+  setHorizontal(u) {
+    const s = this.horizontalSpeed;
+    if (s < 1e-5) return;
+    const k = u / s;
+    this.vx *= k;
+    this.vz *= k;
   }
 
-  get speedBoost() {
-    return 1 + this.momentum * MOVE.momentumSpeedBoost;
+  scaleHorizontal(k) {
+    this.vx *= k;
+    this.vz *= k;
+    const s = this.horizontalSpeed;
+    if (s > MOVE.airSpeedCap) this.setHorizontal(MOVE.airSpeedCap);
   }
 
   // ------------------------------------------------------------- wall running
@@ -161,28 +181,29 @@ export class Body {
     if (moveSpeed < MOVE.wallRunMinSpeed) return false;
     const wall = this.findWall();
     if (!wall) return false;
-    // must be travelling roughly along the wall, not straight into it
     const into = (this.vx * -wall.nx + this.vz * -wall.nz);
-    if (into > moveSpeed * 0.92) return false;
+    if (into > moveSpeed * 0.92) return false;       // running straight at it
     if (wishX === 0 && wishZ === 0) return false;
-    if (this.lastWallBox === wall.box) return false;   // same wall, no landing since
+    if (this.lastWallBox === wall.box) return false; // same wall, no landing since
 
     this.wallRun = true;
     this.wallRunTime = MOVE.wallRunMaxTime;
     this.lastWallBox = wall.box;
     this.wallNormal = { x: wall.nx, z: wall.nz };
-    // which shoulder the wall is on, relative to where we are looking
     const rightX = Math.cos(yaw);
     const rightZ = -Math.sin(yaw);
     this.wallSide = Math.sign(wall.nx * rightX + wall.nz * rightZ) || 0;
     this.vy = Math.max(this.vy, MOVE.wallRunLift);
-    this.airJumps = MOVE.airJumps;
-    // scrub the velocity component pushing into the wall
+    this.airJumps = 1;
+    // scrub only the component pushing into the wall — speed along it is kept
+    const keep = Math.hypot(this.vx, this.vz);
     const dot = this.vx * -wall.nx + this.vz * -wall.nz;
     if (dot > 0) {
       this.vx += wall.nx * dot;
       this.vz += wall.nz * dot;
     }
+    const after = Math.hypot(this.vx, this.vz);
+    if (after > 1e-3 && after < keep) this.setHorizontal(keep);
     this.events.wallRunStarted = true;
     return true;
   }
@@ -190,17 +211,18 @@ export class Body {
   wallJump() {
     if (!this.wallRun || !this.wallNormal) return false;
     const n = this.wallNormal;
-    const sp = Math.max(Math.hypot(this.vx, this.vz), MOVE.wallRunMinSpeed);
-    // keep the along-wall momentum, add a push away from the wall
+    const keep = Math.hypot(this.vx, this.vz);
     this.vx += n.x * MOVE.wallJumpPush;
     this.vz += n.z * MOVE.wallJumpPush;
-    const len = Math.hypot(this.vx, this.vz) || 1;
-    const target = Math.max(sp, PLAYER.walkSpeed);
-    this.vx = (this.vx / len) * target;
-    this.vz = (this.vz / len) * target;
+    // never lose speed on a wall kick: at least keep what you had
+    const after = Math.hypot(this.vx, this.vz);
+    if (after < keep) {
+      const k = keep / Math.max(after, 1e-4);
+      this.vx *= k;
+      this.vz *= k;
+    }
     this.vy = MOVE.wallJumpUp;
-    this.airJumps = MOVE.airJumps;
-    this.addMomentum(MOVE.momentumWallJump);
+    this.airJumps = 1;
     this.events.wallJumped = true;
     this.endWallRun();
     return true;
@@ -208,17 +230,17 @@ export class Body {
 
   // ------------------------------------------------------------- sliding
   startSlide() {
-    if (!this.onGround || this.sliding || this.slideCooldown > 0) return false;
-    const speed = Math.hypot(this.vx, this.vz);
+    if (this.sliding || this.slideCooldown > 0) return false;
+    const speed = this.horizontalSpeed;
     if (speed < MOVE.slideMinSpeed) return false;
     this.sliding = true;
     this.slideTime = MOVE.slideDuration;
-    const target = Math.max(speed * 1.06, MOVE.slideSpeed);
-    const scale = target / Math.max(speed, 0.001);
-    this.vx *= scale;
-    this.vz *= scale;
+    this.slideBuffer = 0;
+    this.setHorizontal(Math.max(speed * MOVE.slideBoost, MOVE.slideSpeed));
     this.slideDir = Math.atan2(this.vx, this.vz);
     this.events.slideStarted = true;
+    if (this.justLanded || this.slideBufferFromAir) this.events.slideLanding = true;
+    this.slideBufferFromAir = false;
     return true;
   }
 
@@ -240,33 +262,37 @@ export class Body {
     if (wl > 1e-4) { wx /= wl; wz /= wl; } else { wx = 0; wz = 0; }
     const hasWish = wl > 1e-4;
 
-    const moveSpeed = Math.hypot(this.vx, this.vz);
-    this.speed = moveSpeed;
+    const startSpeed = this.horizontalSpeed;
+    this.speed = startSpeed;
 
-    // ---- slide upkeep
+    // ---- timers
     if (this.slideCooldown > 0) this.slideCooldown = Math.max(0, this.slideCooldown - dt);
-    if (this.sliding) {
-      this.slideTime -= dt;
-      this.addMomentum(MOVE.momentumSlide * dt);
-      if (this.slideTime <= 0 || moveSpeed < PLAYER.walkSpeed * 0.72) {
-        this.endSlide();
-      }
-    }
-    // start a slide on request
+    if (this.slideBuffer > 0) this.slideBuffer = Math.max(0, this.slideBuffer - dt);
+
+    // pressing slide in the air pre-arms it for the landing
     if (this.wantSlide) {
       this.wantSlide = false;
-      if (!this.sliding) this.startSlide();
+      if (this.onGround) {
+        if (!this.sliding) this.startSlide();
+      } else {
+        this.slideBuffer = MOVE.slideBuffer;
+        this.slideBufferFromAir = true;
+      }
+    }
+
+    // ---- slide upkeep
+    if (this.sliding) {
+      this.slideTime -= dt;
+      if (this.slideTime <= 0 || this.horizontalSpeed < MOVE.slideMinSpeed * 0.6) this.endSlide();
     }
 
     // ---- wall run upkeep
     if (this.wallRun) {
       this.wallRunTime -= dt;
-      this.addMomentum(MOVE.momentumWallRun * dt);
       const wall = this.findWall(MOVE.wallRunStick + 0.45);
       if (this.onGround || this.wallRunTime <= 0 || !wall) {
         this.endWallRun();
       } else {
-        // steer along the wall
         const tx = -this.wallNormal.z;
         const tz = this.wallNormal.x;
         const along = this.vx * tx + this.vz * tz;
@@ -275,12 +301,15 @@ export class Body {
           this.vx += tx * dir * MOVE.wallRunSteer * dt;
           this.vz += tz * dir * MOVE.wallRunSteer * dt;
         }
-        // never drift into the wall
+        // never drift into the wall: drop only the component pressing into it
         const into = this.vx * -this.wallNormal.x + this.vz * -this.wallNormal.z;
         if (into > 0) {
           this.vx += this.wallNormal.x * into;
           this.vz += this.wallNormal.z * into;
         }
+        // ...and wall running costs you nothing, so restore any lost speed
+        const s = this.horizontalSpeed;
+        if (s < startSpeed && s > 1e-3) this.setHorizontal(startSpeed * MOVE.wallRunKeep);
       }
     }
 
@@ -292,98 +321,78 @@ export class Body {
       } else if (this.onGround) {
         this.vy = PLAYER.jumpSpeed;
         this.onGround = false;
-        if (this.sliding) this.endSlide();
-        // sprint jump keeps (and slightly boosts) all your horizontal speed
-        if (wish.sprint && moveSpeed > PLAYER.walkSpeed * 0.9) {
-          const scale = MOVE.sprintJumpBoost * (this.sliding ? MOVE.slideJumpBoost : 1);
-          this.vx *= scale;
-          this.vz *= scale;
-          this.addMomentum(MOVE.momentumSprintJump);
-          this.events.sprintJump = true;
-        }
+        this.sliding = false;              // jumping out of a slide keeps speed
+        this.slideTime = 0;
         this.events.jumped = true;
+        if (wish.sprint && startSpeed > PLAYER.walkSpeed * 0.9) this.events.sprintJump = true;
       } else if (this.airJumps > 0) {
         this.airJumps -= 1;
-        this.vy = Math.max(this.vy * 0.35, 0) + MOVE.doubleJumpSpeed;
-        if (hasWish) {
-          this.vx += wx * MOVE.doubleJumpForward;
-          this.vz += wz * MOVE.doubleJumpForward;
-        } else {
-          this.vx *= MOVE.doubleJumpForward;
-          this.vz *= MOVE.doubleJumpForward;
-        }
-        this.addMomentum(MOVE.momentumDoubleJump);
+        this.vy = Math.max(this.vy * 0.3, 0) + MOVE.doubleJumpSpeed;
+        // a double jump costs you SOME speed, not all of it
+        this.scaleHorizontal(MOVE.doubleJumpKeep);
         this.events.doubleJumped = true;
       }
     }
 
     // ---- horizontal motion
-    const boost = this.speedBoost;
-    const topSpeed = (wish.sprint ? PLAYER.sprintSpeed : PLAYER.walkSpeed) * boost;
-
     if (this.onGround) {
       if (this.sliding) {
-        // low friction glide, steerable with A/D
         const f = Math.max(0, 1 - MOVE.slideFriction * dt);
         this.vx *= f;
         this.vz *= f;
-        if (hasWish) {
-          // small sideways nudge so a slide can be steered with A/D
-          const right = wish.right;
-          if (Math.abs(right) > 0.05) {
-            const rx = Math.cos(yaw);
-            const rz = -Math.sin(yaw);
-            this.vx += rx * right * MOVE.slideSteer * dt;
-            this.vz += rz * right * MOVE.slideSteer * dt;
-          }
+        if (hasWish && Math.abs(wish.right) > 0.05) {
+          const rx = Math.cos(yaw);
+          const rz = -Math.sin(yaw);
+          this.vx += rx * wish.right * MOVE.slideSteer * dt;
+          this.vz += rz * wish.right * MOVE.slideSteer * dt;
         }
-        // cap so slides stay in front of walking speed
-        const sp = Math.hypot(this.vx, this.vz);
-        const cap = MOVE.slideSpeed * boost;
-        if (sp > cap) { this.vx *= cap / sp; this.vz *= cap / sp; }
       } else {
-        const targetX = wx * topSpeed;
-        const targetZ = wz * topSpeed;
-        const t = Math.min(1, PLAYER.accel * dt / Math.max(1, topSpeed));
-        this.vx += (targetX - this.vx) * t;
-        this.vz += (targetZ - this.vz) * t;
-        if (!hasWish) {
+        // ground movement: accelerate toward the walk/sprint target. Faster
+        // arrival means carried speed bleeds off quickly too (that is the
+        // "you lost your momentum on landing" feel) unless you are sliding.
+        const targetSpeed = wish.sprint ? PLAYER.sprintSpeed : PLAYER.walkSpeed;
+        const tx = wx * targetSpeed;
+        const tz = wz * targetSpeed;
+        if (hasWish) {
+          const t = Math.min(1, PLAYER.accel * dt / Math.max(1, targetSpeed));
+          this.vx += (tx - this.vx) * t;
+          this.vz += (tz - this.vz) * t;
+        } else {
           const f = Math.max(0, 1 - PLAYER.friction * dt);
           this.vx *= f;
           this.vz *= f;
         }
+        // above the target speed, extra speed decays fast on foot
+        const s = this.horizontalSpeed;
+        if (s > targetSpeed) {
+          const drag = Math.min(1, 6.5 * dt);
+          const capped = s + (targetSpeed - s) * drag;
+          this.setHorizontal(Math.max(capped, targetSpeed * 0.98));
+        }
       }
     } else if (!this.wallRun) {
-      // air control
+      // ---- air control: accelerate along the wish direction, never drag.
+      // Classic air-strafe: only add speed up to the wish speed along that
+      // direction, so turning while strafing lets you build momentum.
       if (hasWish) {
-        const t = Math.min(1, PLAYER.airAccel * dt);
-        this.vx += wx * PLAYER.airAccel * 0.55 * dt;
-        this.vz += wz * PLAYER.airAccel * 0.55 * dt;
-        const sp = Math.hypot(this.vx, this.vz);
-        const cap = Math.max(topSpeed, Math.hypot(this.vx, this.vz));
-        if (sp > cap) { this.vx *= cap / sp; this.vz *= cap / sp; }
-        void t;
+        const wishSpeed = (wish.sprint ? PLAYER.sprintSpeed : PLAYER.walkSpeed) * 1.25;
+        const along = this.vx * wx + this.vz * wz;
+        const addSpeed = wishSpeed - along;
+        if (addSpeed > 0) {
+          const control = Math.abs(wish.forward) > 0.05 && Math.abs(wish.right) < 0.05
+            ? MOVE.airControlMin : 1;
+          const accel = Math.min(MOVE.airStrafeAccel * control * dt, addSpeed);
+          this.vx += wx * accel;
+          this.vz += wz * accel;
+        }
+        const s = this.horizontalSpeed;
+        if (s > MOVE.airSpeedCap) this.setHorizontal(MOVE.airSpeedCap);
       }
     }
 
     // ---- wall run can begin on a fresh air frame
     if (!this.onGround && !this.wallRun && !this.events.jumped) {
-      this.tryStartWallRun(wx, wz, Math.hypot(this.vx, this.vz), yaw);
-    }
-
-    // ---- momentum from raw speed
-    const nowSpeed = Math.hypot(this.vx, this.vz);
-    if (nowSpeed > PLAYER.sprintSpeed * 1.02) this.addMomentum(MOVE.momentumHighSpeed * dt);
-
-    // ---- momentum: sprinting trickles in, standing around bleeds out
-    const sprinting = hasWish && wish.sprint && nowSpeed > PLAYER.walkSpeed * 1.05;
-    if (!this.wallRun && !this.sliding) {
-      if (this.onGround) {
-        if (sprinting) this.addMomentum(MOVE.momentumSprint * dt);
-        else this.addMomentum(-(hasWish ? MOVE.momentumDecayGround : MOVE.momentumDecayIdle) * dt);
-      } else if (nowSpeed < 3) {
-        this.addMomentum(-MOVE.momentumDecayAir * dt);
-      }
+      this.tryStartWallRun(wx, wz, this.horizontalSpeed, yaw);
     }
 
     // ---- integrate horizontal
@@ -401,16 +410,19 @@ export class Body {
 
     const support = this.supportHeight();
     const wasGround = this.onGround;
+    const landingSpeed = this.horizontalSpeed;
+
     if (this.y <= support + 0.001) {
-      if (!wasGround && this.vy < -6) { this.justLanded = true; this.fallSpeed = -this.vy; }
       this.y = support;
       this.vy = 0;
       this.onGround = true;
       if (!wasGround) {
-        this.airJumps = MOVE.airJumps;
+        this.justLanded = true;
+        this.fallSpeed = -Math.min(this.vy, 0) || this.fallSpeed;
+        this.airJumps = 1;
         this.endWallRun();
-        this.lastWallBox = null;   // walls are refreshed on landing
-        if (this.sliding) this.endSlide();
+        this.lastWallBox = null;
+        this.onLand(landingSpeed, dt);
       }
     } else if (wasGround && this.vy <= 0 && support > -Infinity && this.y - support < 0.35) {
       // stick to descending stairs instead of skipping down them
@@ -423,11 +435,37 @@ export class Body {
 
     if (this.onGround) this.airTime = 0;
     else this.airTime += dt;
-    this.groundedLastFrame = this.onGround;
 
-    // eye height: crouch while sliding
+    // ---- bookkeeping
+    this.speed = this.horizontalSpeed;
+    this.peakSpeed = Math.max(this.peakSpeed, this.speed);
+
     const targetEye = this.sliding ? MOVE.slideEyeOffset : 0;
     const k = Math.min(1, dt * (this.sliding ? 18 : 10));
     this.eyeOffset += (targetEye - this.eyeOffset) * k;
+  }
+
+  // Landing: momentum is lost unless you slide into it.
+  onLand(speed, dt) {
+    void dt;
+    const sliding = this.sliding;
+    if (sliding || (this.slideBuffer > 0 && speed >= MOVE.slideMinSpeed * 0.7)) {
+      // keep everything (and give the slide a small boost)
+      if (!this.sliding) this.slideBufferFromAir = true;
+      if (!this.sliding) this.sliding = true;
+      this.sliding = true;
+      this.slideTime = MOVE.slideDuration;
+      this.slideBuffer = 0;
+      this.setHorizontal(Math.max(speed * MOVE.slideBoost, MOVE.slideSpeed));
+      this.events.slideLanding = true;
+      this.slideBufferFromAir = false;
+      return;
+    }
+    if (speed > 1) {
+      // you hit the ground: the extra speed is gone
+      const capped = Math.min(speed * MOVE.landKeep, PLAYER.sprintSpeed * MOVE.landCap);
+      this.setHorizontal(Math.max(capped, Math.min(speed, MOVE.slideMinSpeed * 0.5)));
+      this.events.momentumLost = true;
+    }
   }
 }

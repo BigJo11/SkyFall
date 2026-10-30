@@ -1,4 +1,5 @@
-// Advanced movement: momentum, sprint jumps, double jump, wall run, slide.
+// Movement model: speed is preserved in the air, a double jump costs a little,
+// landing costs everything unless you slide into it. Plus wall running.
 //   node tests/movement.test.mjs
 import assert from 'node:assert/strict';
 import { solidAABBs } from '../shared/collision.js';
@@ -25,14 +26,13 @@ function sim(b, seconds, wish, yaw = 0) {
   for (let i = 0; i < steps; i++) b.update(DT, wish, yaw);
 }
 
-// flat, empty test world with an optional wall
 function flatWorld(walls = []) {
   const box = (cx, cy, cz, sx, sy, sz) => ({
     minX: cx - sx / 2, maxX: cx + sx / 2,
     minY: cy - sy / 2, maxY: cy + sy / 2,
     minZ: cz - sz / 2, maxZ: cz + sz / 2,
   });
-  return [box(0, -0.5, 0, 200, 1, 200), ...walls];
+  return [box(0, -0.5, 0, 400, 1, 400), ...walls];
 }
 
 const player = (world, x = 0, y = 0.05, z = 0) => {
@@ -41,128 +41,151 @@ const player = (world, x = 0, y = 0.05, z = 0) => {
   return b;
 };
 
-console.log('\nSKYFALL advanced movement tests\n');
+// run until the body lands again (or a safety limit)
+function simUntilLanding(b, wish, yaw = Math.PI, maxSeconds = 4) {
+  let t = 0;
+  const startAir = !b.onGround;
+  while (t < maxSeconds) {
+    b.update(DT, wish, yaw);
+    t += DT;
+    if (b.onGround && (startAir || t > 0.1)) break;
+  }
+  return t;
+}
 
-console.log('momentum:');
+console.log('\nSKYFALL movement tests (speed-preservation model)\n');
 
-test('momentum is earned by chaining moves, never spent', () => {
+console.log('air speed:');
+
+test('speed is kept for the whole jump (no air drag)', () => {
+  const b = player(flatWorld());
+  sim(b, 1.6, fwd(true), Math.PI);
+  const ground = speedOf(b);
+  assert.ok(ground > 9.5, `sprinting at ${ground.toFixed(2)}`);
+  b.wantJump = true;
+  b.update(DT, fwd(true), Math.PI);
+  const samples = [];
+  for (let i = 0; i < 160; i++) {
+    b.update(DT, fwd(true), Math.PI);
+    if (!b.onGround) samples.push(speedOf(b));
+    else break;
+  }
+  const first = samples[0];
+  const last = samples[samples.length - 1];
+  const min = Math.min(...samples);
+  assert.ok(last > first - 0.35, `speed held in the air (${first.toFixed(2)} -> ${last.toFixed(2)})`);
+  assert.ok(min > PLAYER.walkSpeed, `never dragged down mid-air (min ${min.toFixed(2)})`);
+});
+
+test('air strafing can build speed above sprint', () => {
+  const b = player(flatWorld());
+  b.teleport(0, 100, 0);
+  b.vx = 0; b.vz = -PLAYER.sprintSpeed;
+  const start = speedOf(b);
+  // classic strafe: hold forward+right while the view turns into the strafe
+  let yaw = 0;
+  for (let i = 0; i < 400; i++) {
+    yaw += 0.0022;
+    b.update(DT, { forward: 1, right: -1, sprint: true }, yaw);
+    // stay airborne so the test measures air physics only
+    b.y = 100; b.vy = 0;
+  }
+  assert.ok(speedOf(b) > start + 1.0, `air strafe gained speed (${start.toFixed(2)} -> ${speedOf(b).toFixed(2)})`);
+});
+
+console.log('\nlanding:');
+
+test('landing normally throws the momentum away', () => {
+  const b = player(flatWorld());
+  sim(b, 1.6, fwd(true), Math.PI);
+  const ground = speedOf(b);
+  b.wantJump = true;
+  b.update(DT, fwd(true), Math.PI);
+  simUntilLanding(b, fwd(true));
+  const landed = speedOf(b);
+  assert.ok(landed < ground * 0.5, `lost most speed (${ground.toFixed(2)} -> ${landed.toFixed(2)})`);
+  assert.ok(landed <= PLAYER.sprintSpeed * MOVE.landCap + 0.01, `capped on landing (${landed.toFixed(2)})`);
+});
+
+test('landing into a slide keeps the speed', () => {
+  const b = player(flatWorld());
+  sim(b, 1.6, fwd(true), Math.PI);
+  const ground = speedOf(b);
+  b.wantJump = true;
+  b.update(DT, fwd(true), Math.PI);
+  // arm the slide while airborne
+  for (let i = 0; i < 60; i++) b.update(DT, fwd(true), Math.PI);
+  b.wantSlide = true;
+  b.update(DT, fwd(true), Math.PI);
+  assert.ok(b.slideBuffer > 0, 'slide buffered in the air');
+  simUntilLanding(b, fwd(true));
+  assert.ok(b.sliding, 'sliding on touch down');
+  assert.ok(speedOf(b) >= ground * 0.98, `kept the speed (${ground.toFixed(2)} -> ${speedOf(b).toFixed(2)})`);
+});
+
+test('a slide cannot rescue you from a standing landing', () => {
   const b = player(flatWorld());
   sim(b, 0.3, idle);
-  const before = b.momentum;
-  sim(b, 1.2, fwd(true));
-  assert.ok(b.momentum > before + 0.05, `momentum built while sprinting (${b.momentum.toFixed(2)})`);
-  const built = b.momentum;
-  sim(b, 0.5, fwd(true));
-  assert.ok(b.momentum >= built, 'sprinting does not drain momentum');
-});
-
-test('momentum raises the top speed', () => {
-  const slow = player(flatWorld());
-  sim(slow, 2.0, fwd(true));
-  const slowSpeed = speedOf(slow);
-
-  const fast = player(flatWorld());
-  fast.momentum = MOVE.momentumMax; // fully charged
-  // hold momentum by sprinting (it decays only slowly while moving)
-  sim(fast, 2.0, fwd(true));
-  const fastSpeed = speedOf(fast);
-  assert.ok(fastSpeed > slowSpeed + 0.8, `boosted ${fastSpeed.toFixed(2)} vs ${slowSpeed.toFixed(2)}`);
-  assert.ok(fastSpeed > PLAYER.sprintSpeed, 'past base sprint speed');
-});
-
-test('momentum bleeds away when you stand still', () => {
-  const b = player(flatWorld());
-  b.momentum = 0.9;
-  sim(b, 2.0, idle);
-  assert.ok(b.momentum < 0.4, `decayed to ${b.momentum.toFixed(2)}`);
-});
-
-console.log('\nsprint jumps:');
-
-test('jumping while sprinting preserves and boosts speed', () => {
-  const plain = player(flatWorld());
-  sim(plain, 1.4, fwd(true));
-  sim(plain, 0.2, fwd(false)); // release shift: decay toward walk speed
-  plain.wantJump = true;
-  plain.update(DT, idle, 0);
-  const plainSpeed = speedOf(plain);
-
-  const sprint = player(flatWorld());
-  sim(sprint, 1.4, fwd(true));
-  const groundSpeed = speedOf(sprint);
-  sprint.wantJump = true;
-  sprint.update(DT, fwd(true), 0);
-  const airSpeed = speedOf(sprint);
-  assert.ok(sprint.events.sprintJump || airSpeed >= groundSpeed, 'sprint jump flagged');
-  assert.ok(airSpeed >= groundSpeed * 0.99, `kept speed in the air (${groundSpeed.toFixed(2)} -> ${airSpeed.toFixed(2)})`);
-  assert.ok(airSpeed > plainSpeed, 'faster than a non-sprint jump');
-  assert.ok(sprint.vy > 0, 'leaves the ground');
-});
-
-test('a sprint jump is higher than a standing jump in distance covered', () => {
-  const b = player(flatWorld());
-  sim(b, 1.2, fwd(true));
-  b.wantJump = true;
-  b.update(DT, fwd(true), 0);
-  const z0 = b.z;
-  let air = 0;
-  while (!b.onGround && air < 3) { b.update(DT, fwd(true), 0); air += DT; }
-  const dist = Math.abs(b.z - z0);
-  assert.ok(dist > 4.5, `flew ${dist.toFixed(2)} m in one sprint jump`);
+  b.wantSlide = true;
+  b.update(DT, idle, Math.PI);
+  assert.equal(b.sliding, false, 'no slide from a standstill');
+  assert.equal(b.speed, 0);
 });
 
 console.log('\ndouble jump:');
 
-test('a second jump in the air adds height', () => {
-  const single = player(flatWorld());
-  sim(single, 0.2, idle);
-  single.wantJump = true;
-  single.update(DT, idle, 0);
-  let singlePeak = single.y;
-  for (let i = 0; i < 200 && !single.onGround; i++) { single.update(DT, idle, 0); singlePeak = Math.max(singlePeak, single.y); }
-
-  const double = player(flatWorld());
-  sim(double, 0.2, idle);
-  double.wantJump = true;
-  double.update(DT, idle, 0);
-  for (let i = 0; i < 40; i++) double.update(DT, idle, 0);
-  double.wantJump = true;
-  double.update(DT, idle, 0);
-  assert.ok(double.events.doubleJumped, 'double jump registered');
-  let doublePeak = double.y;
-  for (let i = 0; i < 400 && !double.onGround; i++) { double.update(DT, idle, 0); doublePeak = Math.max(doublePeak, double.y); }
-
-  assert.ok(doublePeak > singlePeak + 0.8, `double ${doublePeak.toFixed(2)} vs single ${singlePeak.toFixed(2)}`);
+test('a double jump keeps most of your speed', () => {
+  const b = player(flatWorld());
+  sim(b, 1.6, fwd(true), Math.PI);
+  b.wantJump = true;
+  b.update(DT, fwd(true), Math.PI);
+  for (let i = 0; i < 30; i++) b.update(DT, fwd(true), Math.PI);
+  const beforeDouble = speedOf(b);
+  b.wantJump = true;
+  b.update(DT, fwd(true), Math.PI);
+  assert.ok(b.events.doubleJumped, 'double jump happened');
+  const afterDouble = speedOf(b);
+  const ratio = afterDouble / beforeDouble;
+  assert.ok(ratio > 0.75 && ratio < 0.96,
+    `only lost some speed (${beforeDouble.toFixed(2)} -> ${afterDouble.toFixed(2)}, ${Math.round((1 - ratio) * 100)}%)`);
+  assert.ok(afterDouble > beforeDouble * 0.75, 'kept the bulk of it');
+  // and it is a much softer loss than hitting the ground
+  const landing = player(flatWorld());
+  sim(landing, 1.6, fwd(true), Math.PI);
+  landing.wantJump = true;
+  landing.update(DT, fwd(true), Math.PI);
+  simUntilLanding(landing, fwd(true));
+  assert.ok(speedOf(landing) < afterDouble, 'landing is worse than a double jump');
 });
 
-test('the double jump budget is one per airtime and refills on landing', () => {
+test('a double jump adds height and refreshes on landing', () => {
+  const b = player(flatWorld());
+  sim(b, 0.2, idle);
+  const y0 = b.y;
+  b.wantJump = true;
+  b.update(DT, idle, 0);
+  for (let i = 0; i < 40; i++) b.update(DT, idle, 0);
+  b.wantJump = true;
+  b.update(DT, idle, 0);
+  let peak = b.y;
+  for (let i = 0; i < 400 && !b.onGround; i++) { b.update(DT, idle, 0); peak = Math.max(peak, b.y); }
+  assert.ok(peak > y0 + 2.2, `reached ${(peak - y0).toFixed(2)} m with a double jump`);
+  assert.equal(b.airJumps, 1, 'refilled after landing');
+});
+
+test('only one double jump per airtime', () => {
   const b = player(flatWorld());
   sim(b, 0.2, idle);
   b.wantJump = true;
   b.update(DT, idle, 0);
   for (let i = 0; i < 40; i++) b.update(DT, idle, 0);
-  assert.equal(b.airJumps, 1, 'one air jump available');
   b.wantJump = true;
   b.update(DT, idle, 0);
-  assert.equal(b.airJumps, 0, 'used up');
-  const vyAfter = b.vy;
+  assert.equal(b.airJumps, 0);
+  const vy = b.vy;
   b.wantJump = true;
   b.update(DT, idle, 0);
-  assert.ok(b.vy < vyAfter, 'no third jump');
-  for (let i = 0; i < 600 && !b.onGround; i++) b.update(DT, idle, 0);
-  assert.equal(b.airJumps, 1, 'refilled on landing');
-});
-
-test('double jumping pushes you in the direction you are steering', () => {
-  const b = player(flatWorld());
-  sim(b, 0.4, fwd(true));
-  b.wantJump = true;
-  b.update(DT, idle, 0);
-  for (let i = 0; i < 30; i++) b.update(DT, idle, 0);
-  const vzBefore = b.vz;
-  b.wantJump = true;
-  b.update(DT, fwd(false), 0);
-  assert.ok(b.vz < vzBefore, 'pushed further along the steering direction');
+  assert.ok(b.vy < vy, 'no third jump');
 });
 
 console.log('\nwall running:');
@@ -170,161 +193,174 @@ console.log('\nwall running:');
 const WALL_X = 6;
 const wallRunWorld = () => flatWorld([{ minX: WALL_X, maxX: WALL_X + 1, minY: -5, maxY: 12, minZ: -60, maxZ: 60 }]);
 
-function runAlongWall(b, seconds = 1.4) {
-  // face +z, hug the wall at x ~ WALL_X
-  for (let i = 0; i < seconds / DT; i++) b.update(DT, fwd(true), Math.PI);
-}
-
-test('running along a wall in the air starts a wall run', () => {
-  const b = player(wallRunWorld(), WALL_X - 0.45, 0.05, -10);
-  sim(b, 1.0, fwd(true), Math.PI);
-  b.wantJump = true;
-  b.update(DT, fwd(true), Math.PI);
-  let started = false;
-  for (let i = 0; i < 120; i++) {
-    b.update(DT, fwd(true), Math.PI);
-    if (b.wallRun) { started = true; break; }
-  }
-  assert.ok(started, `wall run engaged (wallRun=${b.wallRun}, speed=${speedOf(b).toFixed(2)})`);
-  assert.ok(b.vy > -2, 'does not drop like a stone');
-});
-
-test('a wall run slows the fall and ends after its time limit', () => {
+test('wall running keeps your speed and slows the fall', () => {
   const b = player(wallRunWorld(), WALL_X - 0.45, 6, -10);
-  b.vx = 0; b.vz = 9; b.vy = 0;
-  b.momentum = 0.5;
-  let ran = 0;
-  for (let i = 0; i < 400; i++) {
-    b.update(DT, { forward: 1, right: 0, sprint: true }, Math.PI);
-    if (b.wallRun) { ran += DT; } else if (ran > 0) break;
+  b.vz = 11; b.vy = 0;
+  const start = speedOf(b);
+  let ran = false;
+  let minAirSpeed = Infinity;
+  for (let i = 0; i < 200; i++) {
+    b.update(DT, fwd(true), Math.PI);
+    if (b.wallRun) { ran = true; minAirSpeed = Math.min(minAirSpeed, speedOf(b)); }
+    else if (ran) break;
   }
-  assert.ok(ran > 0.3, `ran for ${ran.toFixed(2)}s`);
-  assert.ok(ran <= MOVE.wallRunMaxTime + 0.1, `respects the time limit (${ran.toFixed(2)}s)`);
+  assert.ok(ran, 'wall run engaged');
+  assert.ok(minAirSpeed > start * 0.95, `speed preserved along the wall (${start.toFixed(2)} -> ${minAirSpeed.toFixed(2)})`);
+  assert.ok(b.vy > -2.5, 'gravity is softened');
 });
 
-test('a wall run cannot begin without a wall', () => {
-  const b = player(flatWorld(), 0, 6, 0);
-  b.vz = 10;
-  b.vy = 0;
-  for (let i = 0; i < 60; i++) b.update(DT, fwd(true), Math.PI);
-  assert.equal(b.wallRun, false);
+test('a wall run ends after its time limit and needs a wall', () => {
+  const b = player(wallRunWorld(), WALL_X - 0.45, 6, -10);
+  b.vz = 10; b.vy = 0;
+  let time = 0;
+  let started = false;
+  for (let i = 0; i < 400; i++) {
+    b.update(DT, fwd(true), Math.PI);
+    if (b.wallRun) { time += DT; started = true; }
+    else if (started) break;
+  }
+  assert.ok(started);
+  assert.ok(time > 0.3 && time <= MOVE.wallRunMaxTime + 0.1, `ran ${time.toFixed(2)}s`);
+
+  const open = player(flatWorld(), 0, 6, 0);
+  open.vz = 10; open.vy = 0;
+  for (let i = 0; i < 60; i++) open.update(DT, fwd(true), Math.PI);
+  assert.equal(open.wallRun, false, 'no wall, no wall run');
 });
 
-test('wall kicks push you off the wall and upward', () => {
+test('a wall kick pushes off the wall without losing speed', () => {
   const b = player(wallRunWorld(), WALL_X - 0.45, 5, -10);
-  b.vz = 9;
-  b.vy = 0;
+  b.vz = 10; b.vy = 0;
   for (let i = 0; i < 60 && !b.wallRun; i++) b.update(DT, fwd(true), Math.PI);
-  assert.ok(b.wallRun, 'wall running before the kick');
+  assert.ok(b.wallRun);
+  const before = speedOf(b);
   b.wantJump = true;
   b.update(DT, fwd(true), Math.PI);
   assert.ok(b.events.wallJumped, 'wall jump fired');
-  assert.ok(b.vx < -1, `pushed away from the wall (vx=${b.vx.toFixed(2)})`);
-  assert.ok(b.vy > 5, `kicked upward (vy=${b.vy.toFixed(2)})`);
-  assert.equal(b.wallRun, false, 'wall run ends');
-  assert.equal(b.airJumps, MOVE.airJumps, 'wall kick refreshes the double jump');
+  assert.ok(b.vx < -1, `pushed clear of the wall (vx=${b.vx.toFixed(2)})`);
+  assert.ok(b.vy > 5, 'kicked upward');
+  assert.ok(speedOf(b) >= before * 0.95, `kept speed (${before.toFixed(2)} -> ${speedOf(b).toFixed(2)})`);
+  assert.equal(b.airJumps, 1, 'double jump refreshed');
 });
 
-test('wall running builds momentum fast', () => {
-  const b = player(wallRunWorld(), WALL_X - 0.45, 5, -10);
-  b.vz = 9; b.vy = 0;
-  const start = b.momentum;
-  for (let i = 0; i < 60 && b.wallRun; i++) b.update(DT, fwd(true), Math.PI);
-  for (let i = 0; i < 150; i++) b.update(DT, fwd(true), Math.PI);
-  assert.ok(b.momentum > start + 0.2, `momentum ${b.momentum.toFixed(2)}`);
+test('corners cannot be grabbed (they used to eat all your speed)', () => {
+  // a pillar: 1.6 x 1.6 around x = 33, z = 12, exactly like the arena markers
+  const pillar = {
+    minX: 32.2, maxX: 33.8, minY: 0, maxY: 5.2, minZ: 11.2, maxZ: 12.8,
+  };
+  const world = flatWorld([pillar]);
+  const b = player(world, 34.08, 1.0, 8);
+  b.vz = 12.75; b.vx = 0; b.vy = 0;
+  const start = speedOf(b);
+  let minSpeed = start;
+  for (let i = 0; i < 120; i++) {
+    b.update(DT, fwd(true), Math.PI);
+    minSpeed = Math.min(minSpeed, speedOf(b));
+    b.y = 1.0; b.vy = 0;   // stay airborne next to the pillar
+  }
+  assert.equal(b.wallRun, false, 'no corner wall run');
+  assert.ok(minSpeed > start * 0.9, `speed untouched by the pillar (${start.toFixed(2)} -> ${minSpeed.toFixed(2)})`);
+});
+
+test('the same wall cannot be re-grabbed without landing', () => {
+  const b = player(wallRunWorld(), WALL_X - 0.45, 6, -10);
+  b.vz = 10; b.vy = 0;
+  for (let i = 0; i < 60 && !b.wallRun; i++) b.update(DT, fwd(true), Math.PI);
+  const box = b.lastWallBox;
+  assert.ok(box, 'wall remembered');
+  b.endWallRun();
+  b.y = 8; // still airborne
+  for (let i = 0; i < 30; i++) b.update(DT, fwd(true), Math.PI);
+  assert.equal(b.wallRun, false, 'no instant re-grab');
 });
 
 console.log('\nsliding:');
 
 test('sliding from a sprint is fast and temporary', () => {
   const b = player(flatWorld());
-  sim(b, 1.4, fwd(true), Math.PI);
+  sim(b, 1.6, fwd(true), Math.PI);
   const before = speedOf(b);
   b.wantSlide = true;
   b.update(DT, fwd(true), Math.PI);
   assert.ok(b.sliding, 'slide started');
-  assert.ok(b.events.slideStarted);
-  assert.ok(speedOf(b) > before, `slide burst ${speedOf(b).toFixed(2)} > ${before.toFixed(2)}`);
-
+  assert.ok(speedOf(b) >= before, `slide burst (${before.toFixed(2)} -> ${speedOf(b).toFixed(2)})`);
   let slid = 0;
-  while (b.sliding && slid < 3) { b.update(DT, fwd(true), Math.PI); slid += DT; }
-  assert.ok(slid > 0.2, `slid for ${slid.toFixed(2)}s`);
-  assert.ok(slid <= MOVE.slideDuration + 0.12, `within the duration (${slid.toFixed(2)}s)`);
+  while (b.sliding && slid < 4) { b.update(DT, fwd(true), Math.PI); slid += DT; }
+  assert.ok(slid > 0.25 && slid <= MOVE.slideDuration + 0.15, `slid ${slid.toFixed(2)}s`);
 });
 
-test('you cannot slide from standing still', () => {
+test('the camera ducks while sliding', () => {
   const b = player(flatWorld());
-  sim(b, 0.3, idle);
-  b.wantSlide = true;
-  b.update(DT, idle, 0);
-  assert.equal(b.sliding, false);
-});
-
-test('the camera ducks while sliding and recovers afterwards', () => {
-  const b = player(flatWorld());
-  sim(b, 1.4, fwd(true), Math.PI);
+  sim(b, 1.6, fwd(true), Math.PI);
   b.wantSlide = true;
   b.update(DT, fwd(true), Math.PI);
-  for (let i = 0; i < 30; i++) b.update(DT, fwd(true), Math.PI);
+  for (let i = 0; i < 40; i++) b.update(DT, fwd(true), Math.PI);
   assert.ok(b.eyeOffset < MOVE.slideEyeOffset * 0.6, `crouched (${b.eyeOffset.toFixed(2)})`);
   while (b.sliding) b.update(DT, idle, Math.PI);
-  for (let i = 0; i < 60; i++) b.update(DT, idle, Math.PI);
+  for (let i = 0; i < 80; i++) b.update(DT, idle, Math.PI);
   assert.ok(Math.abs(b.eyeOffset) < 0.1, 'eye height restored');
 });
 
-test('sliding builds momentum and can be jumped out of', () => {
+test('sliding has a cooldown', () => {
   const b = player(flatWorld());
-  sim(b, 1.4, fwd(true), Math.PI);
-  b.momentum = 0.2;
-  b.wantSlide = true;
-  b.update(DT, fwd(true), Math.PI);
-  for (let i = 0; i < 20; i++) b.update(DT, fwd(true), Math.PI);
-  assert.ok(b.momentum > 0.2, 'slide added momentum');
-  const sz = speedOf(b);
-  b.wantJump = true;
-  b.update(DT, fwd(true), Math.PI);
-  assert.ok(!b.sliding, 'jumped out of the slide');
-  assert.ok(speedOf(b) >= sz * 0.98, 'carried the speed into the air');
-});
-
-test('slide has a cooldown so it cannot be spammed', () => {
-  const b = player(flatWorld());
-  sim(b, 1.4, fwd(true), Math.PI);
+  sim(b, 1.6, fwd(true), Math.PI);
   b.wantSlide = true;
   b.update(DT, fwd(true), Math.PI);
   while (b.sliding) b.update(DT, fwd(true), Math.PI);
-  assert.ok(b.slideCooldown > 0, 'cooldown running');
-  // immediately try again while still moving fast
-  b.vx = 0; b.vz = 12;
+  assert.ok(b.slideCooldown > 0);
+  b.vz = -12; b.vx = 0;
   b.wantSlide = true;
   b.update(DT, fwd(true), Math.PI);
   assert.equal(b.sliding, false, 'blocked during cooldown');
 });
 
-console.log('\nchaining:');
-
-test('a full momentum chain reaches high momentum and high speed', () => {
+test('jumping out of a slide keeps the speed', () => {
   const b = player(flatWorld());
-  let peak = 0;
-  const track = () => { peak = Math.max(peak, speedOf(b)); };
-  // sprint, sprint jump, double jump, land, slide
   sim(b, 1.6, fwd(true), Math.PI);
-  track();
-  b.wantJump = true; b.update(DT, fwd(true), Math.PI);
-  for (let i = 0; i < 25; i++) { b.update(DT, fwd(true), Math.PI); track(); }
-  b.wantJump = true; b.update(DT, fwd(true), Math.PI);
-  for (let i = 0; i < 150; i++) { b.update(DT, fwd(true), Math.PI); track(); }
-  assert.ok(b.onGround, 'landed again');
-  b.wantSlide = true; b.update(DT, fwd(true), Math.PI);
-  for (let i = 0; i < 40; i++) { b.update(DT, fwd(true), Math.PI); track(); }
-  assert.ok(b.momentum > 0.3, `momentum ${b.momentum.toFixed(2)}`);
-  assert.ok(peak > PLAYER.sprintSpeed, `peak speed ${peak.toFixed(2)} > sprint ${PLAYER.sprintSpeed}`);
+  b.wantSlide = true;
+  b.update(DT, fwd(true), Math.PI);
+  for (let i = 0; i < 20; i++) b.update(DT, fwd(true), Math.PI);
+  const s = speedOf(b);
+  b.wantJump = true;
+  b.update(DT, fwd(true), Math.PI);
+  assert.equal(b.sliding, false);
+  assert.ok(speedOf(b) >= s * 0.98, `carried ${s.toFixed(2)} into the air`);
 });
 
-test('falling out of the world still works with the new physics', () => {
+console.log('\nchaining:');
+
+test('a slide-jump-slide chain keeps you fast across the map', () => {
   const b = player(flatWorld());
-  b.teleport(0, 0.05, 0);
-  // remove the floor by using an empty world
+  sim(b, 1.4, fwd(true), Math.PI);
+  const speeds = [];
+  for (let hop = 0; hop < 3; hop++) {
+    b.wantSlide = true;
+    b.update(DT, fwd(true), Math.PI);
+    for (let i = 0; i < 12; i++) { b.update(DT, fwd(true), Math.PI); speeds.push(speedOf(b)); }
+    b.wantJump = true;
+    b.update(DT, fwd(true), Math.PI);
+    for (let i = 0; i < 40; i++) { b.update(DT, fwd(true), Math.PI); speeds.push(speedOf(b)); }
+    // re-arm the slide just before landing
+    b.wantSlide = true;
+    simUntilLanding(b, fwd(true));
+    speeds.push(speedOf(b));
+  }
+  const avg = speeds.reduce((a, c) => a + c, 0) / speeds.length;
+  assert.ok(avg > PLAYER.sprintSpeed * 0.85, `stayed fast through the chain (avg ${avg.toFixed(2)})`);
+  assert.ok(b.peakSpeed > PLAYER.sprintSpeed, `peak ${b.peakSpeed.toFixed(2)}`);
+});
+
+test('walking and sprinting still work normally', () => {
+  const walk = player(flatWorld());
+  sim(walk, 2.0, fwd(false), Math.PI);
+  assert.ok(Math.abs(speedOf(walk) - PLAYER.walkSpeed) < 0.2, `walk ${speedOf(walk).toFixed(2)}`);
+  const sprint = player(flatWorld());
+  sim(sprint, 2.0, fwd(true), Math.PI);
+  assert.ok(Math.abs(speedOf(sprint) - PLAYER.sprintSpeed) < 0.3, `sprint ${speedOf(sprint).toFixed(2)}`);
+  assert.ok(speedOf(sprint) > speedOf(walk));
+});
+
+test('falling out of the world still works', () => {
   const empty = new Body([]);
   empty.teleport(0, 0, 0);
   sim(empty, 3, idle);

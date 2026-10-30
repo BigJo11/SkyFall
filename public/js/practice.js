@@ -29,7 +29,7 @@ export class PracticeMode {
   constructor(ctx) {
     this.ctx = ctx;
     this.id = 'practice';
-    this.stats = { kills: 0, jumps: 0, wallRuns: 0, slides: 0, bestMomentum: 0 };
+    this.stats = { kills: 0, jumps: 0, wallRuns: 0, slides: 0, bestSpeed: 0 };
     this.now = 0;
     this.finished = false;
     this.dummies = DUMMY_SPOTS.map((spot, i) => ({
@@ -92,7 +92,7 @@ export class PracticeMode {
       }
     }
 
-    this.stats.bestMomentum = Math.max(this.stats.bestMomentum, body.momentum);
+    this.stats.bestSpeed = Math.max(this.stats.bestSpeed, body.speed);
     this.ctx.avatars.sync(this.snapshots(), -1);
     this.ctx.hud.practiceStats(this.stats);
 
@@ -253,7 +253,7 @@ export class Tutorial extends PracticeMode {
       travelled: this.travelled,
       look: this.look,
       speed: body.speed,
-      momentum: body.momentum,
+      peakSpeed: body.peakSpeed,
       onGround: body.onGround,
       flags: this.flags,
       hits: this.hits,
@@ -304,21 +304,21 @@ export const TUTORIAL_STEPS = [
   {
     id: 'sprint',
     title: 'SPRINT',
-    text: 'Hold SHIFT while moving to sprint. Sprinting slowly builds momentum.',
+    text: 'Hold SHIFT while moving to sprint. In the air you keep whatever speed you leave the ground with.',
     tip: 'SHIFT + WASD',
     done: (c) => c.onGround && c.speed > 8.3,
   },
   {
     id: 'sprintjump',
     title: 'SPRINT JUMP',
-    text: 'Jump while sprinting — you keep (and boost) all your speed.',
+    text: 'Jump while sprinting. Your speed carries through the whole jump — but landing on your feet kills it.',
     tip: 'SHIFT + WASD + SPACE',
     done: (c) => c.flags.sprintJump,
   },
   {
     id: 'doublejump',
     title: 'DOUBLE JUMP',
-    text: 'Press SPACE again in mid-air for a second jump.',
+    text: 'Press SPACE again in mid-air. A double jump costs a little speed, but keeps most of it.',
     tip: 'SPACE · SPACE',
     done: (c) => c.flags.doubleJumped,
   },
@@ -343,16 +343,16 @@ export const TUTORIAL_STEPS = [
   {
     id: 'slide',
     title: 'SLIDE',
-    text: 'While sprinting, press C (or CTRL) to slide. Jump out of a slide to keep the speed.',
+    text: 'While sprinting, press C (or CTRL) to slide. Jump out of a slide to keep the speed going.',
     tip: 'SHIFT + WASD, THEN C',
     done: (c) => c.flags.slideStarted,
   },
   {
-    id: 'momentum',
-    title: 'MOMENTUM',
-    text: 'Chain sprint jumps, wall runs and slides to fill the momentum meter. Momentum raises your top speed and never runs dry.',
-    tip: 'CHAIN MOVES TO 50%',
-    done: (c) => c.momentum > 0.5,
+    id: 'carry',
+    title: 'CARRY SPEED',
+    text: 'Landing normally throws your speed away. Press C just before you touch down to slide out of the jump and keep all of it.',
+    tip: 'JUMP, THEN C BEFORE LANDING',
+    done: (c) => c.flags.slideLanding && c.speed > 10.5,
   },
   {
     id: 'rifle',

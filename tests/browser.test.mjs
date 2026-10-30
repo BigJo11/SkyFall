@@ -294,6 +294,19 @@ await test('combat feedback handlers: damage, kill, death, respawn', async () =>
   assert.equal(document.getElementById('ammoMax').textContent, '5');
 });
 
+await test('a denied pointer lock does not pause the game (regression)', async () => {
+  // Browsers fire pointerlockchange/error when a lock request is refused, which
+  // is the normal case inside an iframe. Entering a mode must still work.
+  const sk = window.SKYFALL;
+  document.dispatchEvent(new window.Event('pointerlockerror'));
+  document.dispatchEvent(new window.Event('pointerlockchange'));
+  pump(3);
+  assert.equal(sk.state.paused, false, 'not paused by a refused lock');
+  assert.equal(document.getElementById('pause').classList.contains('hidden'), true, 'no pause overlay');
+  assert.equal(sk.state.phase, 'playing', 'still in the match');
+  assert.equal(sk.input.fallback, true, 'free-look fallback enabled');
+});
+
 await test('practice mode spawns dummies and lets you shoot them', async () => {
   const { startLocalMode } = window.SKYFALL;
   // leave the online match first
@@ -306,6 +319,12 @@ await test('practice mode spawns dummies and lets you shoot them', async () => {
   document.getElementById('practiceBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   pump(4);
   const sk = window.SKYFALL;
+  // the lock request is refused in jsdom; the mode must still come up
+  document.dispatchEvent(new window.Event('pointerlockerror'));
+  document.dispatchEvent(new window.Event('pointerlockchange'));
+  pump(3);
+  assert.equal(sk.state.paused, false, 'mode not blocked by the pause overlay');
+  assert.equal(document.getElementById('pause').classList.contains('hidden'), true);
   assert.equal(sk.state.mode, 'practice');
   assert.equal(sk.state.phase, 'playing');
   assert.equal(document.getElementById('practiceStats').classList.contains('hidden'), false);
@@ -376,6 +395,57 @@ await test('practice mode runs the movement mechanics end to end', async () => {
   window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'KeyW' }));
   window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'ShiftLeft' }));
   pump(2);
+});
+
+await test('speed HUD and speed preservation work in the live client', async () => {
+  const sk = window.SKYFALL;
+  // stand on a known-clear runway: x = 34, looking down +z
+  sk.body.teleport(34, 0.05, 0);
+  sk.state.yaw = Math.PI;
+  sk.state.pitch = 0;
+  // stand still first
+  for (let i = 0; i < 30; i++) pump(1);
+  assert.equal(document.getElementById('speedTag').textContent, 'WALK');
+
+  // sprint into a jump and check that air speed is kept
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyW' }));
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ShiftLeft' }));
+  for (let i = 0; i < 80; i++) pump(1);
+  const groundSpeed = sk.body.speed;
+  assert.ok(groundSpeed > 9, `sprinting (${groundSpeed.toFixed(2)} m/s)`);
+  assert.equal(document.getElementById('speedTag').textContent, 'SPRINT');
+
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Space' }));
+  pump(2);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space' }));
+  let minAir = Infinity;
+  let minInfo = null;
+  const trace = [];
+  for (let i = 0; i < 90; i++) {
+    pump(1);
+    if (sk.body.onGround) break;
+    trace.push(+sk.body.speed.toFixed(2));
+    if (sk.body.speed < minAir) {
+      minAir = sk.body.speed;
+      minInfo = {
+        i,
+        wall: sk.body.wallRun,
+        slide: sk.body.sliding,
+        airJumps: sk.body.airJumps,
+        pos: [+sk.body.x.toFixed(2), +sk.body.y.toFixed(2), +sk.body.z.toFixed(2)],
+        vy: +sk.body.vy.toFixed(2),
+      };
+    }
+  }
+  assert.ok(minAir > groundSpeed * 0.8,
+    `kept air speed (${groundSpeed.toFixed(2)} -> ${minAir.toFixed(2)}) ${JSON.stringify(minInfo)} trace=${trace.slice(0, 24)}`);
+
+  // land: speed should collapse
+  for (let i = 0; i < 200 && !sk.body.onGround; i++) pump(1);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'KeyW' }));
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'ShiftLeft' }));
+  pump(2);
+  assert.ok(sk.body.speed < groundSpeed * 0.75, `landing killed the momentum (${sk.body.speed.toFixed(2)})`);
 });
 
 await test('tutorial starts, advances with N, and completes', async () => {

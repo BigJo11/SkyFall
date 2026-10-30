@@ -122,13 +122,13 @@ test('movement stats are collected', () => {
   p.onEvent('jump');
   p.onEvent('wallRun');
   p.onEvent('slide');
-  ctx.body.momentum = 0.42;
+  ctx.body.speed = 14.2;
   p.update(1 / 60, 3000, ctx.body);
   assert.deepEqual(
     { jumps: p.stats.jumps, wallRuns: p.stats.wallRuns, slides: p.stats.slides },
     { jumps: 2, wallRuns: 1, slides: 1 }
   );
-  assert.ok(Math.abs(p.stats.bestMomentum - 0.42) < 1e-6);
+  assert.ok(Math.abs(p.stats.bestSpeed - 14.2) < 1e-6);
 });
 
 test('dummies are pushed to the avatar renderer every frame', () => {
@@ -189,7 +189,7 @@ test('each movement technique advances its own step', () => {
     ['doublejump', 'doubleJumped', 'wallrun'],
     ['wallrun', 'wallRunStarted', 'walljump'],
     ['walljump', 'wallJumped', 'slide'],
-    ['slide', 'slideStarted', 'momentum'],
+    ['slide', 'slideStarted', 'carry'],
   ];
   for (const [from, flag, to] of cases) {
     const { ctx, t } = tutorialAt(from);
@@ -204,12 +204,15 @@ test('each movement technique advances its own step', () => {
   }
 });
 
-test('the momentum step needs half a meter filled', () => {
-  const { ctx, t } = tutorialAt('momentum');
-  ctx.body.momentum = 0.3;
+test('the carry-speed step needs a fast slide landing', () => {
+  const { ctx, t } = tutorialAt('carry');
+  ctx.body.speed = 6;
+  t.onEvent('slideLanding');          // too slow to count
   t.update(1 / 60, 4000, ctx.body);
-  assert.equal(TUTORIAL_STEPS[t.step].id, 'momentum', 'not yet');
-  ctx.body.momentum = 0.6;
+  assert.equal(TUTORIAL_STEPS[t.step].id, 'carry', 'not yet');
+
+  ctx.body.speed = 13.2;
+  t.onEvent('slideLanding');
   t.update(1 / 60, 4016, ctx.body);
   assert.equal(TUTORIAL_STEPS[t.step].id, 'rifle');
 });

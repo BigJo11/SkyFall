@@ -14,6 +14,36 @@ import { PracticeMode, Tutorial, PRACTICE_SPAWN } from './practice.js';
 
 const $ = (id) => document.getElementById(id);
 
+// Safe event wiring: a missing element (stale HTML, older cached page) must
+// never take down the whole game.
+function on(id, event, fn) {
+  const el = $(id);
+  if (!el) { console.warn(`[skyfall] missing #${id}`); return null; }
+  el.addEventListener(event, fn);
+  return el;
+}
+
+// Surface fatal errors on screen instead of failing silently.
+function reportFatal(err) {
+  console.error('[skyfall]', err);
+  let box = $('fatal');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'fatal';
+    document.body.appendChild(box);
+  }
+  box.textContent = `SKYFALL hit an error: ${err && err.message ? err.message : err}. ` +
+    'Reload the page (Ctrl/Cmd+Shift+R) and try again.';
+  box.classList.add('show');
+}
+
+window.addEventListener('error', (e) => {
+  if (e && e.error) reportFatal(e.error);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  if (e && e.reason) reportFatal(e.reason);
+});
+
 // ---------------------------------------------------------------- renderer
 const canvas = $('gl');
 let renderer;
@@ -110,6 +140,11 @@ const state = {
 
 // offline practice / tutorial session (null while playing online)
 let session = null;
+
+// Build stamp: makes it obvious which version the browser actually loaded.
+const BUILD = '2026-10-30 · movement v2';
+$('buildTag') && ($('buildTag').textContent = BUILD);
+console.log('[skyfall]', BUILD);
 
 // ---------------------------------------------------------------- resize
 function resize() {
@@ -307,9 +342,10 @@ function updateCamera(dt) {
   state.roll += (targetRoll - state.roll) * Math.min(1, dt * 9);
   camera.rotation.set(state.pitch, state.yaw, state.roll);
 
-  // fov: sniper scope zoom, plus a little push from momentum
-  const momentumFov = body.momentum * 6;
-  const targetFov = state.scoped ? 20 : (state.phase === 'dead' ? 96 : state.fov + momentumFov);
+  // fov: sniper scope zoom, plus a small widening when carrying extra speed
+  const excess = Math.max(0, body.speed - PLAYER.sprintSpeed);
+  const speedFov = Math.min(9, excess * 1.4);
+  const targetFov = state.scoped ? 20 : (state.phase === 'dead' ? 96 : state.fov + speedFov);
   camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 13);
   camera.updateProjectionMatrix();
 
@@ -392,6 +428,8 @@ function forwardMovementEvents() {
   if (ev.wallRunStarted) { sfx.wallRun(); session?.onEvent?.('wallRun'); }
   if (ev.wallJumped) { sfx.wallJump(); session?.onEvent?.('wallJump'); }
   if (ev.slideStarted) { sfx.slide(); session?.onEvent?.('slide'); }
+  if (ev.slideLanding) { sfx.slide(); session?.onEvent?.('slideLanding'); }
+  if (ev.momentumLost && body.speed > 1) sfx.land();
   body.events = {};
 }
 
@@ -442,7 +480,7 @@ function startLocalMode(kind) {
   hud.reloadProgress(null);
   hud.scope(false);
   hud.showObjectiveDone(false);
-  hud.setMomentum(0);
+  hud.setSpeed(0);
   hud.moveState('');
   $('title').classList.add('hidden');
   $('loading').classList.add('hidden');
@@ -731,19 +769,35 @@ let fallbackWarned = false;
 function enableFallback() {
   if (input.locked) return;
   input.fallback = true;
+  if (state.paused && state.phase !== 'title') {
+    // lock is unavailable here, do not leave the player stuck on the pause menu
+    state.paused = false;
+    $('pause').classList.add('hidden');
+  }
   if (!fallbackWarned) {
     fallbackWarned = true;
     hud.toast('Pointer lock blocked — free look enabled. Click for mouse aim.', 4000);
   }
 }
 
+// Track whether we ever actually held the mouse capture. Browsers fire
+// pointerlockchange as soon as a request is refused (common inside iframes,
+// where the pointer-lock permission is often denied), so only a *loss* of a
+// lock we really had should pause the game.
+let hadPointerLock = false;
+
 input.onLockChange = (locked) => {
-  if (!locked && state.phase === 'playing' && !input.fallback) {
+  if (locked) { hadPointerLock = true; return; }
+  if (input.fallback) return;               // free-look mode: never pause
+  if (hadPointerLock && state.phase === 'playing' && !state.paused) {
     showPause();
   }
 };
 
-input.onLockError = () => { enableFallback(); };
+input.onLockError = () => {
+  hadPointerLock = false;
+  enableFallback();
+};
 
 function showPause() {
   if (state.phase === 'title') return;
@@ -757,7 +811,7 @@ function showPause() {
 function hidePause() {
   state.paused = false;
   $('pause').classList.add('hidden');
-  tryLock();
+  if (!input.fallback) tryLock();
   input.endFrame();
 }
 
@@ -768,7 +822,7 @@ function leaveToTitle(reason) {
   endLocalMode();
   hud.showObjectiveDone(false);
   hud.showObjective(null);
-  hud.setMomentum(0);
+  hud.setSpeed(0);
   hud.moveState('');
   avatars.map.forEach((a) => a.dispose(scene));
   avatars.map.clear();
@@ -783,7 +837,7 @@ function leaveToTitle(reason) {
   refreshLobby();
 }
 
-$('deployBtn').addEventListener('click', () => {
+on('deployBtn', 'click', () => {
   const name = ($('nameInput').value || '').trim() || `PLAYER ${Math.floor(Math.random() * 900 + 100)}`;
   store.set('skyfall.name', name);
   state.name = name;
@@ -792,17 +846,17 @@ $('deployBtn').addEventListener('click', () => {
   connect(name);
 });
 
-$('nameInput').addEventListener('keydown', (e) => {
+on('nameInput', 'keydown', (e) => {
   if (e.key === 'Enter') $('deployBtn').click();
 });
 
-$('practiceBtn').addEventListener('click', () => { sfx.init(); sfx.resume(); startLocalMode('practice'); });
-$('tutorialBtn').addEventListener('click', () => { sfx.init(); sfx.resume(); startLocalMode('tutorial'); });
-$('odPractice').addEventListener('click', () => { startLocalMode('practice'); });
-$('odTitle').addEventListener('click', () => { leaveToTitle(); });
+on('practiceBtn', 'click', () => { sfx.init(); sfx.resume(); startLocalMode('practice'); });
+on('tutorialBtn', 'click', () => { sfx.init(); sfx.resume(); startLocalMode('tutorial'); });
+on('odPractice', 'click', () => { startLocalMode('practice'); });
+on('odTitle', 'click', () => { leaveToTitle(); });
 
-$('resumeBtn').addEventListener('click', () => { hidePause(); });
-$('leaveBtn').addEventListener('click', () => { leaveToTitle(); });
+on('resumeBtn', 'click', () => { hidePause(); });
+on('leaveBtn', 'click', () => { leaveToTitle(); });
 
 // settings sliders
 const sensRange = $('sensRange');
@@ -978,7 +1032,7 @@ function frame(now) {
   gapEl.style.opacity = state.alive ? '1' : '0.25';
 
   // momentum meter + movement callout
-  hud.setMomentum(body.momentum, body.momentum > 0.72);
+  hud.setSpeed(body.speed, PLAYER.sprintSpeed, PLAYER.walkSpeed);
   if (body.wallRun) hud.moveState('WALL RUN', 'wall');
   else if (body.sliding) hud.moveState('SLIDE', 'slide');
   else if (!body.onGround && body.airJumps === 0) hud.moveState('AIRBORNE');
@@ -1016,6 +1070,6 @@ window.SKYFALL = {
 };
 
 // pause on click-to-resume when locked is unavailable
-$('pause').addEventListener('mousedown', (e) => {
+on('pause', 'mousedown', (e) => {
   if (e.target.id === 'pause') hidePause();
 });

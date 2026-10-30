@@ -26,6 +26,7 @@
       <div class="beams"></div>
     </div>
 
+    <div class="build-tag" id="buildTag">build</div>
     <div class="title-inner">
       <h1 class="logo" data-text="SKYFALL">SKYFALL</h1>
       <div class="logo-sub">A LAN DEATHMATCH ABOVE THE CLOUDS</div>
@@ -73,7 +74,7 @@
             <li><b class="w-smg">SMG</b><span>15 shots/sec · 5 damage</span></li>
             <li><b class="w-knife">KNIFE</b><span>one shot kill · 0.5s swing</span></li>
           </ul>
-          <div class="momentum-note">CHAIN SPRINT JUMPS · WALL RUNS · SLIDES<br />TO BUILD MOMENTUM AND RAISE YOUR TOP SPEED</div>
+          <div class="momentum-note">KEEP YOUR SPEED IN THE AIR<br />LAND IN A SLIDE OR LOSE IT</div>
         </div>
       </div>
 
@@ -131,14 +132,20 @@
       <div class="ps-row"><span>JUMPS</span><b id="psJumps">0</b></div>
       <div class="ps-row"><span>WALL RUNS</span><b id="psWallRuns">0</b></div>
       <div class="ps-row"><span>SLIDES</span><b id="psSlides">0</b></div>
-      <div class="ps-row"><span>BEST MOMENTUM</span><b id="psMomentum">0%</b></div>
+      <div class="ps-row"><span>TOP SPEED</span><b id="psMomentum">0.0</b></div>
     </div>
 
     <div id="moveState"></div>
 
-    <div id="momentum">
-      <div class="mom-bar"><div id="momFill"></div><div class="mom-segs"></div></div>
-      <div class="mom-label">MOMENTUM <span id="momPct">0%</span></div>
+    <div id="speedometer">
+      <div class="speed-bar">
+        <div id="speedFill"></div>
+        <div class="speed-marks"></div>
+      </div>
+      <div class="speed-label">
+        <span id="speedVal">0.0</span><span class="unit">m/s</span>
+        <span id="speedTag" class="tag">WALK</span>
+      </div>
     </div>
 
     <div id="objectiveDone" class="hidden">
@@ -224,6 +231,7 @@
   </div>
 
   <div id="toast"></div>
+  <div id="fatal"></div>
 </div>
 
 <script type="module" src="/js/main.js"></script>

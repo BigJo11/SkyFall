@@ -45,25 +45,33 @@ Change the port with `PORT=8080 npm start`.
 Fire rate is enforced **per weapon** on the server, so swapping guns can never
 cheat a cooldown.
 
-## Movement & momentum
+## Movement
 
-No stamina, no cooldowns to manage — movement is a skill you build. Chaining
-moves fills a **momentum** meter that raises your top speed (up to +45%) and
-pushes your field of view wider. Momentum never drains from *using* a move; it
-bleeds away only when you stand around.
+Titanfall-flavoured speed preservation. There is no stamina and no meter to
+manage — **speed is the resource**:
+
+* In the air you **keep whatever speed you left the ground with**. Nothing drags
+  you down mid-jump.
+* **Air strafing** (holding forward + a strafe direction while turning) lets you
+  build *more* speed than sprinting.
+* A **double jump** costs you a little speed (~14%) — not all of it.
+* Touching the ground normally **throws your momentum away**. Land in a **slide**
+  (press `C` just before you touch down) and you keep every bit of it, plus a
+  small boost.
+* **Wall running** never costs speed, so you can chain wall runs with jumps.
 
 | Move | Input | Notes |
 | --- | --- | --- |
-| **Sprint** | `Shift` + `WASD` | slowly trickles momentum in |
-| **Sprint jump** | `Space` while sprinting | keeps and boosts your full horizontal speed |
-| **Double jump** | `Space` again in mid-air | one per airtime, steers you where you look |
-| **Wall run** | sprint along a wall and jump | gravity drops, you steer along the face, once per wall until you land |
-| **Wall kick** | `Space` during a wall run | pushes off the wall, refreshes the double jump |
-| **Slide** | `C` / `Ctrl` while sprinting | low, fast, steerable; jump out of it to keep the speed |
+| **Sprint** | `Shift` + `WASD` | 10.2 m/s on the ground |
+| **Sprint jump** | `Space` while sprinting | speed carries through the whole jump |
+| **Double jump** | `Space` again in mid-air | one per airtime, costs ~14% speed |
+| **Wall run** | sprint along a wall and jump | softened gravity, steered along flat faces, no speed loss, once per wall until you land |
+| **Wall kick** | `Space` during a wall run | pushes off the wall, refreshes the double jump, keeps speed |
+| **Slide** | `C` / `Ctrl` while sprinting, or while falling | fast, steerable, preserves momentum on landing |
+| **Slide jump** | `Space` during a slide | keeps the slide speed in the air |
 
-Momentum sources: sprint jumps, double jumps, wall runs (the big one), wall
-kicks, slides and raw high speed. Reach 100% and the meter turns amber while
-your strafe roll and FOV widen.
+The HUD speedometer shows your live speed in m/s and tags it `WALK` /
+`SPRINT` / `MOMENTUM`, so you can see exactly when a landing costs you speed.
 
 ## Practice & tutorial
 
@@ -74,8 +82,8 @@ Both run **offline in the browser** — no server, no sign-in, no other players.
   stats panel counting dummies downed, jumps, wall runs, slides and your best
   momentum. Fall off the edge and you are dropped back on the firing line.
 * **Tutorial** — 15 objectives that teach the whole game in order: move, look,
-  jump, sprint, sprint jump, double jump, wall run, wall kick, slide, momentum,
-  then rifle → sniper → knife → reload. Each step advances the moment you
+  jump, sprint, sprint jump, double jump, wall run, wall kick, slide,
+  carry speed (land in a slide), then rifle → sniper → knife → reload. Each step advances the moment you
   actually do the thing (the wall-run step teleports you to a wall and tells you
   where to run), and `N` skips a step if you get stuck. Finishing offers
   "keep practising" or back to the title.
@@ -179,13 +187,13 @@ WebSockets work out of the box on Render (the client automatically upgrades to
 npm test
 ```
 
-96 checks across eight suites:
+98 checks across eight suites:
 
 | Suite | Covers |
 | --- | --- |
 | `tests/game.test.mjs` | weapon damage, fire rates, cooldowns, hit detection, regen, respawn, anti-cheat |
 | `tests/physics.test.mjs` | walking, stairs, walls, jumping, ledges, crates |
-| `tests/movement.test.mjs` | momentum gain/decay/speed boost, sprint jumps, double jump budget, wall run lifetime + wall kick, slides, chained combos |
+| `tests/movement.test.mjs` | air speed preservation, air-strafe gains, landing loss vs slide landing, double-jump cost, wall run speed/lifetime/corners/wall kicks, slides, chained combos |
 | `tests/tutorial.test.mjs` | practice dummies, respawns, stats, and the full 15-step tutorial state machine |
 | `tests/scene.test.mjs` | every 3D module built against real Three.js (no GPU needed) |
 | `tests/ui.test.mjs` | the real `index.html` driven through jsdom: HUD, killfeed, scoreboard, input |
@@ -198,8 +206,9 @@ Plus `scripts/check-client.mjs`, a static audit of client import graphs and DOM 
 
 * Host firewall blocking the port? Allow Node (or the chosen port) on your LAN.
 * Players only need a modern browser (Chrome, Edge, Firefox, Safari 16.4+) with
-  WebGL. The mouse is captured by Pointer Lock; if a browser or embed blocks it,
-  the game falls back to free-look automatically.
+  WebGL. The mouse is captured by Pointer Lock; if a browser, iframe or embed
+  denies it, the game switches to free-look automatically and never pauses
+  itself over it.
 * Health regenerates at 9 hp/s after 5 seconds out of combat. Respawns take 3
   seconds and always place you away from your killer.
 

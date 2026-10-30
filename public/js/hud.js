@@ -34,9 +34,10 @@ export class Hud {
       dmgNumbers: $('dmgNumbers'),
       toast: $('toast'),
       killCam: $('killCam'),
-      momentum: $('momentum'),
-      momFill: $('momFill'),
-      momPct: $('momPct'),
+      speedometer: $('speedometer'),
+      speedFill: $('speedFill'),
+      speedVal: $('speedVal'),
+      speedTag: $('speedTag'),
       moveState: $('moveState'),
       objective: $('objective'),
       objIndex: $('objIndex'),
@@ -232,11 +233,17 @@ export class Hud {
   }
 
   // ---------------------------------------------------------- movement
-  setMomentum(v, hot = false) {
-    const pct = Math.max(0, Math.min(1, v));
-    this.el.momFill.style.width = (pct * 100).toFixed(1) + '%';
-    this.el.momPct.textContent = Math.round(pct * 100) + '%';
-    this.el.momentum.classList.toggle('hot', hot);
+  // Speedometer: the bar fills against 24 m/s, the tag tells you whether you
+  // are walking, sprinting or carrying momentum above sprint speed.
+  setSpeed(mps = 0, sprint = 10.2, walk = 7.4) {
+    const pct = Math.max(0, Math.min(1, mps / 24));
+    this.el.speedFill.style.width = (pct * 100).toFixed(1) + '%';
+    this.el.speedVal.textContent = mps.toFixed(1);
+    const tag = this.el.speedTag;
+    const carrying = mps > sprint + 0.25;
+    tag.textContent = carrying ? 'MOMENTUM' : mps > walk + 0.25 ? 'SPRINT' : 'WALK';
+    tag.classList.toggle('momentum', carrying);
+    this.el.speedometer.classList.toggle('hot', carrying);
   }
 
   moveState(text, kind = '') {
@@ -263,7 +270,7 @@ export class Hud {
     this.el.psJumps.textContent = stats.jumps;
     this.el.psWallRuns.textContent = stats.wallRuns;
     this.el.psSlides.textContent = stats.slides;
-    this.el.psMomentum.textContent = Math.round(stats.bestMomentum * 100) + '%';
+    this.el.psMomentum.textContent = (stats.bestSpeed || 0).toFixed(1) + ' m/s';
   }
 
   showObjective(obj, index, total) {

@@ -27,50 +27,51 @@ export const PLAYER = {
   hspeedTolerance: 2.1,   // server sanity multiplier for client reported speed
 };
 
-// Advanced movement + momentum. Momentum is a 0..1 reward meter: it never
-// drains from using moves, it only builds from chaining them and slowly bleeds
-// away when you stand around. Higher momentum = higher top speed.
+// Advanced movement: Titanfall-flavoured speed preservation.
+//
+//  * in the air you KEEP your speed — nothing bleeds it away
+//  * a double jump only costs you SOME of it
+//  * touching the ground costs you ALL of it ... unless you slide into the
+//    landing, which preserves everything (and can even add a little)
+//  * wall runs preserve speed too, so you can chain them
 export const MOVE = {
-  momentumMax: 1,
-  momentumSpeedBoost: 0.45,     // +45% top speed at full momentum
-  momentumSprintJump: 0.16,     // per sprint jump
-  momentumDoubleJump: 0.12,     // per double jump
-  momentumWallRun: 0.6,         // per second of wall running
-  momentumWallJump: 0.1,        // per wall kick
-  momentumSlide: 0.5,           // per second of sliding
-  momentumHighSpeed: 0.16,      // per second while above sprint speed
-  momentumSprint: 0.13,         // per second while sprinting
-  momentumDecayIdle: 0.34,      // per second standing still
-  momentumDecayGround: 0.1,     // per second walking
-  momentumDecayAir: 0.02,       // per second floating slowly
+  airSpeedCap: 30,          // hard sanity cap, only reachable by long chains
+  airStrafeAccel: 46,       // m/s^2 of wish-directed acceleration in the air
+  airControlMin: 0.55,      // fraction of strafe accel when holding forward only
 
-  sprintJumpBoost: 1.1,         // horizontal multiplier for a sprint jump
-  airJumps: 1,                  // double jump budget
   doubleJumpSpeed: 7.6,
-  doubleJumpForward: 1.12,
+  doubleJumpKeep: 0.86,     // you only lose ~14% of your horizontal speed
 
-  wallRunMaxTime: 1.15,         // seconds per wall
+  landKeep: 0.3,            // normal landing: momentum is gone
+  landCap: 0.45,            // ...and never above this fraction of sprint speed
+  slideLandKeep: 1.0,       // landing into a slide keeps everything
+
+  wallRunMaxTime: 1.15,
   wallRunGravity: 5.5,
-  wallRunLift: 2.2,             // upward kick when a wall run begins
+  wallRunLift: 2.2,
   wallRunMinSpeed: 3.4,
-  wallRunStick: 0.62,           // how far the wall can be and still be grabbed
+  wallRunStick: 0.62,
   wallRunSteer: 7.0,
+  wallRunKeep: 1.0,         // wall running does not cost speed
+
   wallJumpPush: 6.4,
   wallJumpUp: 7.8,
 
   slideSpeed: 13.6,
-  slideMinSpeed: 8.0,           // must already be moving at least this fast
-  slideDuration: 1.05,
-  slideFriction: 2.4,
-  slideSteer: 4.5,
+  slideMinSpeed: 6.0,
+  slideDuration: 1.35,
+  slideFriction: 1.7,
+  slideSteer: 5.0,
+  slideBoost: 1.04,
   slideEyeOffset: -0.55,
-  slideCooldown: 0.35,
-  slideJumpBoost: 1.06,
+  slideCooldown: 0.3,
+  slideBuffer: 0.35,        // press slide this long before landing and it sticks
+  slideJumpKeep: 1.0,
 };
 
 // Highest horizontal speed a legitimately moving player can reach — the server
-// uses this to reject teleports without punishing momentum play.
-export const MAX_LEGIT_SPEED = PLAYER.sprintSpeed * (1 + MOVE.momentumSpeedBoost) * 1.5;
+// uses this to reject teleports without punishing speed play.
+export const MAX_LEGIT_SPEED = MOVE.airSpeedCap;
 
 // Weapon definitions. damage / interval are the balance numbers requested:
 //  rifle  : 4 shots/sec, 17 dmg  -> 6 shots to kill (6 * 17 = 102)

@@ -49,6 +49,7 @@ test('title screen shows the SKYFALL logo and deploy flow', () => {
   const controls = document.querySelector('.keys').textContent;
   assert.match(controls, /double jump/i);
   assert.match(controls, /slide/i);
+  assert.match(document.querySelector('.momentum-note').textContent, /KEEP YOUR SPEED/i);
 });
 
 const hud = new Hud();
@@ -137,15 +138,22 @@ test('death screen + respawn countdown', () => {
   assert.equal(document.getElementById('deathScreen').classList.contains('hidden'), true);
 });
 
-test('momentum meter, movement callout and practice stats', () => {
-  hud.setMomentum(0, false);
-  assert.equal(document.getElementById('momFill').style.width, '0%');
-  assert.equal(document.getElementById('momPct').textContent, '0%');
-  hud.setMomentum(0.86, true);
-  assert.equal(document.getElementById('momPct').textContent, '86%');
-  assert.ok(document.getElementById('momentum').classList.contains('hot'), 'hot state at high momentum');
-  hud.setMomentum(1.4, false); // clamped
-  assert.equal(document.getElementById('momPct').textContent, '100%');
+test('speedometer, movement callout and practice stats', () => {
+  hud.setSpeed(0);
+  assert.equal(parseFloat(document.getElementById('speedFill').style.width), 0);
+  assert.equal(document.getElementById('speedVal').textContent, '0.0');
+  assert.equal(document.getElementById('speedTag').textContent, 'WALK');
+
+  hud.setSpeed(8.5);
+  assert.equal(document.getElementById('speedTag').textContent, 'SPRINT');
+  hud.setSpeed(14.3);
+  assert.equal(document.getElementById('speedVal').textContent, '14.3');
+  assert.equal(document.getElementById('speedTag').textContent, 'MOMENTUM');
+  assert.ok(document.getElementById('speedometer').classList.contains('hot'), 'hot above sprint');
+  assert.ok(Math.abs(parseFloat(document.getElementById('speedFill').style.width) - 59.6) < 0.05);
+  hud.setSpeed(99); // clamped bar
+  assert.equal(parseFloat(document.getElementById('speedFill').style.width), 100);
+  hud.setSpeed(0);
 
   hud.moveState('WALL RUN', 'wall');
   const ms = document.getElementById('moveState');
@@ -156,10 +164,10 @@ test('momentum meter, movement callout and practice stats', () => {
 
   hud.showPractice(true);
   assert.equal(document.getElementById('practiceStats').classList.contains('hidden'), false);
-  hud.practiceStats({ kills: 4, jumps: 12, wallRuns: 3, slides: 5, bestMomentum: 0.66 });
+  hud.practiceStats({ kills: 4, jumps: 12, wallRuns: 3, slides: 5, bestSpeed: 16.42 });
   assert.equal(document.getElementById('psKills').textContent, '4');
   assert.equal(document.getElementById('psWallRuns').textContent, '3');
-  assert.equal(document.getElementById('psMomentum').textContent, '66%');
+  assert.equal(document.getElementById('psMomentum').textContent, '16.4 m/s');
   hud.showPractice(false);
 });
 
