@@ -61,19 +61,19 @@ await test('welcome carries identity and spawn', async () => {
 
 console.log('\nweapons:');
 
-await test('rifle does 17 damage per hit, 6 shots to kill at 4/sec', async () => {
+await test('rifle does 25 damage per hit, 4 shots to kill at 4/sec', async () => {
   const { game, a, b } = makeGame();
   a.weapon = 0;
   const dir = dirTo(a.pos, b.pos);
   let shots = 0;
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 3; i++) {
     game.handle(a, { t: 'fire', dir });
     shots++;
-    assert.equal(b.hp, 100 - 17 * shots, `hp after ${shots} rifle shots`);
+    assert.equal(b.hp, 100 - 25 * shots, `hp after ${shots} rifle shots`);
     await sleep(255);
   }
   game.handle(a, { t: 'fire', dir });
-  assert.equal(b.alive, false, 'sixth rifle shot kills');
+  assert.equal(b.alive, false, 'fourth rifle shot kills');
   assert.equal(a.kills, 1);
   assert.equal(b.deaths, 1);
 });
@@ -114,7 +114,7 @@ await test('sniper deals 100 damage: one shot kill, 3.5s cooldown', async () => 
   assert.equal(b.alive, false, 'sniper fires again after 3.5s');
 });
 
-await test('smg: 5 damage per shot at 15 shots/sec', async () => {
+await test('smg: 8 damage per shot at 15 shots/sec', async () => {
   const { game, a, b } = makeGame();
   a.weapon = 2;
   const dir = dirTo(a.pos, b.pos);
@@ -122,7 +122,7 @@ await test('smg: 5 damage per shot at 15 shots/sec', async () => {
     game.handle(a, { t: 'fire', dir });
     await sleep(70);
   }
-  assert.equal(b.hp, 80, 'four smg hits = 20 damage');
+  assert.equal(b.hp, 68, 'four smg hits = 32 damage');
   assert.equal(a.ammo[2], WEAPONS[2].magSize - 4);
 });
 

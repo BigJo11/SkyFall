@@ -96,7 +96,7 @@ test('shooting a dummy damages it and a kill queues a respawn', () => {
   const d = p.dummies[0];
 
   p.onLocalHit(avatarFor(d), weapon('rifle'));
-  assert.equal(d.hp, 83);
+  assert.equal(d.hp, 100 - weapon('rifle').damage, 'one rifle hit comes off the dummy');
   assert.equal(p.stats.kills, 0);
 
   // finish it off with the sniper

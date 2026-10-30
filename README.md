@@ -57,9 +57,9 @@ Change the port with `PORT=8080 npm start`.
 
 | Weapon | Damage | Fire rate | Kill time | Notes |
 | --- | --- | --- | --- | --- |
-| **RIFLE** | 17 | 4 shots/sec (250 ms) | 6 shots to kill | 30 round mag, fully automatic |
+| **RIFLE** | 25 | 4 shots/sec (250 ms) | 4 shots to kill (0.75 s) | 30 round mag, fully automatic |
 | **SNIPER** | 100 | 1 shot every 3.5 s | one shot kill | 5 round mag, right-click to scope |
-| **SMG** | 5 | 15 shots/sec (66.7 ms) | 20 shots to kill | 40 round mag, wide spread |
+| **SMG** | 8 | 15 shots/sec (66.7 ms) | 13 shots to kill (0.87 s) | 45 round mag, wide spread |
 | **KNIFE** | 100 | 0.5 s swing cooldown | one shot kill | 2.7 m reach |
 
 Fire rate is enforced **per weapon** on the server, so swapping guns can never

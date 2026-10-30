@@ -208,10 +208,11 @@ test('weapon balance numbers', () => {
   const smg = WEAPONS.find((w) => w.id === 'smg');
   const knife = WEAPONS.find((w) => w.id === 'knife');
   assert.ok(Math.abs(1000 / rifle.interval - 4) < 1e-9, 'rifle fires 4 shots/sec');
-  assert.equal(Math.ceil(100 / rifle.damage), 6, 'rifle kills in 6 shots');
+  assert.equal(Math.ceil(100 / rifle.damage), 4, 'rifle kills in 4 shots');
   assert.equal(sniper.damage, 100, 'sniper one-shots');
   assert.equal(sniper.interval, 3500, 'sniper cooldown 3.5s');
-  assert.equal(smg.damage, 5, 'smg damage');
+  assert.equal(smg.damage, 8, 'smg damage');
+  assert.equal(Math.ceil(100 / smg.damage), 13, 'smg kills in 13 shots');
   assert.ok(Math.abs(1000 / smg.interval - 15) < 1e-9, 'smg fires 15 shots/sec');
   assert.equal(knife.damage, 100, 'knife one-shots');
   assert.equal(knife.interval, 500, 'knife cooldown 0.5s');

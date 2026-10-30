@@ -16,9 +16,9 @@ globalThis.document = window.document;
 globalThis.HTMLElement = window.HTMLElement;
 globalThis.requestAnimationFrame = window.requestAnimationFrame.bind(window);
 
+const { WEAPONS } = await import('../shared/constants.js');
 const { Hud } = await import('../public/js/hud.js');
 const { Input } = await import('../public/js/input.js');
-const { WEAPONS } = await import('../shared/constants.js');
 
 let passed = 0;
 let failed = 0;
@@ -35,12 +35,16 @@ test('title screen shows the SKYFALL logo and deploy flow', () => {
   assert.equal(logo.getAttribute('data-text'), 'SKYFALL');
   assert.ok(document.getElementById('deployBtn'), 'deploy button');
   assert.ok(document.getElementById('nameInput'), 'callsign input');
-  // arsenal copy matches the balance numbers
+  // arsenal copy is derived from the balance numbers, so it cannot drift
   const arsenal = document.querySelector('.arsenal').textContent;
-  assert.match(arsenal, /4 shots\/sec/);
-  assert.match(arsenal, /6 shots to kill/);
+  const byId = (id) => WEAPONS.find((w) => w.id === id);
+  const rifle = byId('rifle');
+  const smg = byId('smg');
+  assert.match(arsenal, new RegExp(`${Math.round(1000 / rifle.interval)} shots/sec`), 'rifle fire rate on the title screen');
+  assert.match(arsenal, new RegExp(`${Math.ceil(100 / rifle.damage)} shots to kill`), 'rifle kill count on the title screen');
   assert.match(arsenal, /3\.5s/);
-  assert.match(arsenal, /15 shots\/sec/);
+  assert.match(arsenal, new RegExp(`${Math.round(1000 / smg.interval)} shots/sec`), 'smg fire rate on the title screen');
+  assert.match(arsenal, new RegExp(`${smg.damage} damage`), 'smg damage on the title screen');
   assert.match(arsenal, /0\.5s swing/);
   // all three entry points
   assert.ok(document.getElementById('deployBtn'), 'deploy');
