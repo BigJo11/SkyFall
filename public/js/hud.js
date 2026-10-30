@@ -34,7 +34,25 @@ export class Hud {
       dmgNumbers: $('dmgNumbers'),
       toast: $('toast'),
       killCam: $('killCam'),
+      momentum: $('momentum'),
+      momFill: $('momFill'),
+      momPct: $('momPct'),
+      moveState: $('moveState'),
+      objective: $('objective'),
+      objIndex: $('objIndex'),
+      objTitle: $('objTitle'),
+      objText: $('objText'),
+      objTip: $('objTip'),
+      practiceStats: $('practiceStats'),
+      psKills: $('psKills'),
+      psJumps: $('psJumps'),
+      psWallRuns: $('psWallRuns'),
+      psSlides: $('psSlides'),
+      psMomentum: $('psMomentum'),
+      objectiveDone: $('objectiveDone'),
     };
+    this.moveStateTimer = 0;
+    this.objectiveId = null;
     this.killfeedEntries = [];
     this.vignette = 0;
     this.buildSlots();
@@ -213,6 +231,66 @@ export class Hud {
     this.el.ping.textContent = this.pingMs;
   }
 
+  // ---------------------------------------------------------- movement
+  setMomentum(v, hot = false) {
+    const pct = Math.max(0, Math.min(1, v));
+    this.el.momFill.style.width = (pct * 100).toFixed(1) + '%';
+    this.el.momPct.textContent = Math.round(pct * 100) + '%';
+    this.el.momentum.classList.toggle('hot', hot);
+  }
+
+  moveState(text, kind = '') {
+    const el = this.el.moveState;
+    if (!text) {
+      el.classList.remove('on', 'wall', 'slide');
+      this.moveStateTimer = 0;
+      return;
+    }
+    if (el.textContent !== text) el.textContent = text;
+    el.classList.add('on');
+    el.classList.toggle('wall', kind === 'wall');
+    el.classList.toggle('slide', kind === 'slide');
+    this.moveStateTimer = 0.6;
+  }
+
+  // ---------------------------------------------------------- practice / tutorial
+  showPractice(on) {
+    this.el.practiceStats.classList.toggle('hidden', !on);
+  }
+
+  practiceStats(stats) {
+    this.el.psKills.textContent = stats.kills;
+    this.el.psJumps.textContent = stats.jumps;
+    this.el.psWallRuns.textContent = stats.wallRuns;
+    this.el.psSlides.textContent = stats.slides;
+    this.el.psMomentum.textContent = Math.round(stats.bestMomentum * 100) + '%';
+  }
+
+  showObjective(obj, index, total) {
+    if (!obj) {
+      this.el.objective.classList.add('hidden');
+      this.objectiveId = null;
+      return;
+    }
+    const changed = this.objectiveId !== obj.id;
+    this.objectiveId = obj.id;
+    this.el.objective.classList.remove('hidden');
+    this.el.objIndex.textContent = `${index} / ${total}`;
+    this.el.objTitle.textContent = obj.title;
+    this.el.objText.textContent = obj.text;
+    this.el.objTip.textContent = obj.tip || '';
+    this.el.objTip.classList.toggle('hidden', !obj.tip);
+    if (changed) {
+      this.el.objective.classList.remove('step-done');
+      void this.el.objective.offsetWidth;
+      this.el.objective.classList.add('step-done');
+    }
+  }
+
+  showObjectiveDone(on) {
+    this.el.objectiveDone.classList.toggle('hidden', !on);
+  }
+
   flash(amount = 0.5) {
     this.el.flash.style.transition = 'none';
     this.el.flash.style.opacity = String(amount);
@@ -223,6 +301,10 @@ export class Hud {
   }
 
   update(dt) {
+    if (this.moveStateTimer > 0) {
+      this.moveStateTimer -= dt;
+      if (this.moveStateTimer <= 0) this.el.moveState.classList.remove('on');
+    }
     if (this.vignette > 0) {
       this.vignette = Math.max(0, this.vignette - dt * 1.6);
       this.el.vignette.style.opacity = String(this.vignette * 0.9);

@@ -204,6 +204,7 @@ body {
 }
 #hud #deathScreen, #hud #deathScreen * { pointer-events: none; }
 #hud #scoreboard, #hud #scoreboard * { pointer-events: none; }
+#hud #objective, #hud #objective *, #hud #practiceStats, #hud #practiceStats * { pointer-events: none; }
 
 #dmgVignette {
   position: absolute; inset: 0;
@@ -472,4 +473,133 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
   .title-cols { grid-template-columns: 1fr; }
   .health-bar { width: 150px; }
   .ammo { font-size: 32px; }
+}
+
+/* ==================================================== movement + modes */
+/* title: three ways in */
+.mode-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.btn.mode {
+  font-size: 13px;
+  letter-spacing: .2em;
+  padding: 11px 10px;
+  background: rgba(98, 214, 255, .08);
+  border-color: rgba(98, 214, 255, .3);
+  color: #cdeeff;
+}
+.btn.mode:hover { background: rgba(98, 214, 255, .16); border-color: rgba(98, 214, 255, .55); }
+.mode-note {
+  font-size: 10px;
+  letter-spacing: .16em;
+  color: rgba(147, 167, 196, .62);
+  text-align: center;
+  text-transform: uppercase;
+}
+.momentum-note {
+  margin-top: 12px; padding-top: 10px;
+  border-top: 1px solid rgba(120, 190, 235, .14);
+  font-size: 10px; line-height: 1.6; letter-spacing: .14em;
+  color: rgba(147, 167, 196, .72);
+}
+
+/* momentum meter */
+#momentum {
+  position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%);
+  width: min(320px, 44vw); text-align: center;
+  opacity: .92;
+}
+.mom-bar {
+  position: relative; height: 8px;
+  background: rgba(4, 10, 18, .7);
+  border: 1px solid rgba(140, 200, 240, .22);
+  border-radius: 2px; overflow: hidden;
+  transform: skewX(-20deg);
+}
+#momFill {
+  position: absolute; inset: 0; width: 0%;
+  background: linear-gradient(90deg, #2aa6ce, #7de6ff 55%, #d9fbff);
+  box-shadow: 0 0 16px rgba(120, 230, 255, .8);
+  transition: width .12s linear, background .2s;
+}
+#momentum.hot #momFill {
+  background: linear-gradient(90deg, #ffb95c, #ffe6a0 60%, #ffffff);
+  box-shadow: 0 0 22px rgba(255, 200, 110, .9);
+}
+.mom-segs {
+  position: absolute; inset: 0;
+  background-image: repeating-linear-gradient(90deg, transparent 0 30px, rgba(0, 0, 0, .55) 30px 32px);
+}
+.mom-label {
+  margin-top: 5px; font-size: 9px; letter-spacing: .34em;
+  color: rgba(147, 167, 196, .85);
+}
+#momPct { color: #cfeeff; font-family: var(--mono); letter-spacing: .06em; }
+
+/* movement state callout */
+#moveState {
+  position: absolute; left: 50%; top: 58%; transform: translate(-50%, 0) skewX(-12deg);
+  font-size: 15px; font-weight: 800; letter-spacing: .38em;
+  color: #cdeeff; text-shadow: 0 0 18px rgba(80, 200, 255, .8);
+  opacity: 0; transition: opacity .18s;
+}
+#moveState.on { opacity: 1; }
+#moveState.wall { color: #ffd479; text-shadow: 0 0 18px rgba(255, 190, 100, .85); }
+#moveState.slide { color: #8affc1; text-shadow: 0 0 18px rgba(110, 255, 180, .8); }
+
+/* tutorial objective card */
+#objective {
+  position: absolute; top: 62px; left: 20px; width: min(300px, 40vw);
+  padding: 13px 15px;
+  background: linear-gradient(180deg, rgba(11, 24, 40, .86), rgba(8, 16, 28, .74));
+  border: 1px solid rgba(120, 190, 235, .26);
+  border-left: 3px solid var(--cyan);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .5);
+  animation: fadeUp .25s ease;
+}
+.obj-head { display: flex; justify-content: space-between; align-items: baseline; }
+#objIndex { font-family: var(--mono); font-size: 10px; color: var(--cyan); letter-spacing: .1em; }
+.obj-kicker { font-size: 9px; letter-spacing: .34em; color: rgba(147, 167, 196, .7); }
+.obj-title { margin-top: 6px; font-size: 19px; font-weight: 800; letter-spacing: .22em; }
+.obj-text { margin-top: 4px; font-size: 12px; line-height: 1.55; color: #b8cde4; letter-spacing: .04em; }
+.obj-tip {
+  display: inline-block; margin-top: 9px; padding: 3px 9px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: .12em;
+  color: #04121c; background: var(--cyan); border-radius: 4px;
+}
+#objective.step-done { animation: objPulse .45s ease; }
+@keyframes objPulse {
+  0% { border-left-color: #8affc1; box-shadow: 0 0 0 0 rgba(138, 255, 193, .5); }
+  100% { border-left-color: var(--cyan); }
+}
+
+/* practice stats */
+#practiceStats {
+  position: absolute; top: 62px; right: 20px; width: 210px;
+  padding: 12px 14px;
+  background: rgba(8, 16, 28, .72);
+  border: 1px solid rgba(120, 190, 235, .2);
+  border-radius: 10px;
+  font-size: 11px;
+  animation: fadeUp .25s ease;
+}
+.ps-head { font-size: 9px; letter-spacing: .32em; color: var(--cyan); margin-bottom: 8px; }
+.ps-row { display: flex; justify-content: space-between; padding: 3px 0; color: rgba(147, 167, 196, .9); letter-spacing: .1em; }
+.ps-row b { font-family: var(--mono); color: #e8f1ff; }
+
+/* tutorial complete overlay */
+#objectiveDone {
+  position: absolute; inset: 0; z-index: 15;
+  display: grid; place-items: center;
+  background: radial-gradient(90% 70% at 50% 40%, rgba(10, 40, 60, .5), rgba(3, 6, 12, .86));
+  animation: fadeIn .25s ease;
+}
+#hud #objectiveDone, #hud #objectiveDone * { pointer-events: auto; }
+.od-inner { width: min(520px, 92vw); padding: 26px; text-align: center; }
+.od-inner h2 { margin: 0; font-size: 22px; letter-spacing: .34em; color: var(--cyan); }
+.od-inner p { margin: 12px 0 20px; font-size: 13px; line-height: 1.7; color: #b8cde4; letter-spacing: .04em; }
+.od-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+@media (max-width: 720px) {
+  #objective { width: calc(100vw - 40px); }
+  #practiceStats { display: none; }
 }

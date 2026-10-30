@@ -1,4 +1,4 @@
-import { PLAYER, WEAPONS, PLAYER_COLORS, NET } from '../shared/constants.js';
+import { PLAYER, WEAPONS, PLAYER_COLORS, NET, MAX_LEGIT_SPEED } from '../shared/constants.js';
 import ARENA from '../shared/map.js';
 import { solidAABBs, raycastAABBs, rayCapsule } from '../shared/collision.js';
 
@@ -192,7 +192,8 @@ export class Game {
 
     // basic sanity: reject teleports that no walking player could make
     const d = Math.hypot(nx - p.pos[0], nz - p.pos[2]);
-    const maxStep = PLAYER.sprintSpeed * PLAYER.hspeedTolerance * dt + 1.2;
+    // generous enough for sprint jumps, slides, wall kicks and top momentum
+    const maxStep = Math.max(MAX_LEGIT_SPEED, PLAYER.sprintSpeed * PLAYER.hspeedTolerance) * dt + 1.2;
     const rise = ny - p.pos[1];
 
     // reject teleports: sideways faster than sprinting, climbing faster than a

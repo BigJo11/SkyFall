@@ -36,7 +36,12 @@
           <span>CALLSIGN</span>
           <input id="nameInput" maxlength="16" placeholder="PLAYER" autocomplete="off" spellcheck="false" />
         </label>
-        <button id="deployBtn" class="btn primary">DEPLOY</button>
+        <button id="deployBtn" class="btn primary">DEPLOY · ONLINE MATCH</button>
+        <div class="mode-row">
+          <button id="practiceBtn" class="btn mode">PRACTICE</button>
+          <button id="tutorialBtn" class="btn mode">TUTORIAL</button>
+        </div>
+        <div class="mode-note">practice &amp; tutorial run offline — no server needed</div>
         <div class="server-line">
           <span class="dot" id="srvDot"></span>
           <span id="srvStatus">connecting…</span>
@@ -49,7 +54,9 @@
           <ul class="keys">
             <li><b>WASD</b> move</li>
             <li><b>SHIFT</b> sprint</li>
-            <li><b>SPACE</b> jump</li>
+            <li><b>SPACE</b> jump · double jump · wall kick</li>
+            <li><b>C / CTRL</b> slide (while sprinting)</li>
+            <li><b>WALLS</b> run along them in the air</li>
             <li><b>LMB</b> fire</li>
             <li><b>RMB</b> scope (sniper)</li>
             <li><b>1 2 3 4</b> or <b>WHEEL</b> weapons</li>
@@ -66,6 +73,7 @@
             <li><b class="w-smg">SMG</b><span>15 shots/sec · 5 damage</span></li>
             <li><b class="w-knife">KNIFE</b><span>one shot kill · 0.5s swing</span></li>
           </ul>
+          <div class="momentum-note">CHAIN SPRINT JUMPS · WALL RUNS · SLIDES<br />TO BUILD MOMENTUM AND RAISE YOUR TOP SPEED</div>
         </div>
       </div>
 
@@ -109,6 +117,41 @@
 
     <div id="killfeed"></div>
     <div id="centerMsg"></div>
+
+    <div id="objective" class="hidden">
+      <div class="obj-head"><span id="objIndex">1 / 15</span><span class="obj-kicker">TUTORIAL</span></div>
+      <div class="obj-title" id="objTitle">MOVE</div>
+      <div class="obj-text" id="objText">Hold WASD to move.</div>
+      <div class="obj-tip" id="objTip">WASD</div>
+    </div>
+
+    <div id="practiceStats" class="hidden">
+      <div class="ps-head">PRACTICE RANGE</div>
+      <div class="ps-row"><span>DUMMIES DOWN</span><b id="psKills">0</b></div>
+      <div class="ps-row"><span>JUMPS</span><b id="psJumps">0</b></div>
+      <div class="ps-row"><span>WALL RUNS</span><b id="psWallRuns">0</b></div>
+      <div class="ps-row"><span>SLIDES</span><b id="psSlides">0</b></div>
+      <div class="ps-row"><span>BEST MOMENTUM</span><b id="psMomentum">0%</b></div>
+    </div>
+
+    <div id="moveState"></div>
+
+    <div id="momentum">
+      <div class="mom-bar"><div id="momFill"></div><div class="mom-segs"></div></div>
+      <div class="mom-label">MOMENTUM <span id="momPct">0%</span></div>
+    </div>
+
+    <div id="objectiveDone" class="hidden">
+      <div class="panel od-inner">
+        <h2>TUTORIAL COMPLETE</h2>
+        <p>You can sprint jump, double jump, wall run, wall kick, slide and chain momentum.
+          Dummies are waiting in the practice range.</p>
+        <div class="od-row">
+          <button id="odPractice" class="btn primary">KEEP PRACTISING</button>
+          <button id="odTitle" class="btn ghost">BACK TO TITLE</button>
+        </div>
+      </div>
+    </div>
 
     <footer class="hud-bottom">
       <div class="health-block">

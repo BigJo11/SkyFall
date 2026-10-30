@@ -45,21 +45,58 @@ Change the port with `PORT=8080 npm start`.
 Fire rate is enforced **per weapon** on the server, so swapping guns can never
 cheat a cooldown.
 
+## Movement & momentum
+
+No stamina, no cooldowns to manage — movement is a skill you build. Chaining
+moves fills a **momentum** meter that raises your top speed (up to +45%) and
+pushes your field of view wider. Momentum never drains from *using* a move; it
+bleeds away only when you stand around.
+
+| Move | Input | Notes |
+| --- | --- | --- |
+| **Sprint** | `Shift` + `WASD` | slowly trickles momentum in |
+| **Sprint jump** | `Space` while sprinting | keeps and boosts your full horizontal speed |
+| **Double jump** | `Space` again in mid-air | one per airtime, steers you where you look |
+| **Wall run** | sprint along a wall and jump | gravity drops, you steer along the face, once per wall until you land |
+| **Wall kick** | `Space` during a wall run | pushes off the wall, refreshes the double jump |
+| **Slide** | `C` / `Ctrl` while sprinting | low, fast, steerable; jump out of it to keep the speed |
+
+Momentum sources: sprint jumps, double jumps, wall runs (the big one), wall
+kicks, slides and raw high speed. Reach 100% and the meter turns amber while
+your strafe roll and FOV widen.
+
+## Practice & tutorial
+
+Both run **offline in the browser** — no server, no sign-in, no other players.
+
+* **Practice** — a live-fire range on the east side of the plate: six dummies
+  that respawn 1.6 s after you destroy them, an endless magazine economy, and a
+  stats panel counting dummies downed, jumps, wall runs, slides and your best
+  momentum. Fall off the edge and you are dropped back on the firing line.
+* **Tutorial** — 15 objectives that teach the whole game in order: move, look,
+  jump, sprint, sprint jump, double jump, wall run, wall kick, slide, momentum,
+  then rifle → sniper → knife → reload. Each step advances the moment you
+  actually do the thing (the wall-run step teleports you to a wall and tells you
+  where to run), and `N` skips a step if you get stuck. Finishing offers
+  "keep practising" or back to the title.
+
 ## Controls
 
 | Input | Action |
 | --- | --- |
 | `WASD` | move |
 | `Shift` | sprint |
-| `Space` | jump |
+| `Space` | jump · double jump · wall kick |
 | `Left mouse` | fire (hold for automatic) |
 | `Right mouse` | scope (sniper) |
 | `1` `2` `3` `4` / mouse wheel | switch weapon |
 | `Q` | previous weapon |
+| `C` / `Ctrl` | slide (while sprinting) |
 | `R` | reload |
 | `Tab` | scoreboard |
 | `Esc` | pause menu (sensitivity, volume, FOV) |
 | `M` | mute |
+| `N` | skip a tutorial step |
 
 ## How it works
 
@@ -75,6 +112,9 @@ cheat a cooldown.
   browser (for rendering), so what you see is exactly what you can shoot.
 * **Snapshot interpolation** — other players are rendered from 20 Hz snapshots
   with exponential smoothing, name plates and health bars above their heads.
+* **Local modes** — practice and the tutorial reuse the exact same weapon,
+  physics, HUD and rendering code as online play; only the damage/death handling
+  is swapped for a local session object, so nothing can drift out of sync.
 * **No assets** — every texture, model and sound is generated procedurally in
   the browser (Three.js primitives + WebAudio synthesis), so the whole game
   ships as source.
@@ -94,6 +134,7 @@ public/js/avatars.js  remote player models and name plates
 public/js/effects.js  tracers, sparks, blood, death rings
 public/js/audio.js    synthesized weapons, footsteps and ambience
 public/js/hud.js      DOM HUD, killfeed, scoreboard, death screen
+public/js/practice.js offline practice range + the 15-step tutorial
 public/vendor/three   Three.js (bundled so the game works offline)
 ```
 
@@ -138,15 +179,17 @@ WebSockets work out of the box on Render (the client automatically upgrades to
 npm test
 ```
 
-54 checks across six suites:
+96 checks across eight suites:
 
 | Suite | Covers |
 | --- | --- |
 | `tests/game.test.mjs` | weapon damage, fire rates, cooldowns, hit detection, regen, respawn, anti-cheat |
 | `tests/physics.test.mjs` | walking, stairs, walls, jumping, ledges, crates |
+| `tests/movement.test.mjs` | momentum gain/decay/speed boost, sprint jumps, double jump budget, wall run lifetime + wall kick, slides, chained combos |
+| `tests/tutorial.test.mjs` | practice dummies, respawns, stats, and the full 15-step tutorial state machine |
 | `tests/scene.test.mjs` | every 3D module built against real Three.js (no GPU needed) |
 | `tests/ui.test.mjs` | the real `index.html` driven through jsdom: HUD, killfeed, scoreboard, input |
-| `tests/browser.test.mjs` | the whole client boots in jsdom against a live server: deploy, move, shoot, swap guns, scope, reload, die, respawn, leave |
+| `tests/browser.test.mjs` | the whole client boots in jsdom against a live server: deploy, move, shoot, swap guns, scope, reload, die, respawn, plus practice range, movement mechanics in-game, and tutorial completion |
 | `tests/live.test.mjs` | HTTP + WebSocket protocol: joins, snapshots, firing, disconnects, malformed frames |
 
 Plus `scripts/check-client.mjs`, a static audit of client import graphs and DOM ids.

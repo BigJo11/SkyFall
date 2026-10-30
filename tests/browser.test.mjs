@@ -294,6 +294,133 @@ await test('combat feedback handlers: damage, kill, death, respawn', async () =>
   assert.equal(document.getElementById('ammoMax').textContent, '5');
 });
 
+await test('practice mode spawns dummies and lets you shoot them', async () => {
+  const { startLocalMode } = window.SKYFALL;
+  // leave the online match first
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Escape' }));
+  pump(2);
+  document.getElementById('leaveBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  await sleep(120);
+
+  document.getElementById('practiceBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(4);
+  const sk = window.SKYFALL;
+  assert.equal(sk.state.mode, 'practice');
+  assert.equal(sk.state.phase, 'playing');
+  assert.equal(document.getElementById('practiceStats').classList.contains('hidden'), false);
+  assert.equal(sk.avatars.map.size, 6, 'six dummies rendered');
+  assert.equal(document.getElementById('title').classList.contains('hidden'), true);
+
+  // the range looks down -x; dummy #5 sits straight ahead on that line
+  const dummy = sk.session.dummies[4];
+  const dist = Math.hypot(dummy.pos[0] - sk.body.x, dummy.pos[2] - sk.body.z);
+  sk.state.yaw = Math.PI / 2;
+  sk.state.pitch = Math.atan2(dummy.pos[1] + 1.0 - (sk.body.y + 1.62), dist);
+  pump(2);
+  const hpBefore = dummy.hp;
+  const canvas = document.getElementById('gl');
+  // tap the trigger: hold for a couple of frames, then release and wait out
+  // the rifle cooldown
+  for (let i = 0; i < 3; i++) {
+    canvas.dispatchEvent(new window.MouseEvent('mousedown', { button: 0, bubbles: true }));
+    pump(3);
+    window.dispatchEvent(new window.MouseEvent('mouseup', { button: 0 }));
+    for (let f = 0; f < 16; f++) pump(1, 20);
+    await sleep(20);
+  }
+  if (!(dummy.hp < hpBefore)) {
+    const dbg = {
+      mode: sk.state.mode,
+      phase: sk.state.phase,
+      paused: sk.state.paused,
+      ammo: sk.state.ammo[0],
+      cam: sk.camera.position.toArray().map((v) => +v.toFixed(2)),
+      bodyY: sk.body.y,
+      dummy: dummy.pos,
+      yaw: sk.state.yaw,
+      pitch: sk.state.pitch,
+      avatars: sk.avatars.map.size,
+      sessions: !!sk.session,
+    };
+    throw new Error(`dummy took damage (${hpBefore} -> ${dummy.hp}) ${JSON.stringify(dbg)}`);
+  }
+  assert.ok(sk.state.ammo[0] < 30, 'ammo spent locally');
+});
+
+await test('practice mode runs the movement mechanics end to end', async () => {
+  const sk = window.SKYFALL;
+  // jump
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Space' }));
+  pump(2);
+  assert.ok(sk.body.vy > 0 || !sk.body.onGround, 'jumped');
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space' }));
+  pump(1);
+  // double jump
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Space' }));
+  pump(2);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space' }));
+  for (let i = 0; i < 60; i++) pump(1);
+  assert.ok(sk.session.stats.jumps >= 1, 'jumps counted');
+
+  // sprint then slide
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyW' }));
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ShiftLeft' }));
+  for (let i = 0; i < 60; i++) pump(1);
+  assert.ok(sk.state.mode === 'practice');
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyC' }));
+  pump(2);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'KeyC' }));
+  assert.ok(sk.body.sliding || sk.session.stats.slides > 0, 'slide triggered');
+  for (let i = 0; i < 20; i++) pump(1);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'KeyW' }));
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'ShiftLeft' }));
+  pump(2);
+});
+
+await test('tutorial starts, advances with N, and completes', async () => {
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Escape' }));
+  pump(2);
+  document.getElementById('leaveBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(3);
+  await sleep(120);
+
+  document.getElementById('tutorialBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(4);
+  const sk = window.SKYFALL;
+  assert.equal(sk.state.mode, 'tutorial');
+  assert.equal(document.getElementById('objective').classList.contains('hidden'), false, 'objective card visible');
+  assert.equal(document.getElementById('objTitle').textContent, 'MOVE');
+  assert.match(document.getElementById('objIndex').textContent, /1 \/ \d+/);
+
+  const total = sk.session.stepCount;
+  for (let i = 0; i < total + 2; i++) {
+    window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyN' }));
+    pump(2);
+  }
+  assert.equal(sk.session.completed, true, 'tutorial completed');
+  assert.equal(document.getElementById('objectiveDone').classList.contains('hidden'), false, 'completion overlay');
+  assert.equal(document.getElementById('objective').classList.contains('hidden'), true);
+});
+
+await test('completion overlay keeps you practising or returns to title', async () => {
+  const sk = window.SKYFALL;
+  document.getElementById('odPractice').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(4);
+  assert.equal(sk.state.mode, 'practice');
+  assert.equal(document.getElementById('practiceStats').classList.contains('hidden'), false);
+  assert.equal(document.getElementById('objectiveDone').classList.contains('hidden'), true);
+
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Escape' }));
+  pump(2);
+  document.getElementById('leaveBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(3);
+  assert.equal(sk.state.mode, 'online');
+  assert.equal(document.getElementById('title').classList.contains('hidden'), false);
+  assert.equal(document.getElementById('hud').classList.contains('hidden'), true);
+  assert.equal(sk.avatars.map.size, 0, 'dummies cleaned up');
+});
+
 await test('leaving returns to the title screen', async () => {
   window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Escape' }));
   pump(2);

@@ -10,6 +10,7 @@ import { Avatars } from './avatars.js';
 import { ViewModel } from './viewmodel.js';
 import { Effects } from './effects.js';
 import { sfx } from './audio.js';
+import { PracticeMode, Tutorial, PRACTICE_SPAWN } from './practice.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -71,6 +72,7 @@ sfx.volume = settings.volume;
 
 const state = {
   phase: 'title',       // title | loading | playing | dead
+  mode: 'online',       // online | practice | tutorial
   paused: false,
   id: 0,
   name: '',
@@ -103,7 +105,11 @@ const state = {
   firedSinceSwitch: false,
   lastKiller: null,
   deathWeapon: null,
+  roll: 0,
 };
+
+// offline practice / tutorial session (null while playing online)
+let session = null;
 
 // ---------------------------------------------------------------- resize
 function resize() {
@@ -195,6 +201,7 @@ function startReload() {
   viewmodel.startReload(w.reloadTime);
   net.send({ t: 'reload' });
   sfx.reload(w.reloadTime / 1000);
+  session?.onEvent?.('reload');
 }
 
 function switchWeapon(i, send = true) {
@@ -210,6 +217,7 @@ function switchWeapon(i, send = true) {
   sfx.swap();
   state.firedSinceSwitch = false;
   if (send) net.send({ t: 'weapon', i });
+  session?.onEvent?.('weaponSwitched', { index: i });
 }
 
 function setScoped(v) {
@@ -261,6 +269,7 @@ function fireOnce(now) {
   }
   if (hit.victim) {
     effects.impact(hit.point, hit.normal, 'blood');
+    session?.onLocalHit?.(hit.victim, w);
   } else if (hit.hitWorld) {
     effects.impact(hit.point, hit.normal, 'world');
   }
@@ -283,18 +292,24 @@ function updateCamera(dt) {
   const bobY = Math.sin(state.bob * 2) * bobAmt;
   const bobX = Math.cos(state.bob) * bobAmt * 0.6;
 
-  // smooth vertical follow over stairs
-  const targetY = body.y + PLAYER.eye;
+  // smooth vertical follow over stairs, and duck while sliding
+  const targetY = body.y + PLAYER.eye + body.eyeOffset;
   if (state.camY === 0) state.camY = targetY;
   const dy = targetY - state.camY;
   state.camY += dy * Math.min(1, dt * (dy > 0.4 || dy < -0.4 ? 26 : 16));
 
   const strafe = (body.vx * Math.cos(state.yaw) - body.vz * Math.sin(state.yaw)) / PLAYER.sprintSpeed;
   camera.position.set(body.x + bobX * 0.5, state.camY + bobY, body.z);
-  camera.rotation.set(state.pitch, state.yaw, -strafe * 0.022);
 
-  // fov: sniper scope zoom
-  const targetFov = state.scoped ? 20 : (state.phase === 'dead' ? 96 : state.fov);
+  // roll: strafe lean + shoulder-first lean into wall runs
+  const wallRoll = body.wallRun ? -body.wallSide * 0.17 : 0;
+  const targetRoll = wallRoll + -strafe * 0.022;
+  state.roll += (targetRoll - state.roll) * Math.min(1, dt * 9);
+  camera.rotation.set(state.pitch, state.yaw, state.roll);
+
+  // fov: sniper scope zoom, plus a little push from momentum
+  const momentumFov = body.momentum * 6;
+  const targetFov = state.scoped ? 20 : (state.phase === 'dead' ? 96 : state.fov + momentumFov);
   camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 13);
   camera.updateProjectionMatrix();
 
@@ -314,6 +329,7 @@ function handleGameplayInput(now, dt) {
   }
   viewmodel._lookDX = look.dx;
   viewmodel._lookDY = look.dy;
+  if (look.dx || look.dy) session?.onEvent?.('look', look);
 
   // weapons
   const slot = input.weaponSlotPressed();
@@ -346,6 +362,9 @@ function handleGameplayInput(now, dt) {
     : { forward: 0, right: 0, sprint: false };
 
   if (input.pressed('Space') && state.alive && !state.paused) body.wantJump = true;
+  if (input.pressed('KeyC') || input.pressed('ControlLeft') || input.pressed('ControlRight')) {
+    if (state.alive && !state.paused) body.wantSlide = true;
+  }
 
   if (!state.paused) body.update(dt, wish, state.yaw);
 
@@ -362,6 +381,99 @@ function handleGameplayInput(now, dt) {
 }
 
 const round = (v) => Math.round(v * 1000) / 1000;
+
+// Movement events raised by the physics body this frame (jump, wall run...).
+function forwardMovementEvents() {
+  const ev = body.events;
+  if (!ev) return;
+  if (ev.jumped) { sfx.jump(); session?.onEvent?.('jump'); }
+  if (ev.sprintJump) session?.onEvent?.('sprintJump');
+  if (ev.doubleJumped) { sfx.doubleJump(); session?.onEvent?.('doubleJump'); }
+  if (ev.wallRunStarted) { sfx.wallRun(); session?.onEvent?.('wallRun'); }
+  if (ev.wallJumped) { sfx.wallJump(); session?.onEvent?.('wallJump'); }
+  if (ev.slideStarted) { sfx.slide(); session?.onEvent?.('slide'); }
+  body.events = {};
+}
+
+// ---------------------------------------------------------------- local modes
+// Practice and tutorial run entirely offline: no socket, local dummies,
+// local damage. The shared weapon/movement code is reused unchanged.
+function startLocalMode(kind) {
+  clearTimeout(connectTimer);
+  net.disconnect();
+  session?.dispose?.();
+  session = null;
+
+  state.mode = kind === 'tutorial' ? 'tutorial' : 'practice';
+  state.id = 0;
+  state.name = (($('nameInput').value || '').trim() || 'PLAYER').toUpperCase();
+  state.kills = 0;
+  state.deaths = 0;
+  state.players = [];
+  state.weapon = 0;
+  state.ammo = WEAPONS.map((w) => w.magSize);
+  state.nextFireAt = WEAPONS.map(() => 0);
+  state.reloadEndsAt = 0;
+  state.reloadDur = 0;
+  state.alive = true;
+  state.hp = PLAYER.maxHealth;
+  state.paused = false;
+  state.phase = 'playing';
+  state.scoped = false;
+  state.lastWeapon = null;
+
+  avatars.map.forEach((a) => a.dispose(scene));
+  avatars.map.clear();
+  body.reset();
+  body.teleport(PRACTICE_SPAWN.pos[0], PRACTICE_SPAWN.pos[1], PRACTICE_SPAWN.pos[2]);
+  state.yaw = PRACTICE_SPAWN.yaw;
+  state.pitch = 0;
+  state.camY = PRACTICE_SPAWN.pos[1] + PLAYER.eye;
+  state.roll = 0;
+
+  viewmodel.setWeapon(WEAPONS[0].id);
+  viewmodel.setScoped(false);
+  viewmodel.cancelReload();
+  hud.show(true);
+  hud.setWeapon(0, state.ammo[0]);
+  hud.setHealth(state.hp);
+  hud.setKillsDeaths(0, 0);
+  hud.hideDeath();
+  hud.reloadProgress(null);
+  hud.scope(false);
+  hud.showObjectiveDone(false);
+  hud.setMomentum(0);
+  hud.moveState('');
+  $('title').classList.add('hidden');
+  $('loading').classList.add('hidden');
+  $('pause').classList.add('hidden');
+
+  input.enabled = true;
+  sfx.init();
+  sfx.resume();
+
+  const ctx = {
+    state, body, hud, sfx, effects, avatars, scene, camera,
+    switchWeapon: (i) => switchWeapon(i, false),
+    place: (pos, yaw) => {
+      body.teleport(pos[0], pos[1], pos[2]);
+      state.yaw = yaw;
+      state.pitch = 0;
+      state.camY = pos[1] + PLAYER.eye;
+      state.roll = 0;
+    },
+  };
+  session = kind === 'tutorial' ? new Tutorial(ctx) : new PracticeMode(ctx);
+  session.start();
+  tryLock();
+  input.endFrame();
+}
+
+function endLocalMode() {
+  session?.dispose?.();
+  session = null;
+  state.mode = 'online';
+}
 
 // ---------------------------------------------------------------- network
 let lastSnapshotAt = 0;
@@ -431,6 +543,7 @@ net.on('welcome', (msg) => {
 
 net.on('snapshot', (msg) => {
   lastSnapshotAt = performance.now();
+  if (state.mode !== 'online') return;
   state.players = msg.players;
   avatars.sync(msg.players, state.id);
   const me = msg.players.find((p) => p.id === state.id);
@@ -652,6 +765,11 @@ function leaveToTitle(reason) {
   input.enabled = false;
   input.exitLock();
   net.disconnect();
+  endLocalMode();
+  hud.showObjectiveDone(false);
+  hud.showObjective(null);
+  hud.setMomentum(0);
+  hud.moveState('');
   avatars.map.forEach((a) => a.dispose(scene));
   avatars.map.clear();
   $('pause').classList.add('hidden');
@@ -677,6 +795,11 @@ $('deployBtn').addEventListener('click', () => {
 $('nameInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') $('deployBtn').click();
 });
+
+$('practiceBtn').addEventListener('click', () => { sfx.init(); sfx.resume(); startLocalMode('practice'); });
+$('tutorialBtn').addEventListener('click', () => { sfx.init(); sfx.resume(); startLocalMode('tutorial'); });
+$('odPractice').addEventListener('click', () => { startLocalMode('practice'); });
+$('odTitle').addEventListener('click', () => { leaveToTitle(); });
 
 $('resumeBtn').addEventListener('click', () => { hidePause(); });
 $('leaveBtn').addEventListener('click', () => { leaveToTitle(); });
@@ -721,6 +844,9 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.code === 'Tab' && state.phase !== 'title') {
     state.shownScoreboard = true;
+  }
+  if (e.code === 'KeyN' && state.mode === 'tutorial' && !state.paused) {
+    session?.skipStep?.();
   }
   if (e.code === 'KeyM') {
     sfx.setVolume(settings.volume = settings.volume > 0 ? 0 : 0.7);
@@ -822,6 +948,9 @@ function frame(now) {
     hud.setRespawn(left);
   }
 
+  forwardMovementEvents();
+  if (session) session.update(dt, now, body);
+
   updateCamera(dt);
   viewmodel.enabled = state.alive && !state.paused;
 
@@ -847,6 +976,12 @@ function frame(now) {
   const currentGap = parseFloat(gapEl.style.getPropertyValue('--gap')) || 7;
   hud.crosshairGap(currentGap + (targetGap - currentGap) * Math.min(1, dt * 14));
   gapEl.style.opacity = state.alive ? '1' : '0.25';
+
+  // momentum meter + movement callout
+  hud.setMomentum(body.momentum, body.momentum > 0.72);
+  if (body.wallRun) hud.moveState('WALL RUN', 'wall');
+  else if (body.sliding) hud.moveState('SLIDE', 'slide');
+  else if (!body.onGround && body.airJumps === 0) hud.moveState('AIRBORNE');
 
   world.update(dt, camera.position);
   effects.update(dt);
@@ -874,7 +1009,11 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Small debug handle: handy in the console, and used by the automated tests.
-window.SKYFALL = { state, hud, net, body, camera, avatars, viewmodel, effects, world, settings };
+window.SKYFALL = {
+  state, hud, net, body, camera, avatars, viewmodel, effects, world, settings, input,
+  get session() { return session; },
+  startLocalMode, leaveToTitle,
+};
 
 // pause on click-to-resume when locked is unavailable
 $('pause').addEventListener('mousedown', (e) => {

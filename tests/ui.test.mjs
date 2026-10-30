@@ -42,6 +42,13 @@ test('title screen shows the SKYFALL logo and deploy flow', () => {
   assert.match(arsenal, /3\.5s/);
   assert.match(arsenal, /15 shots\/sec/);
   assert.match(arsenal, /0\.5s swing/);
+  // all three entry points
+  assert.ok(document.getElementById('deployBtn'), 'deploy');
+  assert.ok(document.getElementById('practiceBtn'), 'practice');
+  assert.ok(document.getElementById('tutorialBtn'), 'tutorial');
+  const controls = document.querySelector('.keys').textContent;
+  assert.match(controls, /double jump/i);
+  assert.match(controls, /slide/i);
 });
 
 const hud = new Hud();
@@ -128,6 +135,49 @@ test('death screen + respawn countdown', () => {
   assert.equal(document.getElementById('respawnTimer').textContent, '1.2');
   hud.hideDeath();
   assert.equal(document.getElementById('deathScreen').classList.contains('hidden'), true);
+});
+
+test('momentum meter, movement callout and practice stats', () => {
+  hud.setMomentum(0, false);
+  assert.equal(document.getElementById('momFill').style.width, '0%');
+  assert.equal(document.getElementById('momPct').textContent, '0%');
+  hud.setMomentum(0.86, true);
+  assert.equal(document.getElementById('momPct').textContent, '86%');
+  assert.ok(document.getElementById('momentum').classList.contains('hot'), 'hot state at high momentum');
+  hud.setMomentum(1.4, false); // clamped
+  assert.equal(document.getElementById('momPct').textContent, '100%');
+
+  hud.moveState('WALL RUN', 'wall');
+  const ms = document.getElementById('moveState');
+  assert.equal(ms.textContent, 'WALL RUN');
+  assert.ok(ms.classList.contains('on') && ms.classList.contains('wall'));
+  hud.moveState('');
+  assert.equal(ms.classList.contains('on'), false);
+
+  hud.showPractice(true);
+  assert.equal(document.getElementById('practiceStats').classList.contains('hidden'), false);
+  hud.practiceStats({ kills: 4, jumps: 12, wallRuns: 3, slides: 5, bestMomentum: 0.66 });
+  assert.equal(document.getElementById('psKills').textContent, '4');
+  assert.equal(document.getElementById('psWallRuns').textContent, '3');
+  assert.equal(document.getElementById('psMomentum').textContent, '66%');
+  hud.showPractice(false);
+});
+
+test('tutorial objective card + completion overlay', () => {
+  hud.showObjective({ id: 'step1', title: 'WALL RUN', text: 'Run along a wall.', tip: 'SPACE' }, 7, 15);
+  assert.equal(document.getElementById('objective').classList.contains('hidden'), false);
+  assert.equal(document.getElementById('objTitle').textContent, 'WALL RUN');
+  assert.equal(document.getElementById('objIndex').textContent, '7 / 15');
+  assert.equal(document.getElementById('objTip').textContent, 'SPACE');
+  hud.showObjective({ id: 'step2', title: 'SLIDE', text: 'Slide!', tip: '' }, 9, 15);
+  assert.equal(document.getElementById('objTip').classList.contains('hidden'), true, 'no tip hides the chip');
+  hud.showObjective(null);
+  assert.equal(document.getElementById('objective').classList.contains('hidden'), true);
+
+  hud.showObjectiveDone(true);
+  assert.equal(document.getElementById('objectiveDone').classList.contains('hidden'), false);
+  hud.showObjectiveDone(false);
+  assert.equal(document.getElementById('objectiveDone').classList.contains('hidden'), true);
 });
 
 test('ping readout', () => {

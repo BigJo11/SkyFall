@@ -241,6 +241,78 @@ export class Sfx {
     n.connect(bp).connect(this.env(0.3, 0.07, 0.05));
   }
 
+  // ---------------------------------------------------------------- movement
+  jump() {
+    if (!this.ready) return;
+    const o = this.ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(320, this.t);
+    o.frequency.exponentialRampToValueAtTime(520, this.t + 0.09);
+    const g = this.env(0.1, 0.07, 0.004);
+    o.connect(g);
+    o.start(this.t);
+    o.stop(this.t + 0.12);
+  }
+
+  doubleJump() {
+    if (!this.ready) return;
+    const o = this.ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(460, this.t);
+    o.frequency.exponentialRampToValueAtTime(880, this.t + 0.14);
+    const g = this.env(0.16, 0.09, 0.004);
+    o.connect(g);
+    o.start(this.t);
+    o.stop(this.t + 0.18);
+    const n = this.noiseSrc(0.18, 0.8);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 1600; bp.Q.value = 1.1;
+    n.connect(bp).connect(this.env(0.18, 0.05, 0.01));
+  }
+
+  wallRun() {
+    if (!this.ready) return;
+    const n = this.noiseSrc(0.5, 0.45);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(700, this.t);
+    bp.frequency.exponentialRampToValueAtTime(1500, this.t + 0.45);
+    bp.Q.value = 1.4;
+    n.connect(bp).connect(this.env(0.5, 0.11, 0.04));
+  }
+
+  wallJump() {
+    if (!this.ready) return;
+    const n = this.noiseSrc(0.22, 0.9);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 2200 - 600; bp.Q.value = 0.9;
+    n.connect(bp).connect(this.env(0.22, 0.13, 0.005));
+    this.osc('triangle', 260, 620, 0.2, 0.09);
+  }
+
+  slide() {
+    if (!this.ready) return;
+    const n = this.noiseSrc(0.55, 0.35);
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(1400, this.t);
+    lp.frequency.exponentialRampToValueAtTime(320, this.t + 0.5);
+    n.connect(lp).connect(this.env(0.55, 0.12, 0.01));
+  }
+
+  // ---------------------------------------------------------------- menus
+  objective() {
+    if (!this.ready) return;
+    this.osc('sine', 520, 780, 0.16, 0.09);
+    setTimeout(() => { if (this.ready) this.osc('sine', 780, 1040, 0.14, 0.07); }, 90);
+  }
+
+  objectiveDone() {
+    if (!this.ready) return;
+    this.osc('triangle', 660, 990, 0.18, 0.1);
+    setTimeout(() => { if (this.ready) this.osc('triangle', 990, 1320, 0.2, 0.09); }, 110);
+  }
+
   join() {
     if (!this.ready) return;
     this.osc('sine', 620, 900, 0.12, 0.1);
