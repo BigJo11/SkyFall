@@ -204,6 +204,38 @@ await test('the all-time leaderboard is served and records a death', async () =>
   await sleep(150);
 });
 
+await test('a cosmetic is accepted over the wire and locked materials are enforced', async () => {
+  const plain = await client('PLAINLOOK');
+  const pw = await plain.waitFor((m) => m.t === 'welcome');
+  assert.equal(pw.you.cosmetic, null, 'nothing invented without one');
+
+  const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
+  const inbox = [];
+  ws.on('message', (raw) => inbox.push(JSON.parse(raw.toString())));
+  await new Promise((r) => ws.on('open', r));
+  ws.send(JSON.stringify({
+    t: 'join', name: 'STYLED2', code: '',
+    cosmetic: { primary: 0xff6b6b, secondary: 0x1d2534, material: 'metal' },
+  }));
+  await sleep(200);
+  const welcome = inbox.find((m) => m.t === 'welcome');
+  assert.deepEqual(welcome.you.cosmetic, { primary: 0xff6b6b, secondary: 0x1d2534, material: 'metal' });
+
+  // the same thing with a crew material and no code gets downgraded
+  const ws2 = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
+  const inbox2 = [];
+  ws2.on('message', (raw) => inbox2.push(JSON.parse(raw.toString())));
+  await new Promise((r) => ws2.on('open', r));
+  ws2.send(JSON.stringify({
+    t: 'join', name: 'NEONWISH', cosmetic: { primary: 0x62d6ff, material: 'neon' },
+  }));
+  await sleep(200);
+  assert.equal(inbox2.find((m) => m.t === 'welcome').you.cosmetic.material, 'matte');
+
+  ws.close(); ws2.close(); plain.ws.close();
+  await sleep(150);
+});
+
 await test('malformed frames do not crash the server', async () => {
   const a = await client('GARBAGE');
   await a.waitFor((m) => m.t === 'welcome');

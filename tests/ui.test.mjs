@@ -128,6 +128,16 @@ test('scoreboard sorts by kills and marks the local player', () => {
   assert.match(rows[1].textContent, /you/);
 });
 
+test('the appearance panel exists with colours and materials', () => {
+  const panel = document.querySelector('.cos-panel');
+  assert.ok(panel, 'appearance panel on the title screen');
+  assert.ok(document.getElementById('cosPreview'), 'preview figure');
+  assert.ok(document.getElementById('primarySwatches'), 'primary swatches');
+  assert.ok(document.getElementById('secondarySwatches'), 'secondary swatches');
+  assert.ok(document.getElementById('materialList'), 'material buttons');
+  assert.match(panel.textContent, /APPEARANCE/);
+});
+
 test('leaderboard renders ranks, crew rows and stays empty-safe', () => {
   const rows = [
     { rank: 1, name: 'BIG JOE', kills: 42, deaths: 7, kd: 6, bestStreak: 9, crew: true },

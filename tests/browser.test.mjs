@@ -205,6 +205,65 @@ await test('typing the code into the access field does not double the digits', a
   code.value = '';
 });
 
+await test('cosmetics: pick colours and a material, locked ones need the code', async () => {
+  const sk = window.SKYFALL;
+  const $id = (id) => document.getElementById(id);
+  const mats = () => [...$id('materialList').children];
+  const matBtn = (id) => mats().find((b) => b.dataset.material === id);
+
+  assert.equal($id('primarySwatches').children.length, 12, 'palette rendered');
+  assert.equal(mats().length, 5, 'five materials');
+  assert.equal(matBtn('neon').disabled, true, 'neon locked without the code');
+  assert.equal(matBtn('scanline').disabled, true, 'scanline locked without the code');
+  assert.equal(matBtn('metal').disabled, false, 'metal is free');
+
+  // a free colour + material applies to the saved look and the preview
+  $id('primarySwatches').children[1].click();
+  $id('secondarySwatches').children[8].click();
+  matBtn('metal').click();
+  pump(2);
+  assert.equal(sk.cosmetic.material, 'metal');
+  assert.equal($id('cosPreview').dataset.material, 'metal');
+  assert.match($id('cosSub').textContent, /metal/);
+  assert.match(window.localStorage.getItem('skyfall.cosmetic') || '', /metal/, 'persisted');
+
+  // clicking a locked material while locked does nothing
+  matBtn('neon').click();
+  pump(2);
+  assert.notEqual(sk.cosmetic.material, 'neon', 'neon stayed locked');
+
+  // the choice also paints the first-person weapon accents
+  assert.equal(sk.weaponAccent(), 0xff6b6b, 'weapon accent follows the primary colour');
+
+  // unlocking the code unlocks both materials, live
+  const code = $id('codeInput');
+  code.focus();
+  for (const ch of '1013') {
+    code.value += ch;
+    code.dispatchEvent(new window.Event('input', { bubbles: true }));
+    pump(1);
+  }
+  assert.ok(document.body.classList.contains('crew'), 'crew unlocked');
+  assert.equal(matBtn('neon').disabled, false, 'neon unlocked');
+  assert.equal(matBtn('scanline').disabled, false, 'scanline unlocked');
+
+  matBtn('neon').click();
+  pump(3);
+  assert.equal(sk.cosmetic.material, 'neon', 'neon equipped');
+  matBtn('scanline').click();
+  pump(3);
+  assert.equal(sk.cosmetic.material, 'scanline', 'scanline equipped');
+
+  // clearing the code drops back to a material anyone may wear
+  $id('crewClear').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(3);
+  assert.equal(sk.cosmetic.material, 'matte', 'fell back to matte');
+  assert.equal(matBtn('neon').disabled, true, 'locked again');
+  // leave a plain look for the deploy test
+  sk.applyCosmetic({ primary: 0x62d6ff, secondary: 0x2a3346, material: 'matte' });
+  pump(2);
+});
+
 await test('deploy connects to the real server and enters the match', async () => {
   document.getElementById('nameInput').value = 'JSDOM';
   document.getElementById('deployBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));

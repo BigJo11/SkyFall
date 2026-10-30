@@ -460,6 +460,14 @@ export class Tutorial extends PracticeMode {
     const s = TUTORIAL_STEPS[this.step];
     if (!s) return;
 
+    // Belt and braces: derive the movement flags from the body itself as well
+    // as from the forwarded events. If any future refactor renames an event,
+    // the step still completes because the physics really did the thing.
+    if (!body.onGround && body.vy > 0.5) this.flags.jumped = true;
+    if (!body.onGround && body.vy <= 0 && body.airJumps === 0) this.flags.doubleJumped = true;
+    if (body.wallRun) this.flags.wallRunStarted = true;
+    if (body.sliding) this.flags.slideStarted = true;
+
     const c = {
       body,
       travelled: this.travelled,

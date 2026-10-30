@@ -69,3 +69,42 @@ export function nameTexture(name, colorCss, hpFraction = 1) {
   t.minFilter = THREE.LinearFilter;
   return t;
 }
+
+// --------------------------------------------------------------- cosmetics
+// Body materials for the cosmetic system. All are canvas textures so nothing
+// has to be downloaded: a carbon weave and the animated scanline sheet.
+export function carbonTexture(size = 128, base = '#1d2534') {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  g.fillStyle = base;
+  g.fillRect(0, 0, size, size);
+  const cell = size / 8;
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) {
+      g.fillStyle = (x + y) % 2 ? 'rgba(255,255,255,.10)' : 'rgba(0,0,0,.16)';
+      g.fillRect(x * cell, y * cell, cell, cell);
+      g.fillStyle = 'rgba(255,255,255,.05)';
+      g.fillRect(x * cell, y * cell + cell * 0.6, cell, 1);
+    }
+  }
+  return c;
+}
+
+// horizontal hologram lines; `tint` is a css colour at low alpha
+export function scanlineTexture(size = 128, tint = 'rgba(120,240,255,.55)') {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  g.fillStyle = '#05080c';
+  g.fillRect(0, 0, size, size);
+  for (let y = 0; y < size; y += 4) {
+    g.fillStyle = tint;
+    g.fillRect(0, y, size, 1.6);
+  }
+  for (let y = 0; y < size; y += 16) {
+    g.fillStyle = 'rgba(255,255,255,.10)';
+    g.fillRect(0, y + 8, size, 6);
+  }
+  return c;
+}

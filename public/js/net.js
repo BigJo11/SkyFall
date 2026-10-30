@@ -19,8 +19,9 @@ export class Net {
     if (list) for (const fn of list) fn(msg);
   }
 
-  connect(name, code = '') {
+  connect(name, code = '', cosmetic = null) {
     this.code = code;
+    this.cosmetic = cosmetic;
     return new Promise((resolve, reject) => {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       const url = `${proto}://${location.host}/ws`;
@@ -30,7 +31,7 @@ export class Net {
       this.closed = false;
 
       ws.onopen = () => {
-        ws.send(JSON.stringify({ t: 'join', name, code: this.code }));
+        ws.send(JSON.stringify({ t: 'join', name, code: this.code, cosmetic: this.cosmetic }));
         settled = true;
         resolve();
       };

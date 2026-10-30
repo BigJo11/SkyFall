@@ -33,6 +33,71 @@ export const RESERVED = {
 
 // Skins: the crew glow colour and the palette used for everything else.
 export const CREW_GLOW = 0xffd23f;
+
+
+// --------------------------------------------------------------- cosmetics
+// Primary + secondary colour and a body material. The two loud materials are
+// crew-only: they are the visible reward for the 1013 access code.
+export const COSMETIC = {
+  primary: 0x62d6ff,
+  secondary: 0x2a3346,
+
+  palette: [
+    { id: 'cyan', color: 0x62d6ff },
+    { id: 'red', color: 0xff6b6b },
+    { id: 'amber', color: 0xffd166 },
+    { id: 'lime', color: 0x9dff6b },
+    { id: 'violet', color: 0xc792ff },
+    { id: 'teal', color: 0x64ffda },
+    { id: 'orange', color: 0xff9f45 },
+    { id: 'white', color: 0xf2f2f2 },
+    { id: 'steel', color: 0x8d99ae },
+    { id: 'navy', color: 0x2a3346 },
+    { id: 'charcoal', color: 0x1d2534 },
+    { id: 'sand', color: 0xb08d57 },
+  ],
+
+  materials: [
+    { id: 'matte', name: 'MATTE', locked: false, blurb: 'flat tactical finish' },
+    { id: 'metal', name: 'METAL', locked: false, blurb: 'brushed alloy, hard highlights' },
+    { id: 'carbon', name: 'CARBON', locked: false, blurb: 'dark weave panelling' },
+    { id: 'neon', name: 'NEON', locked: true, blurb: 'self-lit, glows in the dark' },
+    { id: 'scanline', name: 'SCANLINE', locked: true, blurb: 'crawling hologram lines' },
+  ],
+
+  get default() { return { primary: this.primary, secondary: this.secondary, material: 'matte' }; },
+
+  materialById(id) {
+    return this.materials.find((m) => m.id === id) || null;
+  },
+
+  // Anything arriving from a client goes through here: colours are clamped to
+  // real 24-bit values and a crew-only material falls back for everyone else.
+  normalise(input, { crew = false } = {}) {
+    const src = input && typeof input === 'object' ? input : {};
+    const colour = (v, fallback) => {
+      const n = Math.round(Number(v));
+      if (!Number.isFinite(n) || n < 0 || n > 0xffffff) return fallback;
+      return n;
+    };
+    const pick = this.materialById(String(src.material || ''));
+    const material = pick && (!pick.locked || crew) ? pick.id : 'matte';
+    return {
+      primary: colour(src.primary, this.primary),
+      secondary: colour(src.secondary, this.secondary),
+      material,
+    };
+  },
+
+  isLocked(materialId) {
+    const m = this.materialById(materialId);
+    return !!(m && m.locked);
+  },
+
+  hex(color) {
+    return '#' + (Number(color) >>> 0).toString(16).padStart(6, '0');
+  },
+};
 export const CREW_GLOW_ALT = 0x8b5cf6;
 
 export const PLAYER = {

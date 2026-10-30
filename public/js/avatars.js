@@ -1,6 +1,7 @@
 // Remote players: stylised armoured figures built from primitives.
 import * as THREE from 'three';
-import { nameTexture, softCircleTexture } from './textures.js';
+import { nameTexture, softCircleTexture, carbonTexture, scanlineTexture } from './textures.js';
+import { COSMETIC } from '../../shared/constants.js';
 
 let glowTex = null;
 function softGlowTexture() {
@@ -12,16 +13,81 @@ const BODY = 0x2a3346;
 const BODY_LIGHT = 0x3b4761;
 const VEST = 0x1d2534;
 
-function limb(w, h, d, color) {
+function limb(w, h, d, material) {
   const g = new THREE.Group();
-  const m = new THREE.Mesh(
-    new THREE.BoxGeometry(w, h, d),
-    new THREE.MeshLambertMaterial({ color })
-  );
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
   m.position.y = -h / 2;
   m.castShadow = true;
   g.add(m);
   return g;
+}
+
+// Body materials for the cosmetic system. `body` is the primary colour, `trim`
+// the secondary. Everything returns a THREE material plus an optional effect
+// the constructor wires up (halo, light, animated texture).
+function buildMaterials(primary, secondary, materialId) {
+  const body = new THREE.Color(primary);
+  const trim = new THREE.Color(secondary);
+  const out = {
+    body: new THREE.MeshLambertMaterial({ color: body }),
+    trim: new THREE.MeshLambertMaterial({ color: trim }),
+    accent: new THREE.MeshLambertMaterial({
+      color: body,
+      emissive: body.clone().multiplyScalar(0.35),
+    }),
+    glow: false,
+    animate: null,
+    textures: [],
+  };
+
+  switch (materialId) {
+    case 'metal': {
+      const spec = 0xdfefff;
+      out.body = new THREE.MeshPhongMaterial({ color: body, specular: spec, shininess: 110 });
+      out.trim = new THREE.MeshPhongMaterial({ color: trim, specular: spec, shininess: 130 });
+      out.accent = new THREE.MeshPhongMaterial({
+        color: body, specular: 0xffffff, shininess: 60,
+        emissive: body.clone().multiplyScalar(0.22),
+      });
+      break;
+    }
+    case 'carbon': {
+      const tex = new THREE.CanvasTexture(carbonTexture(128, '#161c28'));
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(2, 2);
+      out.textures.push(tex);
+      out.body = new THREE.MeshLambertMaterial({ map: tex, color: body });
+      out.trim = new THREE.MeshLambertMaterial({ map: tex, color: trim });
+      out.accent = new THREE.MeshLambertMaterial({
+        color: body, emissive: body.clone().multiplyScalar(0.45), emissiveIntensity: 0.8,
+      });
+      break;
+    }
+    case 'neon': {
+      // self-lit: the body ignores the lighting entirely
+      out.body = new THREE.MeshBasicMaterial({ color: body });
+      out.trim = new THREE.MeshBasicMaterial({ color: trim });
+      out.accent = new THREE.MeshBasicMaterial({ color: body.clone().lerp(new THREE.Color(0xffffff), 0.55) });
+      out.glow = true;
+      break;
+    }
+    case 'scanline': {
+      const tex = new THREE.CanvasTexture(scanlineTexture(128, 'rgba(150,245,255,.6)'));
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(3, 2);
+      out.textures.push(tex);
+      out.body = new THREE.MeshLambertMaterial({ map: tex, color: body, emissive: body.clone().multiplyScalar(0.5) });
+      out.trim = new THREE.MeshLambertMaterial({ map: tex, color: trim, emissive: trim.clone().multiplyScalar(0.35) });
+      out.accent = new THREE.MeshBasicMaterial({ color: body.clone().lerp(new THREE.Color(0xffffff), 0.4) });
+      out.glow = true;
+      // the lines crawl up the armour
+      out.animate = (dt) => { tex.offset.y = (tex.offset.y + dt * 0.55) % 1; };
+      break;
+    }
+    default:
+      break;
+  }
+  return out;
 }
 
 export class Avatar {
@@ -31,11 +97,23 @@ export class Avatar {
     this.color = player.color;
 
     this.root = new THREE.Group();
-    const accent = new THREE.Color(player.color);
-    const accentMat = new THREE.MeshLambertMaterial({ color: accent, emissive: accent.clone().multiplyScalar(0.35) });
-    const bodyMat = new THREE.MeshLambertMaterial({ color: BODY });
-    const lightMat = new THREE.MeshLambertMaterial({ color: BODY_LIGHT });
-    const vestMat = new THREE.MeshLambertMaterial({ color: VEST });
+    const cos = player.cosmetic || {};
+    // the crew aura now uses the player's chosen primary colour, so the glow is
+    // whatever they picked; players without the code get the plain palette
+    const primary = player.crew
+      ? (cos.primary ?? player.color)
+      : (cos.primary ?? player.color ?? BODY);
+    const secondary = cos.secondary ?? VEST;
+    const materialId = COSMETIC.materialById(cos.material) ? cos.material : 'matte';
+    this.materialId = materialId;
+    const mats = buildMaterials(primary, secondary, materialId);
+    this.textures = mats.textures;
+    this.animate = mats.animate;
+    const accent = new THREE.Color(primary);
+    const accentMat = mats.accent;
+    const bodyMat = mats.body;
+    const lightMat = mats.trim;
+    const vestMat = mats.trim;
     const box = new THREE.BoxGeometry(1, 1, 1);
     const add = (geo, mat, x, y, z, sx, sy, sz, parent = this.root) => {
       const m = new THREE.Mesh(geo, mat);
@@ -64,10 +142,10 @@ export class Avatar {
     add(box, lightMat, 0, 1.85, 0.02, 0.22, 0.06, 0.26);    // helmet crest
 
     // limbs with pivots
-    this.legL = limb(0.2, 0.84, 0.24, BODY_LIGHT); this.legL.position.set(-0.16, 0.86, 0);
-    this.legR = limb(0.2, 0.84, 0.24, BODY_LIGHT); this.legR.position.set(0.16, 0.86, 0);
-    this.armL = limb(0.16, 0.62, 0.18, BODY); this.armL.position.set(-0.4, 1.4, 0);
-    this.armR = limb(0.16, 0.62, 0.18, BODY); this.armR.position.set(0.4, 1.4, 0);
+    this.legL = limb(0.2, 0.84, 0.24, lightMat); this.legL.position.set(-0.16, 0.86, 0);
+    this.legR = limb(0.2, 0.84, 0.24, lightMat); this.legR.position.set(0.16, 0.86, 0);
+    this.armL = limb(0.16, 0.62, 0.18, bodyMat); this.armL.position.set(-0.4, 1.4, 0);
+    this.armR = limb(0.16, 0.62, 0.18, bodyMat); this.armR.position.set(0.4, 1.4, 0);
     this.root.add(this.legL, this.legR, this.armL, this.armR);
 
     // feet
@@ -102,10 +180,12 @@ export class Avatar {
     this.root.add(ring);
     this.ring = ring;
 
-    // ---- crew skin: a glowing aura, brighter accents and a lit ring
-    if (player.crew) {
-      accentMat.emissive = accent.clone();
-      accentMat.emissiveIntensity = 0.9;
+    // ---- glow: the crew aura, or a neon / scanline material lighting itself up
+    if (player.crew || mats.glow) {
+      if ('emissive' in accentMat) {
+        accentMat.emissive = accent.clone();
+        accentMat.emissiveIntensity = 0.9;
+      }
       const halo = new THREE.Sprite(new THREE.SpriteMaterial({
         map: softGlowTexture(), color: accent, transparent: true, opacity: 0.5,
         depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
@@ -114,10 +194,12 @@ export class Avatar {
       halo.position.y = 1.15;
       this.root.add(halo);
       this.halo = halo;
-      const light = new THREE.PointLight(accent, 2.6, 9, 2);
-      light.position.set(0, 1.3, 0);
-      this.root.add(light);
-      this.glowLight = light;
+      if (player.crew || materialId !== 'scanline') {
+        const light = new THREE.PointLight(accent, player.crew ? 2.6 : 1.8, 9, 2);
+        light.position.set(0, 1.3, 0);
+        this.root.add(light);
+        this.glowLight = light;
+      }
       ring.material.opacity = 0.8;
     }
 
@@ -222,11 +304,13 @@ export class Avatar {
     } else {
       this.ring.material.opacity = 0.22 + Math.sin(time * 3 + this.id) * 0.08;
     }
+    if (this.animate) this.animate(dt);
     this.hitFlash = Math.max(0, this.hitFlash - dt * 4);
   }
 
   dispose(scene) {
     scene.remove(this.root);
+    for (const tex of this.textures || []) tex.dispose?.();
     this.plate.material.map.dispose();
     this.plate.material.dispose();
     this.root.traverse((o) => {

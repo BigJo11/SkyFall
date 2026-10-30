@@ -164,7 +164,7 @@ wss.on('connection', (socket) => {
       if (msg.t === 'join') {
         // the crew code unlocks reserved callsigns and the glow skin
         const crew = RESERVED.normaliseCode(msg.code) === RESERVED.code;
-        player = game.addPlayer(socket, msg.name, crew);
+        player = game.addPlayer(socket, msg.name, crew, msg.cosmetic);
       }
       return;
     }

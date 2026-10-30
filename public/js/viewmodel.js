@@ -7,11 +7,15 @@ const DARK = 0x222a3a;
 const METAL = 0x4c5a72;
 const BLACK = 0x141a24;
 
+// `color` is either a hex number or a ready-made material (the glowing accent
+// parts pass materials, and used to be swallowed into a Lambert colour).
+function matFor(color, opts) {
+  if (color && color.isMaterial) return color;
+  return new THREE.MeshLambertMaterial({ color, ...opts });
+}
+
 function bx(w, h, d, color, x = 0, y = 0, z = 0, opts = {}) {
-  const m = new THREE.Mesh(
-    new THREE.BoxGeometry(w, h, d),
-    new THREE.MeshLambertMaterial({ color, ...opts })
-  );
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), matFor(color, opts));
   m.position.set(x, y, z);
   return m;
 }
@@ -19,7 +23,7 @@ function bx(w, h, d, color, x = 0, y = 0, z = 0, opts = {}) {
 function cyl(r1, r2, h, color, x, y, z, seg = 10) {
   const m = new THREE.Mesh(
     new THREE.CylinderGeometry(r1, r2, h, seg),
-    new THREE.MeshLambertMaterial({ color })
+    matFor(color, {})
   );
   m.position.set(x, y, z);
   m.rotation.x = Math.PI / 2;
@@ -147,6 +151,20 @@ export class ViewModel {
     this.flashLight = new THREE.PointLight(0xffd9a0, 0, 2.2, 2);
     this.scene.add(this.flashLight);
     this.flashT = 0;
+  }
+
+  // Cosmetic primary colour, painted onto the glowing accents of every weapon
+  // so your chosen colour is visible in first person too.
+  setAccent(color) {
+    this.accent = color;
+    for (const id of Object.keys(this.models)) {
+      const model = this.models[id];
+      if (!model) continue;
+      model.group.traverse((node) => {
+        const mat = node.material;
+        if (mat && mat.isMeshBasicMaterial && mat.color) mat.color.setHex(color);
+      });
+    }
   }
 
   setWeapon(id) {

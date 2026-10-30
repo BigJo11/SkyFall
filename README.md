@@ -27,9 +27,10 @@ Two callsign rules:
   the code. Try it without one and the game quietly renames you `PLAYER <id>`,
   on the client and on the server.
 * **The code is `1013`** (a prefix of the callsign box or the code box — type it
-  in that order). Entering it unlocks the crew skin: a glowing amber halo, a
-  point light that lights up the terrain around you, and an emissive accent on
-  the rig. Clear the badge to drop back to a normal skin.
+  in that order). Entering it unlocks the crew extras: a glowing halo, a point
+  light that lights up the terrain around you, and the **NEON** and
+  **SCANLINE** materials. The halo now takes your chosen primary colour, so the
+  glow is whatever you pick. Clear the badge to drop back to a normal look.
 
 ## Quick start
 
@@ -135,6 +136,27 @@ Both run **offline in the browser** — no server, no sign-in, no other players.
   actually do the thing (the wall-run step teleports you to a wall and tells you
   where to run), and `N` skips a step if you get stuck. Finishing offers
   "keep practising" or back to the title.
+
+## Appearance
+
+Your character's **primary colour**, **secondary colour** and **body material**
+are picked on the title screen (the APPEARANCE panel) and saved locally, so
+they follow you between sessions. Colours show up everywhere another player can
+see you — the avatar itself, the name plate, the scoreboard swatch — and your
+primary colour is also painted onto the glowing accents of your weapon in first
+person.
+
+| Material | |
+| --- | --- |
+| **MATTE** | flat tactical finish (default) |
+| **METAL** | brushed alloy with hard specular highlights |
+| **CARBON** | dark woven panelling |
+| **NEON** | self-lit, glows in the dark — **crew only** |
+| **SCANLINE** | crawling hologram lines, animated in 3D — **crew only** |
+
+**Neon and scanline are locked behind the `1013` access code**, alongside the
+reserved callsigns. The server re-checks this on every join rather than trusting
+the client: a player without the code who asks for neon silently gets matte.
 
 ## Leaderboard
 
@@ -305,7 +327,7 @@ nothing"). The build id is also shown in the bottom-right of the title screen an
 sent as an `X-Skyfall-Build` header, and the client flags a mismatch on screen if
 it ever sees one.
 
-If a menu button ever seems dead, check the tag: `build <id> · forest v9`
+If a menu button ever seems dead, check the tag: `build <id> · forest v10`
 means the current code is running. Press `Ctrl/Cmd + Shift + R` to force a fresh
 load.
 
@@ -323,6 +345,7 @@ npm test
 | `tests/physics.test.mjs` | walking, stairs, walls, jumping, ledges, crates, plus the real arena (spawns, stairs, cover, void) |
 | `tests/map.test.mjs` | map size and cover distribution, spawn clearance, walkable hills and mesas, practice lane and dummies, wall-run staging spot |
 | `tests/movement.test.mjs` | air speed preservation, air-strafe gains, landing loss vs slide landing, double-jump cost, wall run speed/lifetime/corners/cooldown/wall kicks, mantling, jump-while-sprinting, auto-hop, slides, chained combos |
+| `tests/cosmetic.test.mjs` | palette/material catalogue, colour validation, crew-only material gating |
 | `tests/leaderboard.test.mjs` | ranking, tie-breaks, K/D, streaks, name folding, crew flag, persistence round-trip, corrupt-file recovery, trimming |
 | `tests/tutorial.test.mjs` | practice dummies, respawns, stats, and the full 15-step tutorial state machine |
 | `tests/scene.test.mjs` | every 3D module built against real Three.js (no GPU needed) |

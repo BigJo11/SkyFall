@@ -1,4 +1,4 @@
-import { PLAYER, WEAPONS, PLAYER_COLORS, NET, MAX_LEGIT_SPEED, RESERVED, CREW_GLOW } from '../shared/constants.js';
+import { PLAYER, WEAPONS, PLAYER_COLORS, NET, MAX_LEGIT_SPEED, RESERVED, CREW_GLOW, COSMETIC } from '../shared/constants.js';
 import ARENA from '../shared/map.js';
 import { solidAABBs, raycastAABBs, rayCapsule } from '../shared/collision.js';
 import { Leaderboard } from './leaderboard.js';
@@ -45,7 +45,7 @@ export class Game {
 
   // ------------------------------------------------------------- connections
 
-  addPlayer(socket, requestedName, crew = false) {
+  addPlayer(socket, requestedName, crew = false, cosmetic = null) {
     const id = this.nextId++;
     const taken = new Set([...this.players.values()].map((p) => p.name));
     let name = sanitizeName(requestedName, `PLAYER ${id}`);
@@ -53,12 +53,20 @@ export class Game {
     if (!crew && RESERVED.isReserved(name)) name = `PLAYER ${id}`;
     if (taken.has(name)) name = `${name} (${id})`.slice(0, NET.MAX_NAME + 4);
 
+    // cosmetics are validated here, not trusted: a locked material silently
+    // falls back unless this connection actually passed the crew check
+    const hasCosmetic = !!cosmetic && typeof cosmetic === 'object';
+    const look = COSMETIC.normalise(cosmetic, { crew });
+
     const spawn = this.pickSpawn();
     const player = {
       id,
       name,
       socket,
-      color: crew ? CREW_GLOW : PLAYER_COLORS[(id - 1) % PLAYER_COLORS.length],
+      cosmetic: hasCosmetic ? look : null,
+      color: hasCosmetic
+        ? look.primary
+        : (crew ? CREW_GLOW : PLAYER_COLORS[(id - 1) % PLAYER_COLORS.length]),
       crew: !!crew,
       pos: spawn.pos.slice(),
       yaw: spawn.yaw,
@@ -126,6 +134,7 @@ export class Game {
       name: p.name,
       color: p.color,
       crew: !!p.crew,
+      cosmetic: p.cosmetic,
       pos: [round2(p.pos[0]), round2(p.pos[1]), round2(p.pos[2])],
       yaw: round3(p.yaw),
       pitch: round3(p.pitch),

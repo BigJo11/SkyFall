@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WEAPONS, PLAYER, NET, MOVE, RESERVED, CREW_GLOW } from '../../shared/constants.js';
+import { WEAPONS, PLAYER, NET, MOVE, RESERVED, CREW_GLOW, COSMETIC } from '../../shared/constants.js';
 import { raycastAABBs, rayCapsule } from '../../shared/collision.js';
 import { buildWorld } from './world.js';
 import { Body } from './physics.js';
@@ -134,6 +134,7 @@ const state = {
   stepDist: 0,
   shownScoreboard: false,
   shownLeaderboard: false,
+  cosmetic: { ...COSMETIC.default },
   leaderboard: [],
   firedSinceSwitch: false,
   lastKiller: null,
@@ -147,7 +148,7 @@ let session = null;
 // Build stamp: makes it obvious which version the browser actually loaded, and
 // catches the classic "new page, old cached scripts" situation where every
 // button appears dead.
-const BUILD = 'forest v9';
+const BUILD = 'forest v10';
 
 function detectStaleBuild() {
   try {
@@ -560,7 +561,7 @@ let lastSnapshotAt = 0;
 
 let connectTimer = null;
 
-function connect(name, code = '') {
+function connect(name, code = '', cosmetic = null) {
   state.phase = 'loading';
   $('title').classList.add('hidden');
   $('loading').classList.remove('hidden');
@@ -570,7 +571,7 @@ function connect(name, code = '') {
     if (state.phase === 'loading') leaveToTitle('The server did not respond — is it running?');
   }, 9000);
 
-  net.connect(name, code)
+  net.connect(name, code, cosmetic || state.cosmetic)
     .then(() => {
       // wait for welcome (handled below)
     })
@@ -882,6 +883,119 @@ function leaveToTitle(reason) {
   refreshLeaderboard();
 }
 
+// ---------------------------------------------------------------- cosmetics
+// Primary / secondary colour and a body material, saved locally and sent with
+// the join so everyone else sees it. Neon and scanline are crew-only: the
+// server re-checks that too, this is just the UI half.
+const COS_STORE = 'skyfall.cosmetic';
+
+function loadCosmetic() {
+  let saved = null;
+  try { saved = JSON.parse(store.get(COS_STORE, 'null')); } catch { saved = null; }
+  return COSMETIC.normalise(saved, { crew: crewUnlocked() });
+}
+
+function saveCosmetic() {
+  store.set(COS_STORE, JSON.stringify(state.cosmetic));
+}
+
+function applyCosmetic(next, { persist = true } = {}) {
+  // a locked material can only be worn by an unlocked player
+  const look = COSMETIC.normalise(next, { crew: crewUnlocked() });
+  state.cosmetic = look;
+  if (persist) saveCosmetic();
+  renderCosmetic();
+  return look;
+}
+
+function renderCosmetic() {
+  const { primary, secondary, material } = state.cosmetic;
+  const hex = COSMETIC.hex;
+  const preview = $('cosPreview');
+  if (preview) {
+    preview.style.setProperty('--cos-primary', hex(primary));
+    preview.style.setProperty('--cos-secondary', hex(secondary));
+    preview.dataset.material = material;
+  }
+  for (const [listId, key] of [['primarySwatches', 'primary'], ['secondarySwatches', 'secondary']]) {
+    const list = $(listId);
+    if (!list) continue;
+    for (const btn of list.children) {
+      btn.setAttribute('aria-pressed', String(Number(btn.dataset.color) === state.cosmetic[key]));
+    }
+  }
+  const list = $('materialList');
+  if (list) {
+    for (const btn of list.children) {
+      const id = btn.dataset.material;
+      const meta = COSMETIC.materialById(id);
+      const locked = !!meta?.locked && !crewUnlocked();
+      btn.setAttribute('aria-pressed', String(id === material));
+      btn.disabled = locked;
+      btn.title = locked ? `${meta.name} — crew access code required` : (meta?.blurb || '');
+    }
+  }
+  const sub = $('cosSub');
+  const meta = COSMETIC.materialById(material);
+  if (sub) sub.textContent = `${meta ? meta.name.toLowerCase() : material} · ${hex(primary)} / ${hex(secondary)}`;
+  viewmodel.setAccent(primary);
+  const hint = $('cosHint');
+  if (hint) {
+    hint.textContent = crewUnlocked()
+      ? 'crew access: every material unlocked'
+      : 'neon & scanline need crew access';
+  }
+}
+
+function buildCosmeticUI() {
+  const primary = $('primarySwatches');
+  const secondary = $('secondarySwatches');
+  const materials = $('materialList');
+  if (primary && !primary.children.length) {
+    for (const sw of COSMETIC.palette) {
+      const b = document.createElement('button');
+      b.className = 'swatch';
+      b.type = 'button';
+      b.dataset.color = String(sw.color);
+      b.style.setProperty('--sw', COSMETIC.hex(sw.color));
+      b.setAttribute('aria-label', `primary ${sw.id}`);
+      b.addEventListener('click', () => applyCosmetic({ ...state.cosmetic, primary: sw.color }));
+      primary.appendChild(b);
+    }
+  }
+  if (secondary && !secondary.children.length) {
+    for (const sw of COSMETIC.palette) {
+      const b = document.createElement('button');
+      b.className = 'swatch';
+      b.type = 'button';
+      b.dataset.color = String(sw.color);
+      b.style.setProperty('--sw', COSMETIC.hex(sw.color));
+      b.setAttribute('aria-label', `secondary ${sw.id}`);
+      b.addEventListener('click', () => applyCosmetic({ ...state.cosmetic, secondary: sw.color }));
+      secondary.appendChild(b);
+    }
+  }
+  if (materials && !materials.children.length) {
+    for (const m of COSMETIC.materials) {
+      const b = document.createElement('button');
+      b.className = 'mat';
+      b.type = 'button';
+      b.dataset.material = m.id;
+      b.innerHTML = m.locked ? `${m.name}<span class="lock">◆</span>` : m.name;
+      b.addEventListener('click', () => {
+        if (m.locked && !crewUnlocked()) {
+          titleNotice(`${m.name} IS CREW ONLY — ENTER THE ACCESS CODE`);
+          return;
+        }
+        applyCosmetic({ ...state.cosmetic, material: m.id });
+      });
+      materials.appendChild(b);
+    }
+  }
+  state.cosmetic = loadCosmetic();
+  renderCosmetic();
+}
+
 on('deployBtn', 'click', () => {
   const name = ($('nameInput').value || '').trim().toUpperCase() || `PLAYER ${Math.floor(Math.random() * 900 + 100)}`;
   if (RESERVED.isReserved(name) && !crewUnlocked()) {
@@ -893,7 +1007,7 @@ on('deployBtn', 'click', () => {
   state.crew = crewUnlocked();
   sfx.init();
   sfx.resume();
-  connect(name, state.crew ? RESERVED.code : '');
+  connect(name, state.crew ? RESERVED.code : '', state.cosmetic);
 });
 
 on('nameInput', 'keydown', (e) => {
@@ -916,8 +1030,12 @@ function setCrew(on) {
     sfx.init();
     sfx.resume();
     sfx.objectiveDone?.();
-    titleNotice('CREW ACCESS GRANTED · GLOW SKIN UNLOCKED', 'good');
+    renderCosmetic();
+    titleNotice('CREW ACCESS GRANTED · NEON & SCANLINE UNLOCKED', 'good');
   } else {
+    // drop back to a material everyone is allowed to wear
+    if (COSMETIC.isLocked(state.cosmetic.material)) applyCosmetic({ ...state.cosmetic, material: 'matte' });
+    renderCosmetic();
     titleNotice('CREW ACCESS CLEARED');
   }
 }
@@ -1089,6 +1207,7 @@ async function refreshLobby() {
 const escape = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 $('nameInput').value = store.get('skyfall.name', '');
+buildCosmeticUI();
 refreshLobby();
 refreshLeaderboard();
 setInterval(() => { if (state.phase === 'title') refreshLobby(); }, 3000);
@@ -1215,7 +1334,10 @@ requestAnimationFrame(frame);
 
 // Small debug handle: handy in the console, and used by the automated tests.
 window.SKYFALL = {
-  state, hud, net, body, camera, avatars, viewmodel, effects, world, settings, input,
+  state, hud, net, body, camera, avatars, viewmodel, effects, world, settings, input, scene,
+  get cosmetic() { return state.cosmetic; },
+  weaponAccent: () => viewmodel.accent,
+  applyCosmetic, renderCosmetic,
   get session() { return session; },
   aimTrace: () => localRaycast(240),
   startLocalMode, leaveToTitle,

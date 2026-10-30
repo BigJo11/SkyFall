@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { Game } from '../server/game.js';
 import { Leaderboard } from '../server/leaderboard.js';
-import { WEAPONS, RESERVED, CREW_GLOW } from '../shared/constants.js';
+import { WEAPONS, RESERVED, CREW_GLOW, COSMETIC } from '../shared/constants.js';
 import { rayAABB, rayCapsule, solidAABBs } from '../shared/collision.js';
 import ARENA from '../shared/map.js';
 
@@ -264,6 +264,51 @@ await test('a persisted board is reused by the next game instance', () => {
   const two = new Game({ leaderboard: new Leaderboard(file) });
   assert.equal(two.leaderboard.stats('PERSIST').kills, 1);
   fs.rmSync(file, { force: true });
+});
+
+console.log('\ncosmetics:');
+
+await test('a cosmetic rides the join and shows up in snapshots', () => {
+  const game = new Game();
+  const sock = fakeSocket();
+  const look = { primary: 0xff6b6b, secondary: 0x1d2534, material: 'metal' };
+  const p = game.addPlayer(sock, 'STYLISH', false, look);
+  assert.deepEqual(p.cosmetic, look);
+  assert.equal(p.color, 0xff6b6b, 'the name plate follows the primary colour');
+  const pub = game.pub(p);
+  assert.deepEqual(pub.cosmetic, look, 'the snapshot carries it');
+});
+
+await test('a locked material is refused server-side without the code', () => {
+  const game = new Game();
+  const plain = game.addPlayer(fakeSocket(), 'WANNABE', false, { material: 'neon' });
+  assert.equal(plain.cosmetic.material, 'matte', 'no code, no neon');
+  const crew = game.addPlayer(fakeSocket(), 'Big Joe', true, { material: 'neon' });
+  assert.equal(crew.cosmetic.material, 'neon', 'crew get what they picked');
+});
+
+await test('hostile cosmetic values are sanitised, not trusted', () => {
+  const game = new Game();
+  const p = game.addPlayer(fakeSocket(), 'GARBAGE', false, {
+    primary: -1, secondary: 0x1000000, material: 'plasma',
+  });
+  assert.equal(p.cosmetic.primary, COSMETIC.primary);
+  assert.equal(p.cosmetic.secondary, COSMETIC.secondary);
+  assert.equal(p.cosmetic.material, 'matte');
+});
+
+await test('no cosmetic keeps the old per-player palette', () => {
+  const game = new Game();
+  const a = game.addPlayer(fakeSocket(), 'PLAIN');
+  const b = game.addPlayer(fakeSocket(), 'ALSO');
+  assert.equal(a.cosmetic, null, 'nothing invented');
+  assert.notEqual(a.color, b.color, 'everyone still gets a distinct colour');
+});
+
+await test('crew without a cosmetic still get the gold glow', () => {
+  const game = new Game();
+  const p = game.addPlayer(fakeSocket(), 'Big Joe', true);
+  assert.equal(p.color, CREW_GLOW);
 });
 
 console.log('\ncrew + reserved callsigns:');

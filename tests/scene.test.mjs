@@ -46,8 +46,8 @@ const { buildWorld } = await import('../public/js/world.js');
 const { Effects } = await import('../public/js/effects.js');
 const { ViewModel } = await import('../public/js/viewmodel.js');
 const { Avatar, Avatars } = await import('../public/js/avatars.js');
-const { nameTexture, softCircleTexture, cloudTexture } = await import('../public/js/textures.js');
-const { WEAPONS, PLAYER } = await import('../shared/constants.js');
+const { nameTexture, softCircleTexture, cloudTexture, carbonTexture, scanlineTexture } = await import('../public/js/textures.js');
+const { WEAPONS, PLAYER, COSMETIC } = await import('../shared/constants.js');
 const ARENA = (await import('../shared/map.js')).default;
 
 let passed = 0;
@@ -144,10 +144,62 @@ test('avatars survive a teleport (respawn) snapshot', () => {
   assert.ok(Math.abs(a.pos.x - 30) < 0.001, 'snapped to the new spawn');
 });
 
+test('every cosmetic material builds a rig', () => {
+  for (const m of COSMETIC.materials) {
+    const sc = new THREE.Scene();
+    const a = new Avatar(sc, {
+      id: 9, name: 'LOOKS', color: 0x62d6ff, cosmetic: { primary: 0xff6b6b, secondary: 0x1d2534, material: m.id },
+      crew: m.locked, pos: [0, 0, 0], yaw: 0, hp: 100, alive: true,
+    });
+    assert.equal(a.materialId, m.id, `${m.id} applied`);
+    for (let i = 0; i < 10; i++) a.update(1 / 60, i / 60);   // animated textures tick
+    assert.ok(a.root.parent === sc, `${m.id} added to the scene`);
+  }
+});
+
+test('a locked material falls back for non-crew rigs', () => {
+  const sc = new THREE.Scene();
+  // the server normally sanitises this, but an avatar must not trust it either
+  const a = new Avatar(sc, {
+    id: 10, name: 'CHEAT', color: 0x62d6ff, cosmetic: { material: 'plasma' },
+    crew: false, pos: [0, 0, 0], yaw: 0, hp: 100, alive: true,
+  });
+  assert.equal(a.materialId, 'matte');
+});
+
+test('neon and scanline light themselves up', () => {
+  for (const id of ['neon', 'scanline']) {
+    const sc = new THREE.Scene();
+    const a = new Avatar(sc, {
+      id: 11, name: 'GLOW', color: 0xffd23f, crew: true,
+      cosmetic: { primary: 0xffd23f, material: id }, pos: [0, 0, 0], yaw: 0, hp: 100, alive: true,
+    });
+    assert.ok(a.halo, `${id} has a halo sprite`);
+    assert.ok(a.ring.material.opacity > 0.5, `${id} brightens the contact ring`);
+  }
+});
+
+test('the cosmetic colour paints the weapon accents', () => {
+  const vm = new ViewModel({ domElement: fakeCanvas(), setPixelRatio() {}, setSize() {} });
+  vm.setAccent(0xff6b6b);
+  let painted = 0;
+  for (const m of Object.values(vm.models)) {
+    m.group.traverse((n) => {
+      if (n.material?.isMeshBasicMaterial) {
+        painted++;
+        assert.equal(n.material.color.getHex(), 0xff6b6b, 'accent recoloured');
+      }
+    });
+  }
+  assert.ok(painted > 0, `${painted} accent parts recoloured`);
+});
+
 test('procedural textures', () => {
   assert.ok(nameTexture('TESTER', '#62d6ff', 0.5));
   assert.ok(softCircleTexture());
   assert.ok(cloudTexture());
+  assert.ok(carbonTexture());
+  assert.ok(scanlineTexture());
 });
 
 test('weapon balance numbers', () => {
