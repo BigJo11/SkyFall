@@ -59,14 +59,13 @@ test('V.2 covers everything except the base game, map change first', () => {
 
   // every other area of the update
   for (const [needle, label] of [
-    [/Titanfall 2 momentum/, 'movement'],
+    [/Movement: momentum/, 'movement'],
     [/Practice range/, 'practice mode'],
     [/tutorial/i, 'tutorial'],
     [/Headshots/, 'headshots'],
     [/Aim assist/, 'aim assist'],
     [/NEON/, 'cosmetics materials'],
     [/leaderboard/i, 'leaderboard'],
-    [/1013/, 'crew code'],
   ]) {
     assert.match(text, needle, `${label} is covered`);
   }
@@ -86,13 +85,40 @@ test('it only reports bugs that broke existing features', () => {
   const text = bullets.join(' ');
   // the four that broke something players already used
   assert.match(text, /tutorial could get stuck/i, 'tutorial stall');
-  assert.match(text, /doubled digits/i, 'access code entry');
   assert.match(text, /accents never actually glowed/i, 'unlit weapon accents');
   assert.match(text, /stale page/i, 'stale cached page');
 
   // and nothing about internal churn
   assert.doesNotMatch(text, /refactor|test suite|coverage|rename|lint/i,
     'no internal plumbing in the fixes list');
+});
+
+test('the changelog gives nothing away and leans on no other game', () => {
+  // The panel is visible to every player who presses U, so it must not spell
+  // out the access code, what it unlocks, or who it is for.
+  const everything = [
+    ...CHANGELOG_NOTE,
+    ...CHANGELOG.flatMap((e) => [
+      e.version, e.tagline,
+      ...e.blocks.flatMap((b) => [b.h, b.p, ...(b.ul || []), ...(b.table ? b.table.rows.flat() : [])]),
+    ]),
+  ].filter(Boolean).join(' ');
+
+  assert.doesNotMatch(everything, /1013/, 'the access code is never printed');
+  assert.doesNotMatch(everything, /access code|crew|callsign/i,
+    'nothing about the code, what it unlocks, or who it is for');
+  assert.doesNotMatch(everything, /locked behind|needs? the code|unlock(ed|s)? (the|by)/i,
+    'locked content is not advertised');
+
+  // and no other game is named
+  assert.doesNotMatch(everything, /titanfall/i, 'no brand names');
+  assert.doesNotMatch(everything, /apex|call of duty|cod\b|fortnite|halo\b|quake|doom/i,
+    'no other game names');
+
+  // the same rules apply to the exported markdown
+  const md = fs.readFileSync(path.join(ROOT, 'docs/CHANGELOG.md'), 'utf8');
+  assert.doesNotMatch(md, /1013|crew|callsign/i, 'docs are clean too');
+  assert.doesNotMatch(md, /titanfall/i, 'docs name no other game');
 });
 
 test('the note explains the maintenance rules', () => {
@@ -149,7 +175,7 @@ test('the panel renders every entry, newest first by default', () => {
   assert.match(v2, /240 × 240 m/, 'v2 body');
   assert.match(v2, /<ul>/, 'bullets rendered');
   assert.match(v2, /<strong>/, 'bold rendered');
-  assert.match(v2, /<code>1013<\/code>/, 'code rendered');
+  assert.match(v2, /<strong>NEON<\/strong>/, 'materials rendered');
 
   // an unknown id falls back to the newest entry rather than rendering nothing
   assert.equal(renderEntry('nope'), renderEntry(DEFAULT_ENTRY));

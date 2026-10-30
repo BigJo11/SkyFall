@@ -134,8 +134,8 @@ export class Body {
     return best;
   }
 
-  // Titanfall lets you pull yourself over a ledge you run into. If the top of
-  // the thing blocking you is within reach and there is room to stand, hop up.
+  // Pull yourself over a ledge you run into. If the top of the thing blocking
+  // you is within reach and there is room to stand, hop up.
   tryMantle() {
     if (this.onGround || this.wallRun) return false;
     const wall = this.findWall(this.radius + 0.25);
@@ -234,8 +234,8 @@ export class Body {
   tryStartWallRun(wishX, wishZ, moveSpeed, yaw = 0) {
     if (this.onGround || this.wallRun) return false;
     if (this.wallRunCooldown > 0) return false;
-    // a Titanfall wall run latches the moment you touch the wall, even on
-    // the way up — but not while you are still rocketing off a kick
+    // a wall run latches the moment you touch the wall, even on the way up —
+    // but not while you are still rocketing off a kick
     if (this.vy > 9.5) return false;
     if (moveSpeed < MOVE.wallRunMinSpeed) return false;
     const wall = this.findWall();

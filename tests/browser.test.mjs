@@ -225,7 +225,10 @@ await test('the changelog opens from the title screen and shows both entries', a
   const v2 = $id('changelogBody').textContent;
   assert.match(v2, /240 × 240 m/, 'the new map size is on screen');
   assert.match(v2, /eleven times the area/i, 'the change is explained');
-  assert.match(v2, /Titanfall 2 momentum/i, 'movement covered');
+  assert.match(v2, /Movement: momentum/i, 'movement covered');
+  // the panel is player-facing: it must not leak the access code or name another game
+  assert.doesNotMatch(v2, /1013/, 'no access code on screen');
+  assert.doesNotMatch(v2, /titanfall/i, 'no other game named');
   assert.ok($id('changelogBody').querySelector('table, ul'), 'formatted content, not a wall of text');
 
   // switching to the launch entry
@@ -235,6 +238,7 @@ await test('the changelog opens from the title screen and shows both entries', a
   const launch = $id('changelogBody').textContent;
   assert.match(launch, /72 × 72 m/, 'launch map size');
   assert.match(launch, /no edges/i, 'the old map had no edges');
+  assert.doesNotMatch(launch, /1013|titanfall/i, 'launch entry is clean too');
   assert.equal($id('changelogBody').querySelectorAll('table').length, 1, 'launch weapon table');
   // the weapon numbers are the originals, not the current balance
   assert.match(launch, /RIFLE17/, 'rifle listed at launch damage');

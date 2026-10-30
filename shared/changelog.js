@@ -66,7 +66,7 @@ export const CHANGELOG = [
         ],
       },
       { p: 'The result: a map big enough that crossing it is a decision, open enough that the movement system matters, and covered enough that being shot from across the world isn\'t the default outcome.' },
-      { h: 'Movement: Titanfall 2 momentum' },
+      { h: 'Movement: momentum' },
       { p: 'The old movement was walk/sprint/jump with hard stops. It is now built around a single idea: **speed is something you build and keep, not a stat.**' },
       {
         ul: [
@@ -105,15 +105,14 @@ export const CHANGELOG = [
       {
         ul: [
           '**Primary and secondary colours**, twelve of each, applied to the avatar, name plate, scoreboard swatch and the glowing accents of your weapon.',
-          '**Five materials**: MATTE, METAL and CARBON are free; **NEON** (self-lit) and **SCANLINE** (animated hologram lines) are locked behind the crew code.',
-          'Choices save locally and travel with your join, so everyone sees them — and the server re-checks them, so a client that asks for a locked material without the code silently gets matte.',
+          '**Five materials**: MATTE, METAL, CARBON, **NEON** (self-lit) and **SCANLINE** (animated hologram lines).',
+          'Choices save locally and travel with your join, so everyone sees them.',
         ],
       },
-      { h: 'Leaderboard and crew' },
+      { h: 'Leaderboard' },
       {
         ul: [
           '**An all-time leaderboard** that survives server restarts, so kills are worth something beyond the current match.',
-          '**The `1013` code** unlocks the reserved callsigns and a crew skin whose glow now takes your chosen primary colour — the same code that unlocks the NEON and SCANLINE materials.',
         ],
       },
       { h: 'Fixes worth knowing about' },
@@ -121,7 +120,6 @@ export const CHANGELOG = [
       {
         ul: [
           '**The tutorial could get stuck.** It stalled on the jump step and, more quietly, on double jump, wall running, wall jumping and sliding: the steps checked for a signal the client never sent. Every step is now verified by the action itself.',
-          '**The access code field doubled digits.** Typing `1013` could register each character twice, which made the code impossible to enter on some machines.',
           '**Weapon accents never actually glowed.** The coloured highlights on every gun were being fed into a flat-shaded material, so they rendered dark. They light up now.',
           '**Players could end up on a stale page** after an update — an older cached build running against a newer server. The game now serves itself fresh and warns when the page and server disagree.',
         ],

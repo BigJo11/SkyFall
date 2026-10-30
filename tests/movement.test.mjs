@@ -467,7 +467,7 @@ test('falling out of the world still works', () => {
 });
 
 
-console.log('\ntitanfall feel:');
+console.log('\nmovement feel:');
 
 test('a plain forward jump does not accelerate you in the air', () => {
   const b = player(flatWorld());

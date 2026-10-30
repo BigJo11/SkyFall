@@ -120,7 +120,7 @@ export const PLAYER = {
   hspeedTolerance: 2.1,   // server sanity multiplier for client reported speed
 };
 
-// Movement tuned after Titanfall 2:
+// Movement tuning notes:
 //
 //  * air control is generous — holding a strafe and turning builds speed
 //  * the air never drags you down; you keep whatever you left the ground with

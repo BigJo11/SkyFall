@@ -101,7 +101,7 @@ tested independently of the browser.
 
 ## Movement
 
-Built to feel like **Titanfall 2**: fast, fluid, and entirely free of meters or
+Built for a fast, fluid, first-person-shooter feel — entirely free of meters or
 stamina. Speed is the resource — in the air you keep whatever you left the
 ground with, and the trick is never to touch down flat.
 
@@ -361,7 +361,7 @@ nothing"). The build id is also shown in the bottom-right of the title screen an
 sent as an `X-Skyfall-Build` header, and the client flags a mismatch on screen if
 it ever sees one.
 
-If a menu button ever seems dead, check the tag: `build <id> · forest v13`
+If a menu button ever seems dead, check the tag: `build <id> · forest v14`
 means the current code is running. Press `Ctrl/Cmd + Shift + R` to force a fresh
 load.
 
