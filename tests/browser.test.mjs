@@ -206,6 +206,75 @@ await test('typing the code into the access field does not double the digits', a
   code.value = '';
 });
 
+await test('the changelog opens from the title screen and shows both entries', async () => {
+  const sk = window.SKYFALL;
+  const $id = (id) => document.getElementById(id);
+  const panel = $id('changelog');
+  assert.ok(panel.classList.contains('hidden'), 'starts closed');
+
+  $id('changelogBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  assert.equal(sk.updatesOpen(), true, 'panel opened');
+  assert.equal(panel.classList.contains('hidden'), false);
+
+  // newest update selected, with its content rendered
+  const tabs = () => [...$id('changelogTabs').children];
+  assert.equal(tabs().length, 2, 'two milestones listed');
+  assert.equal(tabs().filter((t) => t.classList.contains('active')).length, 1, 'one active tab');
+  assert.match(tabs().find((t) => t.classList.contains('active')).textContent, /V\.2/);
+  const v2 = $id('changelogBody').textContent;
+  assert.match(v2, /240 × 240 m/, 'the new map size is on screen');
+  assert.match(v2, /eleven times the area/i, 'the change is explained');
+  assert.match(v2, /Titanfall 2 momentum/i, 'movement covered');
+  assert.ok($id('changelogBody').querySelector('table, ul'), 'formatted content, not a wall of text');
+
+  // switching to the launch entry
+  tabs().find((t) => t.dataset.entry === 'launch')
+    .dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  const launch = $id('changelogBody').textContent;
+  assert.match(launch, /72 × 72 m/, 'launch map size');
+  assert.match(launch, /no edges/i, 'the old map had no edges');
+  assert.equal($id('changelogBody').querySelectorAll('table').length, 1, 'launch weapon table');
+  // the weapon numbers are the originals, not the current balance
+  assert.match(launch, /RIFLE17/, 'rifle listed at launch damage');
+
+  // ESC closes it
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Escape' }));
+  pump(2);
+  assert.equal(sk.updatesOpen(), false, 'ESC closed the panel');
+  assert.equal(sk.state.phase, 'title', 'still on the title screen');
+
+  // U reopens it, and a click on the backdrop closes it again
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyU' }));
+  pump(2);
+  assert.equal(sk.updatesOpen(), true, 'U reopened the panel');
+  panel.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  assert.equal(sk.updatesOpen(), false, 'backdrop click closed it');
+
+  // clicking inside the panel must not close it
+  $id('changelogBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  $id('changelogBody').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  assert.equal(sk.updatesOpen(), true, 'clicks inside the panel are ignored');
+  $id('changelogClose').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  assert.equal(sk.updatesOpen(), false, 'close button works');
+});
+
+await test('typing a callsign does not trigger the U shortcut', async () => {
+  const sk = window.SKYFALL;
+  const input = document.getElementById('nameInput');
+  input.focus();
+  input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'u', code: 'KeyU', bubbles: true }));
+  input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'U', code: 'KeyU', bubbles: true }));
+  pump(2);
+  assert.equal(sk.updatesOpen(), false, 'the panel stayed shut while typing');
+  input.blur();
+});
+
 await test('cosmetics: pick colours and a material, locked ones need the code', async () => {
   const sk = window.SKYFALL;
   const $id = (id) => document.getElementById(id);
@@ -266,8 +335,16 @@ await test('cosmetics: pick colours and a material, locked ones need the code', 
 });
 
 await test('deploy connects to the real server and enters the match', async () => {
+  const sk0 = window.SKYFALL;
   document.getElementById('nameInput').value = 'JSDOM';
+  // the update panel must not survive into the match
+  document.getElementById('changelogBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  assert.equal(sk0.updatesOpen(), true, 'panel open before deploying');
   document.getElementById('deployBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  assert.equal(sk0.updatesOpen(), false, 'deploy closed the panel');
+  assert.equal(document.getElementById('changelog').classList.contains('hidden'), true);
   assert.equal(document.getElementById('title').classList.contains('hidden'), true);
   assert.equal(document.getElementById('loading').classList.contains('hidden'), false);
 

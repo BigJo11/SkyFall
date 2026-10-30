@@ -12,6 +12,7 @@ import { ViewModel } from './viewmodel.js';
 import { Effects } from './effects.js';
 import { sfx } from './audio.js';
 import { PracticeMode, Tutorial, PRACTICE_SPAWN } from './practice.js';
+import { renderEntry, renderTabs, DEFAULT_ENTRY, LATEST_VERSION } from './updates.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -135,6 +136,7 @@ const state = {
   stepDist: 0,
   shownScoreboard: false,
   shownLeaderboard: false,
+  updatesEntry: null,          // which changelog tab the panel is showing
   cosmetic: { ...COSMETIC.default },
   leaderboard: [],
   firedSinceSwitch: false,
@@ -149,7 +151,7 @@ let session = null;
 // Build stamp: makes it obvious which version the browser actually loaded, and
 // catches the classic "new page, old cached scripts" situation where every
 // button appears dead.
-const BUILD = 'forest v12';
+const BUILD = 'forest v13';
 
 function detectStaleBuild() {
   try {
@@ -523,6 +525,7 @@ function forwardMovementEvents() {
 // Practice and tutorial run entirely offline: no socket, local dummies,
 // local damage. The shared weapon/movement code is reused unchanged.
 function startLocalMode(kind) {
+  hideUpdates();
   clearTimeout(connectTimer);
   net.disconnect();
   session?.dispose?.();
@@ -869,6 +872,12 @@ function enableFallback() {
   }
 }
 
+// True while a text field has focus, so shortcuts never eat a typed letter.
+function fieldFocused() {
+  const el = document.activeElement;
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+}
+
 // Track whether we ever actually held the mouse capture. Browsers fire
 // pointerlockchange as soon as a request is refused (common inside iframes,
 // where the pointer-lock permission is often denied), so only a *loss* of a
@@ -905,6 +914,7 @@ function hidePause() {
 }
 
 function leaveToTitle(reason) {
+  hideUpdates();
   input.enabled = false;
   input.exitLock();
   net.disconnect();
@@ -1047,6 +1057,7 @@ on('deployBtn', 'click', () => {
     titleNotice('THAT CALLSIGN IS TAKEN');
     return;
   }
+  hideUpdates();
   store.set('skyfall.name', name);
   state.name = name;
   state.crew = crewUnlocked();
@@ -1127,8 +1138,58 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// ---------------------------------------------------------------- updates
+// The title screen's change history. Content comes from shared/changelog.js.
+const updatesEl = () => $('changelog');
+function updatesOpen() {
+  const el = updatesEl();
+  return !!el && !el.classList.contains('hidden');
+}
+
+function showUpdates(entryId = state.updatesEntry || DEFAULT_ENTRY) {
+  const el = updatesEl();
+  if (!el || state.phase !== 'title') return;
+  state.updatesEntry = entryId;
+  const tabs = $('changelogTabs');
+  const body = $('changelogBody');
+  if (tabs) tabs.innerHTML = renderTabs(entryId);
+  if (body) {
+    body.innerHTML = renderEntry(entryId);
+    body.scrollTop = 0;
+  }
+  el.classList.remove('hidden');
+}
+
+function hideUpdates() {
+  updatesEl()?.classList.add('hidden');
+}
+
+function toggleUpdates() {
+  if (updatesOpen()) hideUpdates();
+  else showUpdates();
+}
+
+// label the button with whatever the newest entry is
+if ($('changelogBtn') && LATEST_VERSION) $('changelogBtn').textContent = `UPDATES · ${LATEST_VERSION}`;
+
+on('changelogBtn', 'click', () => {
+  sfx.init();
+  sfx.resume();
+  showUpdates();
+});
+on('changelogClose', 'click', () => hideUpdates());
+on('changelog', 'click', (e) => {
+  // clicking the dimmed backdrop closes it, clicking the panel does not
+  if (e.target === updatesEl()) hideUpdates();
+});
+on('changelogTabs', 'click', (e) => {
+  const btn = e.target.closest('.cl-tab');
+  if (btn && btn.dataset.entry) showUpdates(btn.dataset.entry);
+});
+
 function safeStartMode(kind) {
   if (staleBuild) { hardReload(); return; }
+  hideUpdates();
   try {
     sfx.init();
     sfx.resume();
@@ -1182,6 +1243,7 @@ canvas.addEventListener('mousedown', () => {
 
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') {
+    if (updatesOpen()) { hideUpdates(); return; }
     if (state.phase === 'title') return;
     if (state.paused) hidePause();
     else showPause();
@@ -1193,6 +1255,7 @@ window.addEventListener('keydown', (e) => {
     state.shownLeaderboard = !state.shownLeaderboard;
     refreshLeaderboard();
   }
+  if (e.code === 'KeyU' && state.phase === 'title' && !fieldFocused()) toggleUpdates();
   if (e.code === 'KeyN' && state.mode === 'tutorial' && !state.paused) {
     session?.skipStep?.();
   }
@@ -1381,6 +1444,7 @@ requestAnimationFrame(frame);
 window.SKYFALL = {
   state, hud, net, body, camera, avatars, viewmodel, effects, world, settings, input, scene,
   get cosmetic() { return state.cosmetic; },
+  showUpdates, hideUpdates, updatesOpen,
   weaponAccent: () => viewmodel.accent,
   applyCosmetic, renderCosmetic,
   get session() { return session; },

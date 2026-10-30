@@ -74,6 +74,7 @@
             <button id="tutorialBtn" class="btn mode">TUTORIAL</button>
           </div>
           <div class="mode-note">practice &amp; tutorial run offline — no server needed</div>
+          <button id="changelogBtn" class="btn updates">UPDATES · V.2</button>
 
           <div class="server-line">
             <span class="dot" id="srvDot"></span>
@@ -181,6 +182,22 @@
         <span class="dotsep">•</span>
         <span>KEYBOARD + MOUSE</span>
       </footer>
+    </div>
+
+    <!-- update history: reads shared/changelog.js, sits above the title screen -->
+    <div id="changelog" class="hidden" role="dialog" aria-modal="true" aria-label="Update history">
+      <div class="cl-inner">
+        <div class="cl-head">
+          <div class="cl-title">
+            <h2>UPDATES</h2>
+            <span class="cl-sub">SKYFALL change history</span>
+          </div>
+          <button id="changelogClose" class="btn tiny ghost">CLOSE</button>
+        </div>
+        <div class="cl-tabs" id="changelogTabs"></div>
+        <div class="cl-body" id="changelogBody"></div>
+        <div class="cl-foot">milestones only · <b>U</b> to reopen · <b>ESC</b> to close</div>
+      </div>
     </div>
   </section>
 

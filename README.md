@@ -361,7 +361,7 @@ nothing"). The build id is also shown in the bottom-right of the title screen an
 sent as an `X-Skyfall-Build` header, and the client flags a mismatch on screen if
 it ever sees one.
 
-If a menu button ever seems dead, check the tag: `build <id> · forest v10`
+If a menu button ever seems dead, check the tag: `build <id> · forest v13`
 means the current code is running. Press `Ctrl/Cmd + Shift + R` to force a fresh
 load.
 
@@ -379,6 +379,7 @@ npm test
 | `tests/physics.test.mjs` | walking, stairs, walls, jumping, ledges, crates, plus the real arena (spawns, stairs, cover, void) |
 | `tests/map.test.mjs` | map size and cover distribution, spawn clearance, walkable hills and mesas, practice lane and dummies, wall-run staging spot |
 | `tests/movement.test.mjs` | air speed preservation, air-strafe gains, landing loss vs slide landing, double-jump cost, wall run speed/lifetime/corners/cooldown/wall kicks, mantling, jump-while-sprinting, auto-hop, slides, chained combos |
+| `tests/changelog.test.mjs` | changelog content rules, and that the in-game panel and docs/CHANGELOG.md match |
 | `tests/headshot.test.mjs` | head zone maths, per-weapon crit multipliers, aim-assist geometry |
 | `tests/cosmetic.test.mjs` | palette/material catalogue, colour validation, crew-only material gating |
 | `tests/leaderboard.test.mjs` | ranking, tie-breaks, K/D, streaks, name folding, crew flag, persistence round-trip, corrupt-file recovery, trimming |
@@ -392,13 +393,22 @@ Plus `scripts/check-client.mjs`, a static audit of client import graphs and DOM 
 
 ## Changelog
 
-[`docs/CHANGELOG.md`](docs/CHANGELOG.md) covers the big milestones — **Game
-Launch!** and the **V.2** update — rather than individual commits.
+The big milestones — **Game Launch!** and the **V.2** update — rather than
+individual commits. It appears in two places:
+
+* **In the game**: the `UPDATES` button on the title screen (or press **U**).
+  A panel with a tab per milestone; click the backdrop, `ESC` or `CLOSE` to
+  dismiss.
+* **In the repo**: [`docs/CHANGELOG.md`](docs/CHANGELOG.md).
+
+The text lives in `shared/changelog.js` — the panel renders it directly and the
+markdown is generated from it, so the two cannot drift. After editing the data,
+run `npm run changelog`; `tests/changelog.test.mjs` fails if the generated file
+is stale.
 
 It is maintained by hand and **only updated when explicitly asked**, so it can
-lag behind the code between milestones. Bug fixes are only listed there when
-they affected an existing feature; day-to-day fixes, refactors and test work are
-not.
+lag behind the code between milestones. Bug fixes are only listed when they
+affected an existing feature; day-to-day fixes, refactors and test work are not.
 
 ## Notes
 

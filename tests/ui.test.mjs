@@ -46,6 +46,18 @@ test('title screen shows the SKYFALL logo and deploy flow', () => {
   assert.match(arsenal, new RegExp(`${Math.round(1000 / smg.interval)} shots/sec`), 'smg fire rate on the title screen');
   assert.match(arsenal, new RegExp(`${smg.damage} damage`), 'smg damage on the title screen');
   assert.match(arsenal, /0\.5s swing/);
+  // the update history is reachable from the title screen
+  assert.ok(document.getElementById('changelogBtn'), 'UPDATES button');
+  const cl = document.getElementById('changelog');
+  assert.ok(cl, 'updates panel exists');
+  assert.ok(cl.classList.contains('hidden'), 'panel starts closed');
+  assert.equal(cl.getAttribute('role'), 'dialog', 'announced as a dialog');
+  assert.ok(document.getElementById('changelogTabs'), 'tab strip');
+  assert.ok(document.getElementById('changelogBody'), 'content area');
+  assert.ok(document.getElementById('changelogClose'), 'close button');
+  // it lives inside the title screen, so it cannot outlive the menu
+  assert.ok(document.getElementById('title').contains(cl), 'panel is part of the title screen');
+
   // all three entry points
   assert.ok(document.getElementById('deployBtn'), 'deploy');
   assert.ok(document.getElementById('practiceBtn'), 'practice');
