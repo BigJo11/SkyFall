@@ -390,6 +390,16 @@ npm test
 
 Plus `scripts/check-client.mjs`, a static audit of client import graphs and DOM ids.
 
+## Changelog
+
+[`docs/CHANGELOG.md`](docs/CHANGELOG.md) covers the big milestones — **Game
+Launch!** and the **V.2** update — rather than individual commits.
+
+It is maintained by hand and **only updated when explicitly asked**, so it can
+lag behind the code between milestones. Bug fixes are only listed there when
+they affected an existing feature; day-to-day fixes, refactors and test work are
+not.
+
 ## Notes
 
 * Host firewall blocking the port? Allow Node (or the chosen port) on your LAN.
