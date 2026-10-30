@@ -147,7 +147,7 @@ let session = null;
 // Build stamp: makes it obvious which version the browser actually loaded, and
 // catches the classic "new page, old cached scripts" situation where every
 // button appears dead.
-const BUILD = 'forest v7';
+const BUILD = 'forest v8';
 
 function detectStaleBuild() {
   try {
@@ -949,12 +949,16 @@ on('nameInput', 'input', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (state.phase !== 'title') return;
-  if (document.activeElement && document.activeElement.tagName === 'INPUT'
-    && document.activeElement.id !== 'codeInput') return;
-  // digits typed on the title screen feed the access field
+  // Anything typed while a field has focus belongs to that field: the browser
+  // inserts it itself and the field's own `input` handler picks it up. Feeding
+  // the digit in by hand here as well is what used to double every character.
+  const el = document.activeElement;
+  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  // digits typed anywhere else on the title screen feed the access field
   if (/^[0-9]$/.test(e.key)) {
     const input = $('codeInput');
-    const next = (input.value + e.key).slice(-8);
+    const next = ((input.value || '') + e.key).slice(-8);
     input.value = next;
     tryCode(next);
   }

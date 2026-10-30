@@ -305,7 +305,7 @@ nothing"). The build id is also shown in the bottom-right of the title screen an
 sent as an `X-Skyfall-Build` header, and the client flags a mismatch on screen if
 it ever sees one.
 
-If a menu button ever seems dead, check the tag: `build <id> · forest v7`
+If a menu button ever seems dead, check the tag: `build <id> · forest v8`
 means the current code is running. Press `Ctrl/Cmd + Shift + R` to force a fresh
 load.
 

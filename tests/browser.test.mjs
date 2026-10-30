@@ -172,6 +172,39 @@ await test('the reserved callsign is locked until the crew code is typed', async
   name.value = '';
 });
 
+await test('typing the code into the access field does not double the digits', async () => {
+  // A real browser inserts the character itself on keydown *and* fires `input`.
+  // Simulate exactly that, so a second manual write in the keydown handler
+  // (which used to turn "1013" into "11001133") would be caught here.
+  const code = document.getElementById('codeInput');
+  code.value = '';
+  code.focus();
+  for (const ch of '1013') {
+    document.dispatchEvent(new window.KeyboardEvent('keydown', { key: ch, code: `Digit${ch}`, bubbles: true }));
+    code.value += ch;                                   // the browser's own insert
+    code.dispatchEvent(new window.Event('input', { bubbles: true }));
+    pump(1);
+  }
+  assert.equal(code.value, '1013', `the field holds exactly what was typed (${code.value})`);
+  assert.ok(document.body.classList.contains('crew'), 'the code unlocked the crew skin');
+  document.getElementById('crewClear').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(1);
+  assert.equal(document.body.classList.contains('crew'), false);
+
+  // typing digits with nothing focused still feeds the access field
+  code.value = '';
+  code.blur();
+  for (const ch of '1013') {
+    document.dispatchEvent(new window.KeyboardEvent('keydown', { key: ch, code: `Digit${ch}`, bubbles: true }));
+    pump(1);
+  }
+  assert.equal(code.value, '1013', 'typed-anywhere digits land once each');
+  assert.ok(document.body.classList.contains('crew'), 'unlocked from the keyboard too');
+  document.getElementById('crewClear').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(1);
+  code.value = '';
+});
+
 await test('deploy connects to the real server and enters the match', async () => {
   document.getElementById('nameInput').value = 'JSDOM';
   document.getElementById('deployBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
