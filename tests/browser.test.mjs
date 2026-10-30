@@ -573,6 +573,45 @@ await test('the all-time leaderboard shows on the title screen and under L', asy
   assert.ok(board.rows.every((r) => r.kills >= 0 && r.rank >= 1), 'rows carry kills + rank');
 });
 
+await test('the tutorial jump step advances from a real SPACE press', async () => {
+  // Regression: the jump step looks for flags.jumped but main.js forwarded the
+  // event as 'jump', so the tutorial stalled here forever while the player
+  // bounced up and down wondering what they had done wrong.
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Escape' }));
+  pump(2);
+  document.getElementById('leaveBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(3);
+  await sleep(120);
+
+  document.getElementById('tutorialBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(6);
+  const sk = window.SKYFALL;
+  assert.equal(sk.state.mode, 'tutorial');
+
+  const title = () => document.getElementById('objTitle').textContent;
+  sk.session.advance();   // MOVE
+  pump(2);
+  sk.session.advance();   // LOOK
+  pump(2);
+  assert.equal(title(), 'JUMP', 'on the jump step');
+
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Space', key: ' ' }));
+  pump(2);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space', key: ' ' }));
+  pump(4);
+  assert.notEqual(title(), 'JUMP', 'the jump step advanced after a real press');
+  assert.equal(title(), 'SPRINT', `moved on to sprint (${title()})`);
+
+  // and sprinting on foot advances the next one too
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ShiftLeft', key: 'Shift' }));
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyW', key: 'w' }));
+  pump(80);
+  assert.equal(title(), 'SPRINT JUMP', `sprinting advanced the step (${title()})`);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'KeyW', key: 'w' }));
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'ShiftLeft', key: 'Shift' }));
+  pump(2);
+});
+
 await test('tutorial starts, advances with N, and completes', async () => {
   window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Escape' }));
   pump(2);

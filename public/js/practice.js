@@ -351,6 +351,20 @@ function pointToSegment(origin, dir, p, max) {
 
 // ------------------------------------------------------------------ tutorial
 
+// The physics body reports movement events with past-tense names
+// (`jumped`, `doubleJumped`, `wallRunStarted` ...) and main.js forwards them to
+// the session with short ones (`jump`, `doubleJump`, `wallRun` ...). Every step
+// predicate is written against the physics names, so normalise both spellings
+// here. Without this the tutorial silently stalls on the jump step: the jump
+// itself registers, the flag the step looks for never appears.
+const EVENT_ALIASES = {
+  jump: 'jumped',
+  doubleJump: 'doubleJumped',
+  wallRun: 'wallRunStarted',
+  wallJump: 'wallJumped',
+  slide: 'slideStarted',
+};
+
 export class Tutorial extends PracticeMode {
   constructor(ctx) {
     super(ctx);
@@ -414,6 +428,8 @@ export class Tutorial extends PracticeMode {
   onEvent(type, data = {}) {
     super.onEvent(type, data);
     this.flags[type] = true;
+    const canonical = EVENT_ALIASES[type];
+    if (canonical) this.flags[canonical] = true;
     if (type === 'look') this.look += Math.abs(data.dx || 0) + Math.abs(data.dy || 0);
     if (type === 'weaponSwitched') this.flags[`weapon${data.index}`] = true;
     if (type === 'reload') this.flags.reload = true;
@@ -546,9 +562,9 @@ export const TUTORIAL_STEPS = [
   {
     id: 'carry',
     title: 'CARRY SPEED',
-    text: 'Landing normally throws your speed away. Press C just before you touch down to slide out of the jump and keep all of it.',
-    tip: 'JUMP, THEN C BEFORE LANDING',
-    done: (c) => c.flags.slideLanding && c.speed > 10.5,
+    text: 'Landing normally throws your speed away. Press C just before you touch down to slide out of the jump, or press SPACE as you land, and keep all of it.',
+    tip: 'JUMP, THEN C — OR SPACE ON TOUCHDOWN',
+    done: (c) => (c.flags.slideLanding || c.flags.perfectLanding) && c.speed > 10.5,
   },
   {
     id: 'rifle',

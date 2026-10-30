@@ -202,6 +202,63 @@ test('mouse movement advances LOOK to JUMP', () => {
   assert.equal(TUTORIAL_STEPS[t.step].id, 'jump');
 });
 
+test('every movement step advances with the names main.js actually sends', () => {
+  // main.js forwards the physics body's events with short names; this is the
+  // real client contract. The jump step used to stall here because it looks for
+  // `flags.jumped` while the client sent 'jump'.
+  const cases = [
+    ['jump', 'jump', 'sprint'],
+    ['sprintjump', 'sprintJump', 'doublejump'],
+    ['doublejump', 'doubleJump', 'wallrun'],
+    ['wallrun', 'wallRun', 'walljump'],
+    ['walljump', 'wallJump', 'slide'],
+    ['slide', 'slide', 'carry'],
+  ];
+  for (const [from, event, to] of cases) {
+    const { ctx, t } = tutorialAt(from);
+    t.onEvent(event);
+    t.update(1 / 60, 3000, ctx.body);
+    assert.equal(TUTORIAL_STEPS[t.step].id, to, `${from} + '${event}' -> ${to}`);
+  }
+});
+
+test('a timed landing jump also satisfies the carry-speed step', () => {
+  const { ctx, t } = tutorialAt('carry');
+  ctx.body.speed = 12;
+  t.onEvent('perfectLanding');
+  t.update(1 / 60, 3000, ctx.body);
+  assert.notEqual(TUTORIAL_STEPS[t.step].id, 'carry', 'advanced out of carry');
+});
+
+test('the whole tutorial can be finished with client-style events only', () => {
+  const ctx = makeCtx();
+  const t = new Tutorial(ctx);
+  t.start();
+  let guard = 0;
+  while (!t.completed && guard++ < 400) {
+    const id = TUTORIAL_STEPS[t.step]?.id;
+    if (id === 'move') ctx.body.x += 1;            // walk far enough
+    else if (id === 'look') t.onEvent('look', { dx: 200, dy: 50 });
+    else if (id === 'jump') t.onEvent('jump');
+    else if (id === 'sprint') { ctx.body.speed = 9.4; ctx.body.onGround = true; }
+    else if (id === 'sprintjump') t.onEvent('sprintJump');
+    else if (id === 'doublejump') t.onEvent('doubleJump');
+    else if (id === 'wallrun') t.onEvent('wallRun');
+    else if (id === 'walljump') t.onEvent('wallJump');
+    else if (id === 'slide') t.onEvent('slide');
+    else if (id === 'carry') { ctx.body.speed = 11; t.onEvent('slideLanding'); }
+    else if (id === 'rifle' || id === 'sniper' || id === 'knife') {
+      // shoot whatever live dummy this step placed in front of us
+      const live = t.dummies.find((d) => d.alive);
+      if (live) t.onLocalHit(live, weapon(id));
+    }
+    else if (id === 'reload') t.onEvent('reload');
+    else if (id !== 'done') break;    // the last card just needs time to read
+    t.update(1 / 60, 1000 + guard * 16, ctx.body);
+  }
+  assert.ok(t.completed, `finished (stuck at step ${t.step}: ${TUTORIAL_STEPS[t.step]?.id})`);
+});
+
 test('each movement technique advances its own step', () => {
   const cases = [
     ['jump', 'jumped', 'sprint'],

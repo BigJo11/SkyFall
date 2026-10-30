@@ -131,7 +131,7 @@ Both run **offline in the browser** — no server, no sign-in, no other players.
   back on the firing line.
 * **Tutorial** — 15 objectives that teach the whole game in order: move, look,
   jump, sprint, sprint jump, double jump, wall run, wall kick, slide,
-  carry speed (land in a slide), then rifle → sniper → knife → reload. Each step advances the moment you
+  carry speed (land in a slide or on a timed jump), then rifle → sniper → knife → reload. Each step advances the moment you
   actually do the thing (the wall-run step teleports you to a wall and tells you
   where to run), and `N` skips a step if you get stuck. Finishing offers
   "keep practising" or back to the title.
@@ -305,7 +305,7 @@ nothing"). The build id is also shown in the bottom-right of the title screen an
 sent as an `X-Skyfall-Build` header, and the client flags a mismatch on screen if
 it ever sees one.
 
-If a menu button ever seems dead, check the tag: `build <id> · forest v8`
+If a menu button ever seems dead, check the tag: `build <id> · forest v9`
 means the current code is running. Press `Ctrl/Cmd + Shift + R` to force a fresh
 load.
 
