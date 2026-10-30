@@ -144,7 +144,7 @@ let session = null;
 // Build stamp: makes it obvious which version the browser actually loaded, and
 // catches the classic "new page, old cached scripts" situation where every
 // button appears dead.
-const BUILD = 'tf2 movement v4';
+const BUILD = 'forest v5';
 
 function detectStaleBuild() {
   try {
@@ -432,7 +432,11 @@ function handleGameplayInput(now, dt) {
     ? { forward: axes.forward, right: axes.right, sprint: axes.sprint }
     : { forward: 0, right: 0, sprint: false };
 
-  if (input.pressed('Space') && state.alive && !state.paused) body.wantJump = true;
+  // Jump: a fresh press always jumps. HOLDING the key keeps hopping as soon as
+  // you touch down, so sprinting and spamming space never eats an input.
+  const canAct = state.alive && !state.paused;
+  body.jumpHeld = canAct && input.down('Space');
+  if (input.pressed('Space') && canAct) body.wantJump = true;
   if (input.pressed('KeyC') || input.pressed('ControlLeft') || input.pressed('ControlRight')) {
     if (state.alive && !state.paused) body.wantSlide = true;
   }

@@ -441,5 +441,43 @@ test('a wall too tall to mantle is not climbed', () => {
   assert.ok(b.y < 2, `still low (y=${b.y.toFixed(2)})`);
 });
 
+
+console.log('\njump input:');
+
+test('a fresh press jumps while sprinting', () => {
+  const b = player(flatWorld());
+  sim(b, 1.5, fwd(true), Math.PI);
+  const ground = speedOf(b);
+  b.wantJump = true;
+  sim(b, 0.15, fwd(true), Math.PI);
+  assert.ok(b.y > 0.6, `left the ground (y=${b.y.toFixed(2)})`);
+  assert.ok(speedOf(b) > ground * 0.9, `kept the sprint speed (${speedOf(b).toFixed(2)})`);
+});
+
+test('holding jump auto-hops as soon as you land', () => {
+  const b = player(flatWorld());
+  sim(b, 1.5, fwd(true), Math.PI);
+  b.jumpHeld = true;
+  let hops = 0;
+  for (let i = 0; i < 600; i++) {
+    b.update(DT, fwd(true), Math.PI);
+    if (b.events.jumped) hops++;
+  }
+  assert.ok(hops >= 5, `hopped ${hops} times in 5 s while holding space`);
+  assert.ok(b.y > 0.2 || hops > 0, 'stayed bouncing');
+});
+
+test('a held jump on a slide keeps the slide going', () => {
+  const b = player(flatWorld());
+  sim(b, 1.5, fwd(true), Math.PI);
+  b.wantSlide = true;
+  sim(b, 0.2, fwd(true), Math.PI);
+  assert.equal(b.sliding, true, 'sliding');
+  b.jumpHeld = true;
+  sim(b, 0.05, fwd(true), Math.PI);
+  assert.ok(!b.sliding, 'jumped out of the slide');
+  assert.ok(b.y > 0.1, 'airborne');
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);

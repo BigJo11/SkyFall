@@ -13,12 +13,12 @@ export const WALLRUN_SPOT = { pos: PRACTICE.wallRunSpot.slice(), yaw: PRACTICE.y
 
 // Dummies stand down the lane at increasing range so every weapon has a target.
 const DUMMY_SPOTS = [
-  { pos: [60, 0, -21], color: 0xff6b6b },
-  { pos: [61, 0, -17], color: 0xffd166 },
-  { pos: [59, 0, -13], color: 0x9dff6b },
-  { pos: [62, 0, -9], color: 0x62d6ff },
-  { pos: [58, 0, -5], color: 0xc792ff },
-  { pos: [60, 0, -2], color: 0x64ffda },
+  { pos: [90, 0, -42], color: 0xff6b6b },
+  { pos: [88, 0, -38], color: 0xffd166 },
+  { pos: [92, 0, -34], color: 0x9dff6b },
+  { pos: [89, 0, -29], color: 0x62d6ff },
+  { pos: [93, 0, -25], color: 0xc792ff },
+  { pos: [90, 0, -20], color: 0x64ffda },
 ];
 
 const DUMMY_HP = 100;

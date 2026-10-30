@@ -25,6 +25,8 @@ export class Body {
     this.fallSpeed = 0;
     this.wantJump = false;
     this.wantSlide = false;
+    this.jumpHeld = false;        // holding jump auto-hops on landing
+    this.onGroundTime = 0;
 
     // ---- movement state
     this.airJumps = 1;
@@ -63,6 +65,7 @@ export class Body {
   teleport(x, y, z) {
     this.x = x; this.y = y; this.z = z;
     this.vx = this.vy = this.vz = 0;
+    this.onGroundTime = 0;
     this.onGround = false;
     this.airJumps = 1;
     this.speed = 0;
@@ -350,7 +353,7 @@ export class Body {
     }
 
     // ---- jumps
-    if (this.wantJump) {
+    if (this.wantJump || (this.jumpHeld && this.onGround && this.onGroundTime > 0.02)) {
       this.wantJump = false;
       if (this.wallRun) {
         this.wallJump();
@@ -480,8 +483,13 @@ export class Body {
       this.onGround = false;
     }
 
-    if (this.onGround) this.airTime = 0;
-    else this.airTime += dt;
+    if (this.onGround) {
+      this.airTime = 0;
+      this.onGroundTime += dt;
+    } else {
+      this.airTime += dt;
+      this.onGroundTime = 0;
+    }
 
     // ---- bookkeeping
     this.speed = this.horizontalSpeed;

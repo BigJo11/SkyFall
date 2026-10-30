@@ -59,7 +59,7 @@ test('cover is everywhere, not just in the middle', () => {
   const cover = ARENA.boxes.filter((b) => b.solid !== false
     && b.s[1] >= 1.0 && b.s[1] <= 6.0 && b.s[0] <= 8 && b.s[2] <= 8
     && b.p[1] - b.s[1] / 2 < 1);
-  assert.ok(cover.length >= 30, `${cover.length} low cover pieces`);
+  assert.ok(cover.length >= 60, `${cover.length} low cover pieces`);
   const quads = [0, 0, 0, 0];
   for (const b of cover) {
     const i = (b.p[0] > 0 ? 1 : 0) + (b.p[2] > 0 ? 2 : 0);
@@ -76,10 +76,17 @@ test('there are long tall walls for wall running', () => {
 
 console.log('\nfloor:');
 
-test('the plate is solid under every spawn and across the whole map', () => {
-  for (const s of SPAWNS) assert.equal(groundUnder(s.pos[0], s.pos[2]), 0, `spawn ${s.pos} on the floor`);
+test('the plateau is solid under every spawn and across the whole map', () => {
+  for (const s of SPAWNS) {
+    const g = groundUnder(s.pos[0], s.pos[2]);
+    assert.ok(g > -Infinity, `spawn ${s.pos} on solid ground`);
+    assert.ok(Math.abs(s.pos[1] - (g + 0.05)) < 0.02, `spawn ${s.pos} stands on it`);
+  }
+  const half = ARENA.size / 2;
   let holes = 0;
-  for (let x = -72; x <= 72; x += 6) for (let z = -72; z <= 72; z += 6) if (groundUnder(x, z) === -Infinity) holes++;
+  for (let x = -half + 4; x <= half - 4; x += 8) {
+    for (let z = -half + 4; z <= half - 4; z += 8) if (groundUnder(x, z) === -Infinity) holes++;
+  }
   assert.equal(holes, 0, `${holes} holes`);
 });
 
@@ -96,19 +103,23 @@ test('all spawns are clear standing room and face the middle', () => {
   }
 });
 
-test('stairs to every rooftop can actually be walked up', () => {
+test('the hills and mesas can be walked up from the meadow', () => {
   const climbs = [
-    ['keep north', [0, -34], [0, 4]],
-    ['keep south', [0, 34], [0, -4]],
-    ['keep east', [34, 0], [-4, 0]],
-    ['keep west', [-34, 0], [4, 0]],
+    ['central hill from the south', [0, 40], [0, 0], 8],
+    ['central hill from the west', [-40, 0], [0, 0], 8],
+    ['NW mesa from the south', [-72, -100], [-72, -72], 7],
+    ['SE mesa from the west', [100, 72], [72, 72], 7],
   ];
-  for (const [name, start, target] of climbs) {
+  for (const [name, start, target, want] of climbs) {
     const b = new Body(solids);
     b.teleport(start[0], 0.05, start[1]);
     const yaw = Math.atan2(-(target[0] - start[0]), -(target[1] - start[1]));
-    for (let i = 0; i < 6 / DT; i++) b.update(DT, run(), yaw);
-    assert.ok(b.y > 8.5, `${name}: climbed to y=${b.y.toFixed(2)}`);
+    let peak = 0;
+    for (let i = 0; i < 10 / DT; i++) {
+      b.update(DT, run(), yaw);
+      peak = Math.max(peak, b.y);
+    }
+    assert.ok(peak > want, `${name}: climbed to y=${peak.toFixed(2)}`);
   }
 });
 
@@ -124,7 +135,7 @@ test('the practice lane is clear standing room for 30 m', () => {
 
 test('every range dummy is standable and shootable from the spawn', () => {
   const from = PRACTICE.spawn;
-  const dummies = [[60, -21], [61, -17], [59, -13], [62, -9], [58, -5], [60, -2]];
+  const dummies = [[90, -42], [88, -38], [92, -34], [89, -29], [93, -25], [90, -20]];
   for (const [x, z] of dummies) {
     assert.ok(standable(x, z), `dummy at (${x}, ${z}) stands on the floor`);
     assert.ok(clearShot(from, [x, 0, z]), `line of fire to (${x}, ${z}) is clear`);

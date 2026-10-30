@@ -31,10 +31,10 @@ function makeGame() {
   const sb = fakeSocket();
   const a = game.addPlayer(sa, 'ALPHA');
   const b = game.addPlayer(sb, 'BRAVO');
-  // deterministic positions in an open lane of the arena (x = 40, z -6..4,
-  // verified ray-clear for 14 m in tests/map.test.mjs)
-  a.pos = [40, 0.01, -6]; a.yaw = 0;
-  b.pos = [40, 0.01, 4]; b.yaw = Math.PI;
+  // deterministic positions in an open meadow lane (x = 31, z -70..-58),
+  // verified walkable and ray-clear in tests/map.test.mjs
+  a.pos = [31, 0.01, -70]; a.yaw = 0;
+  b.pos = [31, 0.01, -60]; b.yaw = Math.PI;
   game.broadcast = () => {};
   return { game, a, b, sa, sb };
 }
@@ -127,7 +127,7 @@ await test('smg: 5 damage per shot at 15 shots/sec', async () => {
 await test('knife one-shots at close range with a 0.5s cooldown', async () => {
   const { game, a, b } = makeGame();
   a.weapon = 3;
-  b.pos = [40, 0.01, -4]; // 2m in front
+  b.pos = [31, 0.01, -68]; // 2m in front
   const dir = dirTo(a.pos, b.pos);
   game.handle(a, { t: 'fire', dir });
   assert.equal(b.alive, false, 'knife one-shot kill');

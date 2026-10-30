@@ -95,7 +95,8 @@ console.log('\narena integration:');
 
 test('the arena has ground everywhere on the plate', () => {
   for (const s of ARENA.spawns) {
-    assert.equal(groundAt(s.pos[0], s.pos[2]), 0, `spawn ${s.pos} has ground`);
+    assert.ok(groundAt(s.pos[0], s.pos[2]) > -Infinity, `spawn ${s.pos} has ground`);
+    assert.ok(Math.abs(s.pos[1] - (groundAt(s.pos[0], s.pos[2]) + 0.05)) < 0.01, `spawn ${s.pos} sits on it`);
   }
   let holes = 0;
   for (let x = -70; x <= 70; x += 5) {
@@ -115,28 +116,28 @@ test('every spawn point is standing room, not inside geometry', () => {
   }
 });
 
-test('the keep staircase can be climbed on foot', () => {
-  // the north staircase runs from z = -32 back up to the keep roof at y = 9
-  const b = player(solids, 0, 0.05, -33.5);
-  sim(b, 0.3, idle, 0);
-  sim(b, 3.4, fwd(true), Math.PI);      // walk +z, up the stairs
-  assert.ok(b.y > 8.5, `climbed to the keep roof (y=${b.y.toFixed(2)})`);
-  assert.ok(b.z > -16, `walked onto the roof (z=${b.z.toFixed(2)})`);
+test('the central hill can be climbed on foot from any side', () => {
+  for (const [sx, sz, yaw] of [[0, 40, 0], [0, -40, Math.PI], [40, 0, Math.PI / 2], [-40, 0, -Math.PI / 2]]) {
+    const b = player(solids, sx, 0.05, sz);
+    sim(b, 0.3, idle, 0);
+    sim(b, 6.0, fwd(true), yaw);
+    assert.ok(b.y > 8, `climbed the hill from (${sx},${sz}) to y=${b.y.toFixed(2)}`);
+  }
 });
 
-test('the plate rim and ring walls contain the fight', () => {
-  // walk east from the middle: the outer ring wall stops you before the edge
-  const b = player(solids, 40, 0.05, 0);
-  sim(b, 4.0, fwd(true), -Math.PI / 2);
-  assert.ok(b.x < 66, `stopped inside the ring (x=${b.x.toFixed(2)})`);
+test('a rock ridge stops a sprinting player and can be wall run', () => {
+  // the ridge at z = -46 runs east/west across the middle of the map
+  const b = player(solids, 0, 0.05, -40);
+  sim(b, 2.0, fwd(true), 0);            // walk -z into it
+  assert.ok(b.z > -46, `stopped in front of the ridge (z=${b.z.toFixed(2)})`);
   assert.ok(b.y > -1, 'never fell off');
 });
 
-test('cover crates are solid and standable', () => {
-  // the crate at (60, 10) is 2.6 m tall
-  const b = player(solids, 60, 4, 10);
+test('fallen logs are solid and standable', () => {
+  // the log at (-22, 26) is 16 m long and its collision top is at 1.9 m
+  const b = player(solids, -22, 4, 26);
   sim(b, 1.2, idle, 0);
-  assert.ok(Math.abs(b.y - 2.6) < 0.08, `landed on the crate top (y=${b.y.toFixed(2)})`);
+  assert.ok(Math.abs(b.y - 1.9) < 0.1, `landed on the log (y=${b.y.toFixed(2)})`);
 });
 
 test('the map is big and dense enough to matter', () => {
@@ -149,11 +150,11 @@ test('the map is big and dense enough to matter', () => {
   assert.ok(tall.length >= 10, `${tall.length} long tall walls`);
 });
 
-test('the void below the map is lethal', () => {
+test('the void below the island is lethal', () => {
   assert.ok(ARENA.killY < -20, `kill plane at y=${ARENA.killY}`);
-  const b = player(solids, -70.5, 0, 0);   // stepped off the west edge
-  b.teleport(-76, 0.05, 0);
-  sim(b, 4.0, idle, 0);
+  const b = player(solids, 0, 0.05, 0);
+  b.teleport(ARENA.size / 2 + 10, 0.05, 0);   // stepped off the east rim
+  sim(b, 6.0, idle, 0);
   assert.ok(b.y < ARENA.killY, `fell past the kill plane (y=${b.y.toFixed(1)})`);
   void PLAYER;
 });

@@ -8,9 +8,10 @@ internet required.
 ███  S K Y F A L L  ███
 ```
 
-Fight on a floating plate thousands of metres above the clouds: a raised centre
-deck, four corner towers, hanging crates for cover, and two sky islands you have
-to jump to reach. Fall off and the void takes you.
+Fight across a floating forest plateau thousands of metres above the clouds:
+terraced hills, mossy rock ridges to wall run, woods and boulders for cover, a
+shallow lake, and two satellite islands you have to jump to reach. Fall off and
+the void takes you.
 
 ## Quick start
 
@@ -67,11 +68,15 @@ ground with, and the trick is never to touch down flat.
   your speed, refreshes the double jump, and pushes along the wall normal.
 * **Mantling** — run into a ledge up to 1.45 m above your feet and you pull
   yourself over it instead of bouncing off.
+* **You can always jump while sprinting.** Jump is checked before anything else
+  and never loses your ground speed; **holding** jump keeps you hopping the
+  moment you touch down, so a sprint-jump chain never eats an input.
 
 | Move | Input | Notes |
 | --- | --- | --- |
 | **Sprint** | `Shift` + `WASD` | 10.2 m/s on the ground |
 | **Sprint jump** | `Space` while sprinting | speed carries through the whole jump |
+| **Auto-hop** | hold `Space` | hops again the instant you land |
 | **Double jump** | `Space` again in mid-air | one per airtime, costs ~13% speed |
 | **Air strafe** | forward + `A`/`D` while turning | the only way to go faster than sprint |
 | **Wall run** | sprint along a wall and jump | ~1.9 s, soft gravity, no speed loss, latches even while rising |
@@ -79,6 +84,8 @@ ground with, and the trick is never to touch down flat.
 | **Slide** | `C` / `Ctrl` while sprinting, or while falling | fast, steerable, preserves momentum on landing |
 | **Slide jump** | `Space` during a slide | keeps the slide speed in the air |
 | **Mantle** | run at a low ledge | automatic ledge grab |
+
+Sprint is on by default when you hold `Shift`; jumping works at any speed.
 
 The HUD carries **no movement labels** — just a speedometer bar and a number in
 m/s, so you read your momentum off the bar. Tutorial objectives are the only
@@ -88,7 +95,7 @@ place moves are named, and they only appear in the tutorial.
 
 Both run **offline in the browser** — no server, no sign-in, no other players.
 
-* **Practice** — a live-fire range down the eastern ring road of the map: a
+* **Practice** — a live-fire range in the eastern meadow of the map: a
   30 m clear lane with six dummies at staggered ranges that respawn 1.6 s after
   you destroy them, an endless magazine economy, and a stats panel counting
   dummies downed, jumps, wall runs, slides and your top speed. Fall off the edge
@@ -120,30 +127,32 @@ Both run **offline in the browser** — no server, no sign-in, no other players.
 
 ## The map
 
-One big arena, **150 × 150 m**, built entirely from boxes in `shared/map.js` and
-merged into a single draw call on load.
+One big floating forest, **240 × 240 m** — 1288 boxes plus 356 trees, 237
+boulders and about 7,000 instanced grass blades. It is all generated from
+`shared/map.js` and merged into a single vertex-coloured mesh, so the whole
+terrain is one draw call.
 
-* **Central keep** — 30 × 30 m, roof at 9 m, four staircases up, parapet gaps to
-  shoot through, rooftop cover and a courtyard with pillars.
-* **Four quadrant towers** — 20 × 20 m, roofs at 8 m, stairs on two faces,
-  parapets and crate stacks.
-* **Catwalks** at `z = ±30` with gaps and support pylons, linking the quadrants.
-* **Eight wall-run spokes** — 26 m long, 8 m tall, 1.4 m thick, radiating from
-  the keep, so there is always a wall to chain off.
-* **A broken outer ring** at ±66 m (9 m tall, buttress posts) that fences the
-  play area and doubles as the longest wall-run surface on the map.
-* **Cover everywhere** — ~28 crates, six crate stacks, eight 5.4 m cover pillars
-  and twelve funnel walls spread across all four quadrants, so you are never
-  more than a few metres from something to break a sightline.
-* **Sky islands** at `z = ±94` with stub bridges, plus decorative debris, for
-  players who want to fight above the plate.
-* **12 spawn points** verified clear, each facing the middle of the map.
+* **Central hill** — a terraced, tree-ringed knoll 11 m tall with a flat crown,
+  standing stones and a lone pine. Every terrace is under step height, so you can
+  run up it from any direction.
+* **Four mesas** in the corners, each with a lower shoulder sloping back toward
+  the middle.
+* **Nine rock ridges** — long mossy cliff walls (9–10 m) that are the map's
+  wall-running highways, each with a ramp of boulders at one end.
+* **Woods** — eight dense stands of trees with open meadow lanes between them.
+  Trunks are solid: cover, and something to kick off.
+* **Mounds and boulders** — 26 walkable knolls plus scattered rock clusters, so
+  you are never more than a few metres from something to break a sightline.
+* **Fallen logs**, **dirt trails**, **grass patches**, a **shallow lake** with an
+  island, and an eroded, tree-fringed rim with rock shelves jutting into the void.
+* **Two sky islands** 150 m out, reachable with a good wall kick.
+* **14 spawn points**, each cleared of geometry and facing the middle.
 
 ![top-down plan of the arena](docs/arena-plan.png)
 
-`tests/map.test.mjs` asserts the plate has no holes, every spawn is standing
-room, every staircase can actually be walked up, the practice lane is clear, and
-the wall-run staging spot produces a real wall run.
+`tests/map.test.mjs` asserts the plateau has no holes, every spawn is standing
+room on the real surface, the hill and mesas can be walked up, the practice lane
+is clear, and the wall-run staging spot produces a real wall run.
 
 ## How it works
 
@@ -170,11 +179,11 @@ the wall-run staging spot produces a real wall run.
 server/server.js      static file server + WebSocket lobby
 server/game.js        authoritative match state, weapons, damage, respawns
 shared/constants.js   weapon and movement balance
-shared/map.js         150 m arena, spawns, practice-range markers
+shared/map.js         240 m forest arena, spawns, practice markers
 shared/collision.js   ray/AABB + ray/capsule maths used by server and client
 public/index.html     title screen, HUD, menus
 public/js/main.js     game loop, input, prediction, networking glue
-public/js/world.js    arena meshes, sky, lighting, clouds
+public/js/world.js    terrain mesh, trees, grass, water, sky, clouds
 public/js/physics.js  player movement and stair/ledge collision
 public/js/viewmodel.js first-person weapon models and animation
 public/js/avatars.js  remote player models and name plates
@@ -230,7 +239,7 @@ nothing"). The build id is also shown in the bottom-right of the title screen an
 sent as an `X-Skyfall-Build` header, and the client flags a mismatch on screen if
 it ever sees one.
 
-If a menu button ever seems dead, check the tag: `build <id> · tf2 movement v4`
+If a menu button ever seems dead, check the tag: `build <id> · forest v5`
 means the current code is running. Press `Ctrl/Cmd + Shift + R` to force a fresh
 load.
 
@@ -240,14 +249,14 @@ load.
 npm test
 ```
 
-118 checks across nine suites:
+121 checks across nine suites:
 
 | Suite | Covers |
 | --- | --- |
 | `tests/game.test.mjs` | weapon damage, fire rates, cooldowns, hit detection, regen, respawn, anti-cheat |
 | `tests/physics.test.mjs` | walking, stairs, walls, jumping, ledges, crates, plus the real arena (spawns, stairs, cover, void) |
-| `tests/map.test.mjs` | map size and cover distribution, spawn clearance, walkable staircases, practice lane and dummies, wall-run staging spot |
-| `tests/movement.test.mjs` | air speed preservation, air-strafe gains, landing loss vs slide landing, double-jump cost, wall run speed/lifetime/corners/cooldown/wall kicks, mantling, slides, chained combos |
+| `tests/map.test.mjs` | map size and cover distribution, spawn clearance, walkable hills and mesas, practice lane and dummies, wall-run staging spot |
+| `tests/movement.test.mjs` | air speed preservation, air-strafe gains, landing loss vs slide landing, double-jump cost, wall run speed/lifetime/corners/cooldown/wall kicks, mantling, jump-while-sprinting, auto-hop, slides, chained combos |
 | `tests/tutorial.test.mjs` | practice dummies, respawns, stats, and the full 15-step tutorial state machine |
 | `tests/scene.test.mjs` | every 3D module built against real Three.js (no GPU needed) |
 | `tests/ui.test.mjs` | the real `index.html` driven through jsdom: HUD, killfeed, scoreboard, input |
