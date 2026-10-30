@@ -110,6 +110,25 @@ test('shooting a dummy damages it and a kill queues a respawn', () => {
   assert.ok(ctx.log.some((l) => l[0] === 'killFeed'), 'kill added to the feed');
 });
 
+test('practice dummies take double damage from a headshot', () => {
+  const ctx = makeCtx();
+  const p = new PracticeMode(ctx);
+  p.start();
+  p.update(1 / 60, 1000, ctx.body);
+  const d = p.dummies[0];
+  const rifle = weapon('rifle');
+
+  p.onLocalHit(avatarFor(d), rifle, { head: true });
+  assert.equal(d.hp, 100 - rifle.damage * 2, 'headshot doubles the damage');
+  assert.ok(ctx.log.some((l) => l[0] === 'hitmarker' && l[2] === true), 'crit hitmarker shown');
+  assert.ok(ctx.log.some((l) => l[0] === 'damageNumber' && l[4]?.head === true), 'crit damage number');
+
+  // a body hit after it is back to normal damage
+  const before = d.hp;
+  p.onLocalHit(avatarFor(d), rifle);
+  assert.equal(d.hp, before - rifle.damage);
+});
+
 test('dead dummies ignore further hits and come back at full health', () => {
   const ctx = makeCtx();
   const p = new PracticeMode(ctx);

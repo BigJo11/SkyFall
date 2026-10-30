@@ -17,6 +17,7 @@ for (const f of files) {
 sources.set('shared/constants.js', fs.readFileSync(path.join(ROOT, 'shared/constants.js'), 'utf8'));
 sources.set('shared/map.js', fs.readFileSync(path.join(ROOT, 'shared/map.js'), 'utf8'));
 sources.set('shared/collision.js', fs.readFileSync(path.join(ROOT, 'shared/collision.js'), 'utf8'));
+sources.set('shared/aimassist.js', fs.readFileSync(path.join(ROOT, 'shared/aimassist.js'), 'utf8'));
 
 function parse(src, name) {
   try {

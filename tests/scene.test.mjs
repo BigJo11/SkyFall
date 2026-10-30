@@ -214,6 +214,14 @@ test('weapon balance numbers', () => {
   assert.equal(smg.damage, 8, 'smg damage');
   assert.equal(Math.ceil(100 / smg.damage), 13, 'smg kills in 13 shots');
   assert.ok(Math.abs(1000 / smg.interval - 15) < 1e-9, 'smg fires 15 shots/sec');
+  assert.equal(rifle.headshot, 2, 'rifle headshot multiplier');
+  assert.equal(smg.headshot, 2, 'smg headshot multiplier');
+  assert.equal(sniper.headshot, 1, 'sniper needs no headshot bonus');
+  assert.equal(knife.headshot, 1, 'melee needs no headshot bonus');
+  assert.equal(rifle.assist, true, 'rifle gets aim assist');
+  assert.equal(smg.assist, true, 'smg gets aim assist');
+  assert.equal(sniper.assist, false, 'sniper opts out of aim assist');
+  assert.equal(knife.assist, false, 'knife opts out of aim assist');
   assert.equal(knife.damage, 100, 'knife one-shots');
   assert.equal(knife.interval, 500, 'knife cooldown 0.5s');
   assert.equal(PLAYER.maxHealth, 100);

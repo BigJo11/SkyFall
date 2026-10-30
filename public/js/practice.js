@@ -1,7 +1,7 @@
 // Offline practice range and the tutorial that lives inside it.
 // Both run with no server: dummies are local, damage is local, respawns are
 // local. `ctx` is supplied by main.js and gives access to the live game state.
-import { PLAYER, MOVE } from '../../shared/constants.js';
+import { PLAYER, MOVE, headshotDamage } from '../../shared/constants.js';
 import ARENA, { PRACTICE } from '../../shared/map.js';
 import { solidAABBs, raycastAABBs } from '../../shared/collision.js';
 
@@ -284,12 +284,14 @@ export class PracticeMode {
   }
 
   // Called from main's fireOnce when the local ray hit an avatar.
-  onLocalHit(avatar, weapon) {
+  onLocalHit(avatar, weapon, opts = {}) {
     const { hud, sfx, effects } = this.ctx;
     const d = this.dummies.find((x) => x.id === avatar.id);
     if (!d || !d.alive) return false;
 
-    d.hp -= weapon.damage;
+    const head = !!opts.head;
+    const dmg = headshotDamage(weapon, head);
+    d.hp -= dmg;
     const killed = d.hp <= 0;
     if (killed) {
       d.hp = 0;
@@ -298,10 +300,10 @@ export class PracticeMode {
       d.respawnAt = this.now + DUMMY_RESPAWN_MS;
       this.stats.kills++;
       effects.deathRing({ x: d.pos[0], y: d.pos[1], z: d.pos[2] }, d.color);
-      hud.killFeed(this.ctx.state.name || 'YOU', d.name, weapon.id, { killerIsMe: true });
+      hud.killFeed(this.ctx.state.name || 'YOU', d.name, weapon.id, { killerIsMe: true, head });
     }
-    hud.hitmarker(killed);
-    hud.damageNumber(weapon.damage, (Math.random() - 0.5) * 110, -34 + (Math.random() - 0.5) * 46);
+    hud.hitmarker(killed, head);
+    hud.damageNumber(dmg, (Math.random() - 0.5) * 110, -34 + (Math.random() - 0.5) * 46, { head });
     sfx.hit(killed);
     return killed;
   }
@@ -435,8 +437,8 @@ export class Tutorial extends PracticeMode {
     if (type === 'reload') this.flags.reload = true;
   }
 
-  onLocalHit(avatar, weapon) {
-    const killed = super.onLocalHit(avatar, weapon);
+  onLocalHit(avatar, weapon, opts = {}) {
+    const killed = super.onLocalHit(avatar, weapon, opts);
     const id = weapon.id;
     if (id in this.hits) {
       this.hits[id] += 1;

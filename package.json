@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server/server.js",
     "dev": "node server/server.js",
-    "test": "node tests/game.test.mjs && node tests/leaderboard.test.mjs && node tests/cosmetic.test.mjs && node tests/physics.test.mjs && node tests/map.test.mjs && node tests/movement.test.mjs && node tests/tutorial.test.mjs && node tests/scene.test.mjs && node tests/ui.test.mjs && node tests/browser.test.mjs && node tests/live.test.mjs && node scripts/check-client.mjs",
+    "test": "node tests/game.test.mjs && node tests/leaderboard.test.mjs && node tests/cosmetic.test.mjs && node tests/headshot.test.mjs && node tests/physics.test.mjs && node tests/map.test.mjs && node tests/movement.test.mjs && node tests/tutorial.test.mjs && node tests/scene.test.mjs && node tests/ui.test.mjs && node tests/browser.test.mjs && node tests/live.test.mjs && node scripts/check-client.mjs",
     "check": "node scripts/check-client.mjs"
   },
   "repository": {

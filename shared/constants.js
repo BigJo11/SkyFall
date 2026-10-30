@@ -208,6 +208,8 @@ export const WEAPONS = [
     automatic: true,
     spread: 0.0028,
     recoil: 0.8,
+    headshot: 2,          // x2 on a head hit -> 2 shot kill
+    assist: true,
     color: 0x9fd8ff,
   },
   {
@@ -223,6 +225,9 @@ export const WEAPONS = [
     automatic: false,
     spread: 0.0,
     recoil: 3.2,
+    headshot: 1,          // already lethal anywhere
+    assist: false,        // precision weapon: no magnetism
+
     scope: true,
     color: 0xffd479,
   },
@@ -239,6 +244,8 @@ export const WEAPONS = [
     automatic: true,
     spread: 0.0105,
     recoil: 0.45,
+    headshot: 2,          // x2 on a head hit -> 7 shot kill
+    assist: true,
     color: 0x8affc1,
   },
   {
@@ -254,11 +261,44 @@ export const WEAPONS = [
     automatic: false,
     spread: 0,
     recoil: 1.4,
+    headshot: 1,          // melee: any hit is lethal
+    assist: false,
     color: 0xff8f8f,
   },
 ];
 
 export const WEAPON_BY_ID = Object.fromEntries(WEAPONS.map((w) => [w.id, w]));
+
+// The top slice of the hit capsule counts as a head. 0.34 m of a 1.8 m player
+// is the head plus a little shoulder, which is generous enough to reward aim
+// without letting chest shots count.
+export const HEADSHOT = {
+  zoneHeight: 0.34,
+};
+
+// true when a hit landed `relY` metres above the victim's feet
+export function isHeadHit(relY) {
+  return relY >= PLAYER.height - HEADSHOT.zoneHeight;
+}
+
+// damage for a hit, doubled (or whatever the weapon says) on a headshot
+export function headshotDamage(weapon, head) {
+  if (!head) return weapon.damage;
+  const mult = weapon.headshot ?? 1;
+  return Math.round(weapon.damage * mult);
+}
+
+// Slight bullet magnetism. Deliberately weak: it only nudges shots that were
+// already close, never yanks a shot across the screen, and it is disabled on the
+// sniper and the knife.
+export const AIM_ASSIST = {
+  enabled: true,
+  coneDeg: 3.2,        // only targets this close to the crosshair are eligible
+  strength: 0.7,       // fraction of the angular error corrected (scaled by aim)
+  maxPullDeg: 2.4,     // hard cap on how far a shot can be bent
+  range: 95,           // metres
+  chestHeight: 0.62,   // aim at this fraction of the target's height
+};
 
 export function weaponAmmoInfinite(w) {
   return !Number.isFinite(w.magSize);

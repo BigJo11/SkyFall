@@ -84,21 +84,39 @@ test('hud health / ammo / weapon slots', () => {
 });
 
 test('killfeed, hitmarker, damage numbers and messages', () => {
-  hud.killFeed('ALPHA', 'BRAVO', 'rifle', { killerIsMe: true });
   const feed = document.getElementById('killfeed');
+  // a headshot kill is marked in the feed
+  hud.killFeed('ALPHA', 'BRAVO', 'rifle', { killerIsMe: true, head: true });
   assert.equal(feed.children.length, 1);
   assert.match(feed.textContent, /ALPHA/);
   assert.match(feed.textContent, /RIFLE/);
   assert.match(feed.textContent, /BRAVO/);
+  assert.match(feed.textContent, /HEADSHOT/, 'crit marked in the feed');
+  assert.ok(feed.querySelector('.crit'), 'crit element rendered');
+
+  hud.killFeed('ALPHA', 'BRAVO', 'rifle', { killerIsMe: true });
+  assert.equal(feed.lastElementChild.querySelector('.crit'), null, 'body kill is not marked');
 
   hud.killFeed('CHARLIE', 'DELTA', 'fall', {});
   assert.match(feed.textContent, /THE VOID|DELTA/);
 
   hud.hitmarker(true);
-  assert.ok(document.getElementById('hitmarker').classList.contains('show'));
+  const hm = document.getElementById('hitmarker');
+  assert.ok(hm.classList.contains('show'));
+  assert.equal(hm.classList.contains('head'), false, 'body hit is not a crit marker');
+
+  hud.hitmarker(false, true);
+  assert.ok(hm.classList.contains('show'));
+  assert.ok(hm.classList.contains('head'), 'headshot marker styled');
+  hud.hitmarker(false);
+  assert.equal(hm.classList.contains('head'), false, 'crit class cleared on the next hit');
 
   hud.damageNumber(17, 10, -20);
   assert.equal(document.getElementById('dmgNumbers').children.length, 1);
+  hud.damageNumber(50, 10, -20, { head: true });
+  const crit = document.getElementById('dmgNumbers').lastElementChild;
+  assert.ok(crit.classList.contains('head'), 'crit damage number styled');
+  assert.match(crit.textContent, /50/, 'shows the damage dealt');
 
   hud.centerMessage('TEST MESSAGE', 50);
   assert.ok(document.getElementById('centerMsg').classList.contains('show'));

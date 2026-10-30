@@ -8,6 +8,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { JSDOM } from 'jsdom';
 import WebSocket from 'ws';
+import { PLAYER, AIM_ASSIST } from '../shared/constants.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const TMP = path.join(ROOT, '.uitest');
@@ -491,6 +492,145 @@ await test('practice mode spawns dummies and lets you shoot them', async () => {
     throw new Error(`dummy took damage (${hpBefore} -> ${dummy.hp}) ${JSON.stringify(dbg)}`);
   }
   assert.ok(sk.state.ammo[0] < 30, 'ammo spent locally');
+});
+
+// Hide every practice dummy except `keep`: park the rest hundreds of metres away
+// (moving their home too, so a respawn cannot bring them back mid-test) and hold
+// the survivor still. Without this the six dummies share the range lane and an
+// aim-assist test can lock onto a neighbour.
+function isolateDummy(sk, keep) {
+  for (const d of sk.session.dummies) {
+    d.ai.wander = false;
+    d.ai.wait = 1e9;
+    d.ai.pick = null;
+    if (d === keep) continue;
+    d.alive = false;
+    d.pos[0] = 600; d.pos[1] = 0; d.pos[2] = 600;
+    d.home = [600, 0, 600];
+    const a = sk.avatars.get(d.id);
+    if (a) a.alive = false;
+  }
+}
+
+await test('headshots land for double damage in the real client', async () => {
+  const sk = window.SKYFALL;
+  const canvas = document.getElementById('gl');
+  const d = sk.session.dummies[0];
+  // Freeze the dummy and put it on an empty stretch of runway, 12 m ahead.
+  d.hp = 100;
+  d.alive = true;
+  isolateDummy(sk, d);
+  const av = sk.avatars.get(d.id);
+  if (av) av.alive = true;
+  const stand = 12;
+  d.pos[0] = 40; d.pos[1] = 0.05; d.pos[2] = -26;
+  sk.body.teleport(40, 0.05, -26 + stand);
+  sk.state.yaw = 0;                     // looking down -z, toward the dummy
+  sk.state.pitch = 0;
+  for (let i = 0; i < 12; i++) pump(1);
+
+  const eyeY = sk.body.y + PLAYER.eye;
+  const fireOnce = () => {
+    sk.state.nextFireAt[0] = 0;
+    canvas.dispatchEvent(new window.MouseEvent('mousedown', { button: 0, bubbles: true }));
+    pump(1);
+    window.dispatchEvent(new window.MouseEvent('mouseup', { button: 0 }));
+    pump(2);
+  };
+
+  // aim at the head
+  sk.state.pitch = Math.atan2((d.pos[1] + 1.7) - eyeY, stand);
+  pump(3);
+  const tr = sk.aimTrace();
+  assert.equal(tr.victim && tr.victim.id, d.id, 'crosshair on the dummy');
+  assert.equal(tr.head, true, 'the client agrees this is a head hit');
+
+  fireOnce();
+  assert.equal(d.hp, 50, `one rifle headshot takes 50 (hp ${d.hp})`);
+
+  // now the body
+  d.hp = 100;
+  sk.state.pitch = Math.atan2((d.pos[1] + 0.9) - eyeY, stand);
+  pump(3);
+  const body = sk.aimTrace();
+  assert.equal(body.victim && body.victim.id, d.id, 'crosshair still on the dummy');
+  assert.equal(body.head, false, 'chest shot is not a head hit');
+
+  fireOnce();
+  assert.equal(d.hp, 75, `one rifle body shot takes 25 (hp ${d.hp})`);
+  sk.state.pitch = 0;
+  pump(1);
+});
+
+await test('aim assist nudges a nearly-on-target shot, and leaves a wild one alone', async () => {
+  const sk = window.SKYFALL;
+  const d = sk.session.dummies[1];
+  d.hp = 100;
+  d.alive = true;
+  isolateDummy(sk, d);                  // hold still: this test is about the maths
+  const av = sk.avatars.get(d.id);
+  if (av) av.alive = true;
+  sk.state.weapon = 0;                  // rifle: assist enabled
+
+  // an empty stretch of runway, so no other dummy can fall inside the cone
+  const stand = 20;
+  d.pos[0] = 40; d.pos[1] = 0.05; d.pos[2] = -26;
+  sk.body.teleport(40, 0.05, -26 + stand);
+  const eyeY = sk.body.y + PLAYER.eye;
+  const chestY = d.pos[1] + PLAYER.height * AIM_ASSIST.chestHeight;
+  sk.state.yaw = 0;                     // -z, toward the dummy
+  sk.state.pitch = Math.atan2(chestY - eyeY, stand);
+  for (let i = 0; i < 12; i++) pump(1);   // let the rendered avatar settle
+
+  const angleTo = (dir) => {
+    const cand = sk.assistCandidates().find((c) => c.id === d.id);
+    assert.ok(cand, 'the dummy is a visible assist candidate');
+    const chest = [cand.pos[0], cand.pos[1] + PLAYER.height * AIM_ASSIST.chestHeight, cand.pos[2]];
+    const c = sk.camera.position;
+    const v = [chest[0] - c.x, chest[1] - c.y, chest[2] - c.z];
+    const n = Math.hypot(...v);
+    const dot = dir[0] * (v[0] / n) + dir[1] * (v[1] / n) + dir[2] * (v[2] / n);
+    return Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
+  };
+
+  // dead on: whatever comes out must still be pointing at the dummy
+  const onTargetErr = angleTo(sk.aimDirection());
+  assert.ok(onTargetErr < 1.0, `aimed at the chest (${onTargetErr.toFixed(2)} deg off)`);
+  assert.ok(angleTo(sk.assistedAim()) < 1.0, 'an on-target shot is not thrown off');
+
+  // 2 degrees wide: the shot should bend back toward the dummy
+  sk.state.yaw = -2 * Math.PI / 180;    // yaw + is left, so negative turns right
+  pump(3);
+  const raw = sk.aimDirection();
+  const rawErr = angleTo(raw);
+  const info = sk.assistedAimInfo();
+  assert.equal(info.targetId, d.id, 'locked onto the dummy we are testing');
+  assert.ok(rawErr > 1.5 && rawErr < AIM_ASSIST.coneDeg,
+    `test aim starts inside the cone (${rawErr.toFixed(2)} deg)`);
+  const bentErr = angleTo(info.dir);
+  assert.ok(bentErr < rawErr,
+    `assisted shot is closer (${rawErr.toFixed(2)} -> ${bentErr.toFixed(2)} deg)`);
+  assert.ok(info.pullDeg <= AIM_ASSIST.maxPullDeg + 1e-9, 'respects the pull cap');
+  assert.ok(Math.abs(Math.hypot(...info.dir) - 1) < 1e-9, 'unit direction');
+
+  // nothing to assist when looking at the sky
+  sk.state.pitch = 1.3;
+  pump(3);
+  const sky = sk.aimDirection();
+  const skyInfo = sk.assistedAimInfo();
+  assert.equal(skyInfo.targetId, null, 'no target when staring at the sky');
+  assert.deepEqual(sk.assistedAim(), sky, 'no magnetism on a wild shot');
+
+  // the sniper opts out entirely
+  sk.state.pitch = Math.atan2(chestY - eyeY, stand);
+  sk.state.weapon = 1;
+  sk.state.yaw = -2 * Math.PI / 180;
+  pump(3);
+  assert.equal(sk.assistedAimInfo().targetId, null, 'sniper skips the assist pass');
+  assert.deepEqual(sk.assistedAim(), sk.aimDirection(), 'sniper gets no assist');
+  sk.state.weapon = 0;
+  sk.state.yaw = 0;
+  pump(1);
 });
 
 await test('practice mode runs the movement mechanics end to end', async () => {

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { WEAPONS, PLAYER, NET, MOVE, RESERVED, CREW_GLOW, COSMETIC } from '../../shared/constants.js';
+import { WEAPONS, PLAYER, NET, MOVE, RESERVED, CREW_GLOW, COSMETIC, isHeadHit, headshotDamage } from '../../shared/constants.js';
+import { aimAssist, weaponHasAssist } from '../../shared/aimassist.js';
 import { raycastAABBs, rayCapsule } from '../../shared/collision.js';
 import { buildWorld } from './world.js';
 import { Body } from './physics.js';
@@ -148,7 +149,7 @@ let session = null;
 // Build stamp: makes it obvious which version the browser actually loaded, and
 // catches the classic "new page, old cached scripts" situation where every
 // button appears dead.
-const BUILD = 'forest v11';
+const BUILD = 'forest v12';
 
 function detectStaleBuild() {
   try {
@@ -209,9 +210,9 @@ const _v2 = new THREE.Vector3();
 const _n = new THREE.Vector3();
 
 // Cast the local aim ray against world + remote players (visual prediction).
-function localRaycast(maxDist) {
+function localRaycast(maxDist, dirOverride = null) {
   const origin = new THREE.Vector3().copy(camera.position);
-  const dir = aimDirection();
+  const dir = dirOverride || aimDirection();
   const hit = raycastAABBs(world.solids, origin.x, origin.y, origin.z, dir[0], dir[1], dir[2], maxDist);
   let t = hit.t;
   let victim = null;
@@ -228,6 +229,8 @@ function localRaycast(maxDist) {
   }
   const hitWorld = !victim && !!hit.aabb;
   const point = new THREE.Vector3(origin.x + dir[0] * t, origin.y + dir[1] * t, origin.z + dir[2] * t);
+  // same head zone the server uses, so the local feedback matches the real hit
+  const head = !!victim && !currentWeapon().melee && isHeadHit(point.y - victim.pos.y);
   // surface normal for impacts
   let normal = new THREE.Vector3(-dir[0], -dir[1], -dir[2]);
   if (victim) {
@@ -244,7 +247,45 @@ function localRaycast(maxDist) {
     else if (Math.abs(point.z - a.minZ) < eps) normal.set(0, 0, -1);
     else if (Math.abs(point.z - a.maxZ) < eps) normal.set(0, 0, 1);
   }
-  return { origin, dir, point, normal, victim, hitWorld, dist: t };
+  return { origin, dir, point, normal, victim, hitWorld, head, dist: t };
+}
+
+// Players the crosshair could plausibly reach: alive, in front, and not behind
+// cover. Walls still win, so assist can never shoot through the map.
+function assistCandidates(range) {
+  const out = [];
+  const origin = camera.position;
+  for (const a of avatars.map.values()) {
+    if (!a.alive) continue;
+    const dx = a.pos.x - origin.x;
+    const dy = (a.pos.y + PLAYER.height * 0.62) - origin.y;
+    const dz = a.pos.z - origin.z;
+    const dist = Math.hypot(dx, dy, dz);
+    if (dist < 1e-3 || dist > range) continue;
+    const solid = raycastAABBs(world.solids, origin.x, origin.y, origin.z, dx / dist, dy / dist, dz / dist, dist - 0.15);
+    if (solid.t < dist - 0.15) continue;      // something solid in the way
+    out.push({ id: a.id, pos: [a.pos.x, a.pos.y, a.pos.z], height: PLAYER.height });
+  }
+  return out;
+}
+
+// The full assist decision for the current aim: which target (if any) it locked
+// onto and how far it bent. Sniper and knife opt out.
+function aimAssistResult(dir = aimDirection()) {
+  const w = currentWeapon();
+  if (!weaponHasAssist(w)) return { dir, targetId: null, pullDeg: 0, angleDeg: Infinity, dist: Infinity };
+  return aimAssist(
+    [camera.position.x, camera.position.y, camera.position.z],
+    dir,
+    assistCandidates(Math.min(w.range, 95)),
+  );
+}
+
+// The direction this shot will actually travel: slightly bent toward a target
+// that is already close to the crosshair.
+function assistedAimDirection() {
+  const res = aimAssistResult();
+  return res.pullDeg > 0 ? res.dir : aimDirection();
 }
 
 function muzzleWorldPos(out = new THREE.Vector3()) {
@@ -335,7 +376,8 @@ function fireOnce(now) {
   if (w.melee) viewmodel.swing();
   sfx.shot(w.id, 0, true);
 
-  const hit = localRaycast(w.range);
+  const shotDir = assistedAimDirection();
+  const hit = localRaycast(w.range, shotDir);
   const from = muzzleWorldPos();
   effects.muzzle(from);
   if (!w.melee) {
@@ -343,12 +385,12 @@ function fireOnce(now) {
   }
   if (hit.victim) {
     effects.impact(hit.point, hit.normal, 'blood');
-    session?.onLocalHit?.(hit.victim, w);
+    session?.onLocalHit?.(hit.victim, w, { head: hit.head });
   } else if (hit.hitWorld) {
     effects.impact(hit.point, hit.normal, 'world');
   }
 
-  net.send({ t: 'fire', dir: aimDirection() });
+  net.send({ t: 'fire', dir: shotDir });
 }
 
 // ---------------------------------------------------------------- camera
@@ -717,9 +759,9 @@ net.on('damaged', (msg) => {
 });
 
 net.on('hitmark', (msg) => {
-  hud.hitmarker(msg.kill);
+  hud.hitmarker(msg.kill, msg.head);
   sfx.hit(msg.kill);
-  hud.damageNumber(msg.dmg, (Math.random() - 0.5) * 110, -34 + (Math.random() - 0.5) * 46);
+  hud.damageNumber(msg.dmg, (Math.random() - 0.5) * 110, -34 + (Math.random() - 0.5) * 46, { head: msg.head });
 });
 
 net.on('kill', (msg) => {
@@ -729,7 +771,7 @@ net.on('kill', (msg) => {
     msg.killerName || (msg.weapon === 'fall' ? 'THE VOID' : '—'),
     msg.victimName,
     msg.weapon,
-    { killerIsMe, victimIsMe }
+    { killerIsMe, victimIsMe, head: msg.head }
   );
   const vId = msg.victim;
   const a = avatars.get(vId);
@@ -741,7 +783,10 @@ net.on('kill', (msg) => {
   }
   if (killerIsMe) {
     sfx.kill();
-    hud.centerMessage(`${msg.weapon === 'knife' ? 'KNIFE' : msg.weapon.toUpperCase()} ELIMINATION`, 1400);
+    hud.centerMessage(
+      `${msg.weapon === 'knife' ? 'KNIFE' : (msg.weapon || '').toUpperCase()} ${msg.head ? 'HEADSHOT' : 'ELIMINATION'}`,
+      1400,
+    );
   }
 });
 
@@ -1340,6 +1385,10 @@ window.SKYFALL = {
   applyCosmetic, renderCosmetic,
   get session() { return session; },
   aimTrace: () => localRaycast(240),
+  aimDirection,
+  assistedAim: () => assistedAimDirection(),
+  assistedAimInfo: () => aimAssistResult(),
+  assistCandidates: () => assistCandidates(95),
   startLocalMode, leaveToTitle,
 };
 

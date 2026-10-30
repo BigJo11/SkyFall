@@ -41,6 +41,16 @@ function makeGame() {
   return { game, a, b, sa, sb };
 }
 
+// aim at a specific height above the victim's feet (0.9 = body, 1.7 = head)
+const dirToY = (from, to, relHeight) => {
+  const ox = from[0], oy = from[1] + 1.62, oz = from[2];
+  const dx = to[0] - ox;
+  const dy = (to[1] + relHeight) - oy;
+  const dz = to[2] - oz;
+  const len = Math.hypot(dx, dy, dz);
+  return [dx / len, dy / len, dz / len];
+};
+
 const dirTo = (from, to) => {
   const ox = from[0], oy = from[1] + 1.62, oz = from[2];
   const dx = to[0] - ox, dy = 0.9 - oy, dz = to[2] - oz;
@@ -112,6 +122,88 @@ await test('sniper deals 100 damage: one shot kill, 3.5s cooldown', async () => 
   await sleep(3520);
   game.handle(a, { t: 'fire', dir });
   assert.equal(b.alive, false, 'sniper fires again after 3.5s');
+});
+
+await test('a headshot doubles rifle damage and kills in two shots', async () => {
+  const { game, a, b, sa } = makeGame();
+  const broadcast = [];
+  game.broadcast = (m) => broadcast.push(m);
+  a.weapon = 0;
+  sa.sent.length = 0;
+  const head = dirToY(a.pos, b.pos, 1.7);
+
+  game.handle(a, { t: 'fire', dir: head });
+  assert.equal(b.hp, 50, '28 -> 50 damage on a head hit');
+  const mark = sa.sent.find((m) => m.t === 'hitmark');
+  assert.equal(mark.head, true, 'hitmark flagged as a headshot');
+  assert.equal(mark.dmg, 50, 'reported damage is the doubled value');
+  const shot = broadcast.filter((m) => m.t === 'shot').pop();
+  assert.equal(shot.head, true, 'the shot broadcast says headshot');
+
+  await sleep(255);
+  game.handle(a, { t: 'fire', dir: head });
+  assert.equal(b.alive, false, 'two rifle headshots kill');
+  assert.equal(a.kills, 1);
+});
+
+await test('body shots still do normal damage and are not flagged', async () => {
+  const { game, a, b, sa } = makeGame();
+  const broadcast = [];
+  game.broadcast = (m) => broadcast.push(m);
+  a.weapon = 0;
+  sa.sent.length = 0;
+  game.handle(a, { t: 'fire', dir: dirToY(a.pos, b.pos, 0.9) });
+  assert.equal(b.hp, 75, 'body shot is still 25');
+  assert.equal(sa.sent.find((m) => m.t === 'hitmark').head, false);
+  assert.equal(broadcast.filter((m) => m.t === 'shot').pop().head, false);
+  // and low shots near the feet are definitely not headshots
+  sa.sent.length = 0;
+  await sleep(255);
+  game.handle(a, { t: 'fire', dir: dirToY(a.pos, b.pos, 0.15) });
+  assert.equal(b.hp, 50);
+  assert.equal(sa.sent.find((m) => m.t === 'hitmark').head, false);
+});
+
+await test('smg headshots hit for 16, sniper and knife are unchanged', async () => {
+  let { game, a, b, sa } = makeGame();
+  a.weapon = 2;
+  sa.sent.length = 0;
+  game.handle(a, { t: 'fire', dir: dirToY(a.pos, b.pos, 1.7) });
+  assert.equal(b.hp, 84, 'smg headshot = 16');
+  assert.equal(sa.sent.find((m) => m.t === 'hitmark').head, true);
+
+  // sniper: a head hit is still 100, so it cannot exceed a one-shot kill
+  ({ game, a, b, sa } = makeGame());
+  a.weapon = 1;
+  sa.sent.length = 0;
+  game.handle(a, { t: 'fire', dir: dirToY(a.pos, b.pos, 1.7) });
+  assert.equal(b.alive, false, 'sniper headshot kills');
+  assert.equal(sa.sent.find((m) => m.t === 'hitmark').dmg, 100, 'no bonus damage invented');
+
+  // knife is melee: it never reports a headshot
+  ({ game, a, b, sa } = makeGame());
+  a.weapon = 3;
+  b.pos = [a.pos[0], a.pos[1], a.pos[2] - 1.5];
+  sa.sent.length = 0;
+  game.handle(a, { t: 'fire', dir: dirToY(a.pos, b.pos, 1.7) });
+  assert.equal(b.alive, false, 'knife still one-shots');
+  assert.equal(sa.sent.find((m) => m.t === 'hitmark').head, false, 'melee never headshots');
+});
+
+await test('the victim is told a headshot landed, and the kill feed flags it', async () => {
+  const { game, a, b, sb } = makeGame();
+  a.weapon = 0;
+  sb.sent.length = 0;
+  game.handle(a, { t: 'fire', dir: dirToY(a.pos, b.pos, 1.7) });
+  const dmgMsg = sb.sent.find((m) => m.t === 'damaged');
+  assert.equal(dmgMsg.head, true, 'victim feedback carries the head flag');
+
+  const kills = [];
+  game.broadcast = (m) => { if (m.t === 'kill') kills.push(m); };
+  a.weapon = 1;
+  game.handle(a, { t: 'fire', dir: dirToY(a.pos, b.pos, 1.7) });
+  assert.equal(kills.length, 1);
+  assert.equal(kills[0].head, true, 'kill message flags the headshot');
 });
 
 await test('smg: 8 damage per shot at 15 shots/sec', async () => {

@@ -119,18 +119,19 @@ export class Hud {
     this.el.ping.textContent = ms > 0 ? Math.round(ms) : '--';
   }
 
-  hitmarker(kill) {
+  hitmarker(kill, head = false) {
     const h = this.el.hitmarker;
-    h.classList.remove('show', 'kill');
+    h.classList.remove('show', 'kill', 'head');
     void h.offsetWidth;
     if (kill) h.classList.add('kill');
+    if (head) h.classList.add('head');
     h.classList.add('show');
   }
 
-  damageNumber(amount, x, y) {
+  damageNumber(amount, x, y, opts = {}) {
     const d = document.createElement('div');
-    d.className = 'dmgnum';
-    d.textContent = amount;
+    d.className = 'dmgnum' + (opts.head ? ' head' : '');
+    d.textContent = opts.head ? `${amount}!` : amount;
     d.style.left = x + 'px';
     d.style.top = y + 'px';
     this.el.dmgNumbers.appendChild(d);
@@ -161,18 +162,19 @@ export class Hud {
     div.className = 'kf' + (opts.announce ? ' announce' : '');
     const kCls = opts.killerIsMe ? 'me' : 'them';
     const vCls = opts.victimIsMe ? 'me' : 'them';
-    const icon = weapon === 'knife' ? '🗡' : weapon === 'fall' ? '☠' : '✖';
+    const icon = weapon === 'knife' ? '🗡' : weapon === 'fall' ? '☠' : opts.head ? '✦' : '✖';
     const wName = weapon ? weapon.toUpperCase() : '';
     const mid = weapon
       ? `<span class="icon">${icon}</span><span class="wp">${wName}</span>`
       : '<span class="icon">»</span>';
     div.innerHTML = `<span class="${kCls}">${escapeHtml(killer || 'THE VOID')}</span>
       ${mid}
-      <span class="${vCls}">${escapeHtml(victim)}</span>`;
+      <span class="${vCls}">${escapeHtml(victim)}</span>` +
+      (opts.head ? '<span class="crit">HEADSHOT</span>' : '');
     this.el.killfeed.appendChild(div);
 
     // +points flair for own kills
-    if (opts.killerIsMe) this.centerMessage('+1 ELIMINATION', 900);
+    if (opts.killerIsMe) this.centerMessage(opts.head ? '+1 HEADSHOT' : '+1 ELIMINATION', 900);
 
     setTimeout(() => div.classList.add('out'), 5200);
     setTimeout(() => div.remove(), 5700);

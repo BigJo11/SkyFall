@@ -1,4 +1,4 @@
-import { PLAYER, WEAPONS, PLAYER_COLORS, NET, MAX_LEGIT_SPEED, RESERVED, CREW_GLOW, COSMETIC } from '../shared/constants.js';
+import { PLAYER, WEAPONS, PLAYER_COLORS, NET, MAX_LEGIT_SPEED, RESERVED, CREW_GLOW, COSMETIC, isHeadHit, headshotDamage } from '../shared/constants.js';
 import ARENA from '../shared/map.js';
 import { solidAABBs, raycastAABBs, rayCapsule } from '../shared/collision.js';
 import { Leaderboard } from './leaderboard.js';
@@ -298,6 +298,11 @@ export class Game {
 
     const end = [origin[0] + dir[0] * endT, origin[1] + dir[1] * endT, origin[2] + dir[2] * endT];
 
+    // Headshots: the shot landed in the top slice of the victim's capsule.
+    const hitY = origin[1] + dir[1] * endT;
+    const head = !!victim && !w.melee && isHeadHit(hitY - victim.pos[1]);
+    const dmg = head ? headshotDamage(w, true) : w.damage;
+
     this.broadcast({
       t: 'shot',
       id: p.id,
@@ -305,17 +310,18 @@ export class Game {
       from: origin.map(round2),
       to: end.map(round2),
       hit: victim ? victim.id : 0,
+      head,
     });
 
     if (victim) {
-      const killed = this.damage(victim, w.damage, p, w.id);
-      this.send(p, { t: 'hitmark', dmg: w.damage, kill: killed, id: victim.id });
+      const killed = this.damage(victim, dmg, p, w.id, head);
+      this.send(p, { t: 'hitmark', dmg, kill: killed, id: victim.id, head });
     }
   }
 
   // ------------------------------------------------------------- damage / death
 
-  damage(target, dmg, attacker, weaponId) {
+  damage(target, dmg, attacker, weaponId, head = false) {
     if (!target.alive) return false;
     target.hp -= dmg;
     target.lastDamage = now();
@@ -328,16 +334,17 @@ export class Game {
       from,
       by: attacker ? attacker.id : 0,
       weapon: weaponId,
+      head: !!head,
     });
 
     if (target.hp <= 0) {
-      this.kill(target, attacker, weaponId);
+      this.kill(target, attacker, weaponId, head);
       return true;
     }
     return false;
   }
 
-  kill(victim, killer, weaponId) {
+  kill(victim, killer, weaponId, head = false) {
     if (!victim.alive) return;
     victim.alive = false;
     victim.hp = 0;
@@ -361,6 +368,7 @@ export class Game {
       victim: victim.id,
       victimName: victim.name,
       weapon: weaponId || null,
+      head: !!head,
       respawnIn: PLAYER.respawnTime,
     });
     this.send(victim, { t: 'died', respawnAt: victim.respawnAt, by: killer ? killer.name : null, weapon: weaponId || null });

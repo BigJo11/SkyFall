@@ -55,15 +55,49 @@ Change the port with `PORT=8080 npm start`.
 
 ## Weapons
 
-| Weapon | Damage | Fire rate | Kill time | Notes |
-| --- | --- | --- | --- | --- |
-| **RIFLE** | 25 | 4 shots/sec (250 ms) | 4 shots to kill (0.75 s) | 30 round mag, fully automatic |
-| **SNIPER** | 100 | 1 shot every 3.5 s | one shot kill | 5 round mag, right-click to scope |
-| **SMG** | 8 | 15 shots/sec (66.7 ms) | 13 shots to kill (0.87 s) | 45 round mag, wide spread |
-| **KNIFE** | 100 | 0.5 s swing cooldown | one shot kill | 2.7 m reach |
+| Weapon | Damage | Headshot | Fire rate | Kill time | Notes |
+| --- | --- | --- | --- | --- | --- |
+| **RIFLE** | 25 | **50** | 4 shots/sec (250 ms) | 4 body / **2 head** | 30 round mag, fully automatic |
+| **SNIPER** | 100 | 100 | 1 shot every 3.5 s | one shot kill | 5 round mag, right-click to scope |
+| **SMG** | 8 | **16** | 15 shots/sec (66.7 ms) | 13 body / **7 head** | 45 round mag, wide spread |
+| **KNIFE** | 100 | 100 | 0.5 s swing cooldown | one shot kill | 2.7 m reach, never crits |
 
 Fire rate is enforced **per weapon** on the server, so swapping guns can never
 cheat a cooldown.
+
+### Headshots
+
+The top **0.34 m** of a standing player counts as the head. Hits there are
+multiplied by the weapon's `headshot` value — **×2 for the rifle and the SMG**,
+so the rifle kills in two headshots (0.5 s) instead of four, and the SMG in
+seven instead of thirteen.
+
+The sniper and the knife are already lethal anywhere, so they take no bonus
+(their multiplier is 1) — but a head hit is still *reported* as one, so the gold
+hit marker, the crit damage number and the `HEADSHOT` tag in the kill feed all
+show up regardless of weapon.
+
+The zone is decided **on the server**, from the shot's own trajectory, so a
+modified client cannot claim a headshot it did not land. The client uses the
+same helper for its prediction, so the marker you see always matches the damage
+the server applied.
+
+### Aim assist
+
+A deliberately slight bit of bullet magnetism, on the rifle and the SMG only:
+
+| | |
+| --- | --- |
+| Cone | 3.2° around the crosshair |
+| Correction | up to 70% of the angular error, faded toward the edge of the cone |
+| Hard cap | 2.4° — a shot is never yanked across the screen |
+| Range | 95 m |
+| Line of sight | required: cover still wins, assist cannot shoot through walls |
+
+It only ever helps a shot that was already close, and it is switched off for the
+sniper (a precision weapon) and the knife (melee). Tune it in `AIM_ASSIST` in
+`shared/constants.js`; the maths lives in `shared/aimassist.js` and is unit
+tested independently of the browser.
 
 ## Movement
 
@@ -345,6 +379,7 @@ npm test
 | `tests/physics.test.mjs` | walking, stairs, walls, jumping, ledges, crates, plus the real arena (spawns, stairs, cover, void) |
 | `tests/map.test.mjs` | map size and cover distribution, spawn clearance, walkable hills and mesas, practice lane and dummies, wall-run staging spot |
 | `tests/movement.test.mjs` | air speed preservation, air-strafe gains, landing loss vs slide landing, double-jump cost, wall run speed/lifetime/corners/cooldown/wall kicks, mantling, jump-while-sprinting, auto-hop, slides, chained combos |
+| `tests/headshot.test.mjs` | head zone maths, per-weapon crit multipliers, aim-assist geometry |
 | `tests/cosmetic.test.mjs` | palette/material catalogue, colour validation, crew-only material gating |
 | `tests/leaderboard.test.mjs` | ranking, tie-breaks, K/D, streaks, name folding, crew flag, persistence round-trip, corrupt-file recovery, trimming |
 | `tests/tutorial.test.mjs` | practice dummies, respawns, stats, and the full 15-step tutorial state machine |
