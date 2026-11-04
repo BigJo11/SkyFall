@@ -1,6 +1,8 @@
 // Keyboard + mouse. Uses Pointer Lock when available and falls back to raw
 // mousemove deltas (some embedded/iframe contexts deny pointer lock).
 
+import { DEFAULT_BINDS, codesFor, normalise } from './keybinds.js';
+
 const CODE_WEAPON = ['Digit1', 'Digit2', 'Digit3', 'Digit4'];
 
 export class Input {
@@ -17,12 +19,14 @@ export class Input {
     this.locked = false;
     this.fallback = false;
     this.enabled = false;
+    this.binds = { ...DEFAULT_BINDS };
     this.onLockChange = () => {};
     this.onLockError = () => {};
 
     window.addEventListener('keydown', (e) => {
       if (!this.enabled) return;
-      if (e.code === 'Tab' || e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+      if (this.matches(e.code, 'jump') || this.matches(e.code, 'scoreboard')
+        || e.code.startsWith('Arrow')) e.preventDefault();
       if (!this.keys.has(e.code)) this.justPressed.add(e.code);
       this.keys.add(e.code);
     });
@@ -89,6 +93,32 @@ export class Input {
 
   down(code) { return this.keys.has(code); }
   pressed(code) { return this.justPressed.has(code); }
+
+  // ---- action level (rebindable) -----------------------------------------
+  setBinds(binds) {
+    this.binds = normalise(binds);
+    return this.binds;
+  }
+
+  codes(action) {
+    return codesFor(action, this.binds);
+  }
+
+  actionDown(action) {
+    for (const c of this.codes(action)) if (this.keys.has(c)) return true;
+    return false;
+  }
+
+  actionPressed(action) {
+    for (const c of this.codes(action)) if (this.justPressed.has(c)) return true;
+    return false;
+  }
+
+  // does a raw KeyboardEvent.code mean this action? (menus, before the input
+  // layer is even enabled)
+  matches(code, action) {
+    return this.codes(action).includes(code);
+  }
   mouseDown(b = 0) { return this.buttons.has(b); }
   mousePressed(b = 0) { return this.buttonsPressed.has(b); }
   mouseReleased(b = 0) { return this.buttonsReleased.has(b); }
@@ -101,13 +131,13 @@ export class Input {
   axes() {
     let f = 0;
     let r = 0;
-    if (this.down('KeyW') || this.down('ArrowUp')) f += 1;
-    if (this.down('KeyS') || this.down('ArrowDown')) f -= 1;
-    if (this.down('KeyD') || this.down('ArrowRight')) r += 1;
-    if (this.down('KeyA') || this.down('ArrowLeft')) r -= 1;
+    if (this.actionDown('forward')) f += 1;
+    if (this.actionDown('back')) f -= 1;
+    if (this.actionDown('right')) r += 1;
+    if (this.actionDown('left')) r -= 1;
     const len = Math.hypot(f, r);
     if (len > 1) { f /= len; r /= len; }
-    return { forward: f, right: r, sprint: this.down('ShiftLeft') || this.down('ShiftRight') };
+    return { forward: f, right: r, sprint: this.actionDown('sprint') };
   }
 
   takeLook() {

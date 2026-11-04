@@ -218,6 +218,15 @@ export class Avatar {
     this.targetPos = this.pos.clone();
     this.yaw = player.yaw;
     this.targetYaw = player.yaw;
+    // Network smoothing. Snapshots land at 40 Hz but their arrival times are
+    // uneven, so we keep the last second of them and draw this player a short,
+    // fixed delay in the past, interpolating between two real samples. That is
+    // what turns a stepwise position feed into steady motion instead of the
+    // hop-and-freeze that reads as teleporting.
+    this.samples = [{ t: performance.now(), pos: this.pos.clone(), yaw: player.yaw }];
+    this.delay = 60;                 // ms behind live, adapted below
+    this.interval = 25;              // smoothed gap between snapshots
+    this.vel = new THREE.Vector3();
     this.hp = player.hp;
     this.alive = player.alive !== false;
     this.walkPhase = Math.random() * 6;
@@ -228,15 +237,36 @@ export class Avatar {
     this.root.rotation.y = this.yaw;
   }
 
-  setSnapshot(p) {
-    const moved = this.targetPos.distanceTo(new THREE.Vector3().fromArray(p.pos));
-    this.speed = moved;
-    if (moved > 4) {
-      // teleport / respawn
-      this.pos.fromArray(p.pos);
+  setSnapshot(p, at = performance.now()) {
+    const next = new THREE.Vector3().fromArray(p.pos);
+    const last = this.samples[this.samples.length - 1];
+    const jump = last ? last.pos.distanceTo(next) : 0;
+
+    if (last && jump > 12) {
+      // a real teleport (respawn, server correction): nothing to interpolate
+      this.samples.length = 0;
+      this.pos.copy(next);
       this.root.position.copy(this.pos);
+      this.vel.set(0, 0, 0);
+    } else if (last) {
+      const gap = Math.max(1, at - last.t);
+      this.interval += (Math.min(400, gap) - this.interval) * 0.15;
     }
-    this.targetPos.fromArray(p.pos);
+
+    if (last && at <= last.t) {
+      // two snapshots inside one millisecond: keep the newer values
+      last.pos.copy(next);
+      last.yaw = p.yaw;
+    } else {
+      this.samples.push({ t: at, pos: next, yaw: p.yaw });
+    }
+    // hold a little over one snapshot interval so a late packet never starves it
+    const target = Math.max(45, Math.min(180, this.interval * 1.6 + 12));
+    this.delay += (target - this.delay) * 0.08;
+    while (this.samples.length > 2 && at - this.samples[0].t > 1200) this.samples.shift();
+    if (this.samples.length > 40) this.samples.splice(0, this.samples.length - 40);
+
+    this.targetPos.copy(next);
     this.targetYaw = p.yaw;
     this.alive = p.alive;
     if (p.hp !== this.hp) {
@@ -259,10 +289,44 @@ export class Avatar {
     return this.gun.children[1].getWorldPosition(out);
   }
 
+  // Where this player should be drawn right now: `delay` ms behind the newest
+  // snapshot, interpolated between two real samples. Past the newest sample we
+  // extrapolate briefly using the last known velocity rather than freezing.
+  sampleAt(t, out) {
+    const s = this.samples;
+    if (!s.length) return out.copy(this.targetPos);
+    if (s.length === 1 || t <= s[0].t) return out.copy(s[0].pos);
+    const newest = s[s.length - 1];
+    if (t >= newest.t) {
+      const behind = Math.min(180, t - newest.t) / 1000;
+      return out.copy(newest.pos).addScaledVector(this.vel, behind);
+    }
+    for (let i = s.length - 1; i > 0; i--) {
+      const a = s[i - 1];
+      const b = s[i];
+      if (t < a.t) continue;
+      const k = b.t === a.t ? 0 : (t - a.t) / (b.t - a.t);
+      return out.copy(a.pos).lerp(b.pos, k);
+    }
+    return out.copy(s[0].pos);
+  }
+
   update(dt, time) {
-    // smoothed network interpolation
-    const lerp = 1 - Math.exp(-16 * dt);
-    this.pos.lerp(this.targetPos, lerp);
+    const now = performance.now();
+    this.sampleAt(now - this.delay, this.pos);
+
+    // velocity of the newest interval, for the brief extrapolation above
+    const s = this.samples;
+    if (s.length >= 2) {
+      const a = s[s.length - 2];
+      const b = s[s.length - 1];
+      const span = (b.t - a.t) / 1000;
+      if (span > 0.001 && span < 0.6) this.vel.copy(b.pos).sub(a.pos).multiplyScalar(1 / span);
+    } else {
+      this.vel.set(0, 0, 0);
+    }
+    this.speed = this.vel.length();
+
     this.root.position.copy(this.pos);
 
     let d = this.targetYaw - this.yaw;

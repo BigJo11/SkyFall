@@ -2,7 +2,7 @@
 // does the wall-run staging spot actually produce a wall run?
 //   node tests/map.test.mjs
 import assert from 'node:assert/strict';
-import ARENA, { SPAWNS, PRACTICE } from '../shared/map.js';
+import ARENA, { SPAWNS, PRACTICE, SMALL, MAPS, MAP_LIST, mapById, DEFAULT_MAP } from '../shared/map.js';
 import { solidAABBs, raycastAABBs } from '../shared/collision.js';
 import { Body } from '../public/js/physics.js';
 
@@ -158,6 +158,108 @@ test('the wall-run staging spot starts a wall run without losing speed', () => {
   }
   assert.ok(ran > 0.4, `wall ran for ${ran.toFixed(2)} s`);
   assert.ok(best >= 12, `never lost speed (${best.toFixed(2)} m/s)`);
+});
+
+
+// ---------------------------------------------------------------- second map
+console.log('\npine hollow (the small map):\n');
+
+const smallSolids = solidAABBs(SMALL.boxes);
+const smallClear = (x, z, y = 0.05) =>
+  !smallSolids.some((a) => x + 0.42 > a.minX && x - 0.42 < a.maxX
+    && z + 0.42 > a.minZ && z - 0.42 < a.maxZ
+    && a.maxY > y + 0.12 && a.minY < y + 1.85);
+
+test('both maps are registered and reachable by id', () => {
+  assert.deepEqual(Object.keys(MAPS).sort(), ['big', 'small']);
+  assert.equal(mapById('small').id, 'small');
+  assert.equal(mapById('nonsense').id, DEFAULT_MAP, 'an unknown id falls back');
+  assert.equal(MAP_LIST.length, 2);
+  for (const m of MAP_LIST) {
+    assert.ok(m.name && m.blurb, `${m.id} has a name and blurb`);
+    assert.ok(m.size > 0);
+  }
+});
+
+test('the small map is really small, and really enclosed', () => {
+  assert.ok(SMALL.size < ARENA.size / 2, `small is ${SMALL.size} m vs ${ARENA.size} m`);
+  assert.ok(SMALL.size >= 80, `still room to fight (${SMALL.size} m)`);
+  // a body cannot walk out of the bowl: a wall stands at every edge
+  const half = SMALL.size / 2;
+  for (const [x, z] of [[half + 2, 0], [-half - 2, 0], [0, half + 2], [0, -half - 2]]) {
+    const wall = smallSolids.find((a) => x > a.minX - 1 && x < a.maxX + 1
+      && z > a.minZ - 1 && z < a.maxZ + 1 && a.maxY > 4);
+    assert.ok(wall, `a wall stands at ${x},${z}`);
+  }
+});
+
+test('every small-map spawn is clear and stands on the floor', () => {
+  for (const s of SMALL.spawns) {
+    const [x, y, z] = s.pos;
+    assert.ok(smallClear(x, z, y), `spawn ${x.toFixed(0)},${z.toFixed(0)} is not inside geometry`);
+    assert.ok(Math.abs(x) < SMALL.size / 2 && Math.abs(z) < SMALL.size / 2, 'inside the bowl');
+    assert.ok(y > -1 && y < 4, `spawn height ${y}`);
+  }
+  assert.ok(SMALL.spawns.length >= 6, `${SMALL.spawns.length} spawns spread the room out`);
+});
+
+// A player does not walk in a straight line through cover, so this checks the
+// bowl is *connected*: a grid walk from every spawn reaches the keep.
+function reachable(solidsList, from, goalRadius, half) {
+  const step = 1;
+  const key = (x, z) => `${x},${z}`;
+  const walkable = (x, z) => {
+    let floor = -Infinity;
+    for (const a of solidsList) {
+      if (x + 0.38 > a.minX && x - 0.38 < a.maxX && z + 0.38 > a.minZ && z - 0.38 < a.maxZ
+        && a.maxY <= 1) floor = Math.max(floor, a.maxY);
+    }
+    if (floor === -Infinity) return false;
+    for (const a of solidsList) {
+      if (x + 0.38 > a.minX && x - 0.38 < a.maxX && z + 0.38 > a.minZ && z - 0.38 < a.maxZ
+        && a.maxY > floor + 0.6 && a.minY < floor + 1.8) return false;
+    }
+    return true;
+  };
+  const start = [Math.round(from[0]), Math.round(from[2])];
+  if (!walkable(start[0], start[1])) return false;
+  const seen = new Set([key(...start)]);
+  const queue = [start];
+  while (queue.length) {
+    const [x, z] = queue.pop();
+    if (Math.hypot(x, z) <= goalRadius) return true;
+    for (const [dx, dz] of [[step, 0], [-step, 0], [0, step], [0, -step]]) {
+      const nx = x + dx;
+      const nz = z + dz;
+      if (Math.abs(nx) > half || Math.abs(nz) > half) continue;
+      const k = key(nx, nz);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      if (walkable(nx, nz)) queue.push([nx, nz]);
+    }
+  }
+  return false;
+}
+
+test('every small-map spawn can reach the middle of the bowl', () => {
+  const half = SMALL.size / 2 - 1;
+  for (const s of SMALL.spawns) {
+    // the keep itself is climbed, so "arrived" means reaching its foot
+    assert.ok(reachable(smallSolids, s.pos, 11, half),
+      `spawn ${s.pos[0].toFixed(0)},${s.pos[2].toFixed(0)} can walk to the keep`);
+  }
+});
+
+test('the small map has solid cover to fight around', () => {
+  const tall = smallSolids.filter((a) => a.maxY - a.minY > 1 && a.maxY < 6).length;
+  assert.ok(tall >= 12, `${tall} pieces of waist-to-head-height cover`);
+  assert.ok(SMALL.trees.length >= 8, `${SMALL.trees.length} trees on the rim`);
+});
+
+test('the small map is not a copy of the big one', () => {
+  assert.notEqual(SMALL.boxes, ARENA.boxes);
+  assert.notEqual(SMALL.boxes.length, ARENA.boxes.length);
+  assert.notEqual(SMALL.sky.fog, ARENA.sky.fog);
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

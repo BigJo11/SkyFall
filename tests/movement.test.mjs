@@ -467,6 +467,90 @@ test('falling out of the world still works', () => {
 });
 
 
+test('a sprint jump is recognised by speed, not just by the shift bit', () => {
+  const b = player(flatWorld());
+  sim(b, 1.6, fwd(true), Math.PI);
+  const speed = speedOf(b);
+  assert.ok(speed > 9.5, `sprinting at ${speed.toFixed(2)}`);
+
+  // the key state is sampled per frame; carried momentum must still count
+  const wasSprint = b.isSprintJump({ forward: 1, right: 0, sprint: false }, speed);
+  assert.equal(wasSprint, true, 'sprint-speed jump counts even with shift missed');
+
+  // a walking-speed jump without shift is not a sprint jump
+  assert.equal(b.isSprintJump({ forward: 1, right: 0, sprint: false }, 6.5), false);
+  // but holding shift just above walking pace still counts
+  assert.equal(b.isSprintJump({ forward: 1, right: 0, sprint: true }, 7.0), true);
+
+  // and the body really raises the event
+  b.wantJump = true;
+  b.update(DT, { forward: 1, right: 0, sprint: false }, Math.PI);
+  assert.equal(b.events.jumped, true);
+  assert.equal(b.events.sprintJump, true, 'event raised from carried speed');
+  assert.ok(b.vy > 0 && !b.onGround, 'it actually jumped');
+});
+
+test('jumping never loses the press while sprinting forward', () => {
+  // twenty consecutive taps: every single one must leave the ground
+  const b = player(flatWorld());
+  sim(b, 1.5, fwd(true), Math.PI);
+  for (let tap = 0; tap < 20; tap++) {
+    if (!b.onGround) {
+      // wait for the floor, then land into the next tap
+      let guard = 0;
+      while (!b.onGround && guard++ < 400) b.update(DT, fwd(true), Math.PI);
+    }
+    b.wantJump = true;
+    b.update(DT, fwd(true), Math.PI);
+    assert.ok(b.vy > 0 && !b.onGround, `tap ${tap + 1} lifted off (vy ${b.vy.toFixed(2)})`);
+    assert.ok(speedOf(b) > 7.4, `tap ${tap + 1} kept sprint pace (${speedOf(b).toFixed(2)})`);
+  }
+});
+
+// Sprinting you are off the ground a lot, and once the double jump is spent a
+// press made in the air used to be dropped on the floor. It waits for touchdown
+// now, so a jump tapped mid-hop is still felt.
+function jumpFromAirPress(world, settle) {
+  const b = player(world);
+  sim(b, 1.2, fwd(true), Math.PI);
+  b.wantJump = true;
+  b.update(DT, fwd(true), Math.PI);          // ground jump
+  b.wantJump = true;
+  b.update(DT, fwd(true), Math.PI);          // double jump: nothing left
+  assert.equal(b.airJumps, 0, 'both jumps spent');
+  settle(b);
+  assert.ok(!b.onGround, 'had to be airborne for this test');
+  assert.equal(b.airJumps, 0, 'still no air jump left');
+  b.wantJump = true;                          // the tap that used to vanish
+  let jumps = 0;
+  let prevGround = b.onGround;
+  for (let i = 0; i < 600 && !jumps; i++) {
+    b.update(DT, fwd(true), Math.PI);
+    if (prevGround && !b.onGround && b.vy > 3) jumps++;
+    prevGround = b.onGround;
+  }
+  return { b, jumps };
+}
+
+test('a jump tapped on the way up is not thrown away, it fires on touchdown', () => {
+  const { b, jumps } = jumpFromAirPress(flatWorld(), (b) => {
+    let guard = 0;
+    while (b.vy > 1 && guard++ < 400) b.update(DT, fwd(true), Math.PI);
+  });
+  assert.equal(jumps, 1, 'the mid-air press became a jump when we touched down');
+  assert.ok(speedOf(b) > PLAYER.walkSpeed, `and it kept the sprint (${speedOf(b).toFixed(2)})`);
+});
+
+test('a jump tapped long before touchdown still fires on landing', () => {
+  const { jumps } = jumpFromAirPress(flatWorld(), (b) => {
+    // fall well past the old near-the-floor window
+    let guard = 0;
+    while (b.vy > -4 && guard++ < 400) b.update(DT, fwd(true), Math.PI);
+    assert.ok(b.timeToFloor() > MOVE.landJumpWindow, 'must be further out than the old window');
+  });
+  assert.equal(jumps, 1, 'the early press still counted');
+});
+
 console.log('\nmovement feel:');
 
 test('a plain forward jump does not accelerate you in the air', () => {

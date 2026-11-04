@@ -1,5 +1,5 @@
 import { PLAYER, WEAPONS, PLAYER_COLORS, NET, MAX_LEGIT_SPEED, RESERVED, CREW_GLOW, COSMETIC, isHeadHit, headshotDamage } from '../shared/constants.js';
-import ARENA from '../shared/map.js';
+import ARENA, { MAPS, mapById, DEFAULT_MAP } from '../shared/map.js';
 import { solidAABBs, raycastAABBs, rayCapsule } from '../shared/collision.js';
 import { Leaderboard } from './leaderboard.js';
 
@@ -22,15 +22,21 @@ function norm3(v) {
 }
 
 export class Game {
-  constructor({ leaderboard = null } = {}) {
+  constructor({ leaderboard = null, map = DEFAULT_MAP } = {}) {
+    this.mapId = MAPS[map] ? map : DEFAULT_MAP;
+    this.arena = mapById(this.mapId);
     this.players = new Map();
     // all-time table; the server passes a file-backed one, tests get memory
     this.leaderboard = leaderboard || new Leaderboard(null);
-    this.solids = solidAABBs(ARENA.boxes);
+    this.solids = solidAABBs(this.arena.boxes);
     this.nextId = 1;
     this.tickTimer = null;
     this.snapshotTimer = null;
     this.onBroadcast = () => {};
+    // Rewind history: one entry per tick, newest last. Used to resolve shots
+    // against where the other players were when the shooter actually pulled the
+    // trigger, not where they are now.
+    this.history = [];
   }
 
   start() {
@@ -85,6 +91,9 @@ export class Game {
       lastInputAt: now(),
       lastInputPos: spawn.pos.slice(),
       lastFallDeath: 0,
+      rtt: 0,                  // client-measured round trip, ms
+      vel: [0, 0, 0],          // for clients that extrapolate between snapshots
+      stepBudget: 6,           // metres of legitimate movement in the bank
     };
     this.players.set(id, player);
     this.leaderboard.recordJoin(name, { crew });
@@ -98,6 +107,7 @@ export class Game {
       players: [...this.players.values()].filter((p) => p.id !== id).map((p) => this.pub(p)),
       leaderboard: this.leaderboard.top(LEADERBOARD_ROWS),
       snapshotHz: NET.TICK_HZ,
+      map: this.mapId,
     });
     this.broadcast({ t: 'join', player: this.pub(player) }, id);
     console.log(`[game] ${name} joined (${this.players.size} online)`);
@@ -145,6 +155,8 @@ export class Game {
       deaths: p.deaths,
       ammo: p.ammo[p.weapon],
       reloadEnd: p.reloadEnd ? Math.max(0, p.reloadEnd - now()) : 0,
+      v: [round2(p.vel[0]), round2(p.vel[2])],
+      rtt: Math.round(p.rtt || 0),
     };
   }
 
@@ -152,10 +164,10 @@ export class Game {
 
   pickSpawn() {
     const living = [...this.players.values()].filter((p) => p.alive);
-    let best = ARENA.spawns[0];
+    let best = this.arena.spawns[0];
     let bestScore = -1;
     // random order so several simultaneous respawns spread out
-    const shuffled = [...ARENA.spawns].sort(() => Math.random() - 0.5);
+    const shuffled = [...this.arena.spawns].sort(() => Math.random() - 0.5);
     for (const s of shuffled) {
       let minD = 1e9;
       for (const p of living) {
@@ -181,6 +193,8 @@ export class Game {
     p.lastShot = [0, 0, 0, 0];
     p.respawnAt = 0;
     p.lastInputPos = p.pos.slice();
+    p.stepBudget = 6;
+    p.vel = [0, 0, 0];
     this.send(p, { t: 'spawn', pos: p.pos.slice(), yaw: p.yaw, hp: p.hp });
   }
 
@@ -206,22 +220,46 @@ export class Game {
     if (![nx, ny, nz].every(Number.isFinite)) return;
 
     const t = now();
-    const dt = Math.max(0.01, Math.min(0.5, (t - p.lastInputAt) / 1000));
+    const dt = Math.max(0.001, Math.min(0.5, (t - p.lastInputAt) / 1000));
     p.lastInputAt = t;
 
-    // basic sanity: reject teleports that no walking player could make
     const d = Math.hypot(nx - p.pos[0], nz - p.pos[2]);
-    // generous enough for sprint jumps, slides, wall kicks and top momentum
-    const maxStep = Math.max(MAX_LEGIT_SPEED, PLAYER.sprintSpeed * PLAYER.hspeedTolerance) * dt + 1.2;
     const rise = ny - p.pos[1];
 
-    // reject teleports: sideways faster than sprinting, climbing faster than a
-    // jump, or dropping further than terminal-ish velocity allows
-    if (d > maxStep || rise > 4 || rise < -45) {
+    // Sanity check against teleports, as a *budget* rather than a per-packet
+    // step. Packets arrive in bursts on any real network (and the browser sends
+    // two in the same millisecond after a hitch); measuring each packet on its
+    // own arrival time turned perfectly honest movement into "teleport"
+    // corrections, which is what made players snap around. Accumulating the
+    // allowed distance over time absorbs the jitter.
+    const topSpeed = Math.max(MAX_LEGIT_SPEED, PLAYER.sprintSpeed * PLAYER.hspeedTolerance);
+    p.stepBudget = Math.min(8, (p.stepBudget || 0) + topSpeed * dt + 0.35);
+
+    // climbing faster than a jump, or dropping further than a body can fall
+    if (rise > 4 || rise < -45) {
       this.send(p, { t: 'correct', pos: p.pos.slice() });
       return;
     }
-    const bx = ARENA.bounds || { minX: -400, maxX: 400, minZ: -400, maxZ: 400 };
+    if (d > p.stepBudget) {
+      // spend what we can and only clamp the excess: a big correction is
+      // reserved for actual cheating or a genuine desync
+      const k = p.stepBudget / d;
+      p.pos[0] += (nx - p.pos[0]) * k;
+      p.pos[2] += (nz - p.pos[2]) * k;
+      p.stepBudget = 0;
+      this.send(p, { t: 'correct', pos: p.pos.slice() });
+      return;
+    }
+    p.stepBudget = Math.max(0, p.stepBudget - d);
+
+    if (Number.isFinite(msg.rtt)) {
+      p.rtt = clamp(Number(msg.rtt), 0, NET.MAX_RTT_MS);
+    }
+    if (dt > 0.001) {
+      p.vel[0] = (nx - p.pos[0]) / dt;
+      p.vel[2] = (nz - p.pos[2]) / dt;
+    }
+    const bx = this.arena.bounds || { minX: -400, maxX: 400, minZ: -400, maxZ: 400 };
     if (ny < PLAYER.fallKillY - 6 || ny > 120
       || nx < bx.minX - 60 || nx > bx.maxX + 60
       || nz < bx.minZ - 60 || nz > bx.maxZ + 60) {
@@ -257,6 +295,45 @@ export class Game {
     this.broadcast({ t: 'reload', id: p.id, weapon: p.weapon }, p.id);
   }
 
+  // ------------------------------------------------------------- lag compensation
+
+  // Where a player's feet were at `when` (server clock, ms). Interpolated
+  // between the two recorded ticks that bracket it.
+  positionAt(id, when) {
+    const h = this.history;
+    if (!h.length) return null;
+    if (when >= h[h.length - 1].t) return h[h.length - 1].pos.get(id) || null;
+    if (when <= h[0].t) return h[0].pos.get(id) || null;
+    for (let i = h.length - 1; i > 0; i--) {
+      const a = h[i - 1];
+      const b = h[i];
+      if (when < a.t) continue;
+      const pa = a.pos.get(id);
+      if (!pa) return null;
+      const pb = b.pos.get(id);
+      if (!pb) return pa;
+      const k = b.t === a.t ? 0 : (when - a.t) / (b.t - a.t);
+      return [pa[0] + (pb[0] - pa[0]) * k, pa[1] + (pb[1] - pa[1]) * k, pa[2] + (pb[2] - pa[2]) * k];
+    }
+    return h[h.length - 1].pos.get(id) || null;
+  }
+
+  recordHistory(t) {
+    const pos = new Map();
+    for (const p of this.players.values()) pos.set(p.id, p.pos.slice());
+    this.history.push({ t, pos });
+    const cutoff = t - (NET.LAG_COMP_MAX_MS + 400);
+    while (this.history.length > 2 && this.history[0].t < cutoff) this.history.shift();
+    if (this.history.length > 120) this.history.splice(0, this.history.length - 120);
+  }
+
+  // The moment the shooter was actually looking at, on the server's clock.
+  rewindTimeFor(p) {
+    const rtt = clamp(Number(p.rtt) || 0, 0, NET.MAX_RTT_MS);
+    const back = rtt / 2 + NET.INTERP_FLOOR_MS;
+    return now() - clamp(back, 0, NET.LAG_COMP_MAX_MS);
+  }
+
   // ------------------------------------------------------------- shooting
 
   onFire(p, msg) {
@@ -285,14 +362,23 @@ export class Game {
     const worldHit = raycastAABBs(this.solids, origin[0], origin[1], origin[2], dir[0], dir[1], dir[2], w.range);
     let endT = worldHit.t;
     let victim = null;
+    let victimFeet = null;
     const pad = w.melee ? 0.22 : 0.02;
     const radius = PLAYER.radius + pad;
 
+    // Lag compensation: the client draws remote players slightly in the past
+    // and its own view of itself slightly in the future. Test the shot against
+    // the rewound capsule *and* the live one, and take whichever is closer —
+    // a shot that looks right on the shooter's screen must land.
+    const rewound = this.rewindTimeFor(p);
     if (endT > 0.001) {
       for (const other of this.players.values()) {
         if (other === p || !other.alive) continue;
-        const ht = rayCapsule(origin[0], origin[1], origin[2], dir[0], dir[1], dir[2], other.pos, PLAYER.height, radius, endT);
-        if (ht < endT) { endT = ht; victim = other; }
+        const past = this.positionAt(other.id, rewound);
+        for (const feet of past ? [other.pos, past] : [other.pos]) {
+          const ht = rayCapsule(origin[0], origin[1], origin[2], dir[0], dir[1], dir[2], feet, PLAYER.height, radius, endT);
+          if (ht < endT) { endT = ht; victim = other; victimFeet = feet; }
+        }
       }
     }
 
@@ -300,7 +386,7 @@ export class Game {
 
     // Headshots: the shot landed in the top slice of the victim's capsule.
     const hitY = origin[1] + dir[1] * endT;
-    const head = !!victim && !w.melee && isHeadHit(hitY - victim.pos[1]);
+    const head = !!victim && !w.melee && isHeadHit(hitY - (victimFeet || victim.pos)[1]);
     const dmg = head ? headshotDamage(w, true) : w.damage;
 
     this.broadcast({
@@ -402,6 +488,10 @@ export class Game {
         p.hp = Math.min(PLAYER.maxHealth, p.hp + PLAYER.regenRate * dt);
       }
     }
+
+    // keep the rewind buffer current (newest last)
+    const newest = this.history[this.history.length - 1];
+    if (!newest || t - newest.t >= 1000 / NET.TICK_HZ - 2) this.recordHistory(t);
 
     const players = [...this.players.values()].map((p) => this.pub(p));
     this.broadcast({ t: 'snapshot', ts: t, players });

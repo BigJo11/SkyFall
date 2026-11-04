@@ -1122,3 +1122,142 @@ body.crew .cos-hint { color: rgba(216, 197, 138, .9); }
   .cl-head { padding: 12px 14px 10px; }
   .cl-tabs { padding: 10px 14px 0; }
 }
+
+/* ===========================================================================
+   MAP SELECT + OPTIONS
+   Both sit over the title screen. Deliberately plain: dark panels, one accent
+   colour, no decoration that could hide a button.
+   =========================================================================== */
+#mapSelect, #options {
+  position: absolute; inset: 0; z-index: 32;
+  display: grid; place-items: center;
+  padding: 18px;
+  background: rgba(4, 7, 10, .76);
+  backdrop-filter: blur(3px);
+  animation: fadeIn .14s ease;
+}
+#mapSelect.hidden, #options.hidden { display: none; }
+
+.ms-inner, .op-inner {
+  width: min(700px, 94vw);
+  max-height: min(88vh, 760px);
+  display: flex; flex-direction: column;
+  background: linear-gradient(180deg, rgba(13, 17, 14, .985), rgba(8, 10, 8, .99));
+  border: 1px solid rgba(150, 140, 104, .32);
+  border-top: 2px solid rgba(196, 168, 96, .65);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .65);
+}
+.ms-head, .op-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid rgba(150, 140, 104, .18);
+}
+.ms-list {
+  display: grid; gap: 12px;
+  padding: 16px 20px;
+  overflow-y: auto;
+}
+.ms-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  padding: 14px 16px;
+  background: rgba(160, 180, 210, .05);
+  border: 1px solid rgba(150, 170, 200, .22);
+  border-left: 3px solid rgba(196, 168, 96, .6);
+  color: #cfd8c9;
+  transition: background .12s ease, border-color .12s ease, transform .12s ease;
+}
+.ms-card:hover {
+  background: rgba(196, 168, 96, .12);
+  border-color: rgba(196, 168, 96, .55);
+  transform: translateX(2px);
+}
+.ms-name {
+  display: block;
+  font-size: 14px; font-weight: 700; letter-spacing: .22em;
+  color: #f2f6ee;
+}
+.ms-blurb {
+  display: block; margin-top: 4px;
+  font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+  color: rgba(155, 161, 137, .85);
+}
+.ms-count {
+  font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+  color: #d8c58a; white-space: nowrap;
+}
+.ms-count b { font-size: 15px; color: #f4e9c4; }
+.ms-foot {
+  padding: 10px 20px 14px;
+  font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase;
+  color: rgba(155, 161, 137, .7);
+  border-top: 1px solid rgba(150, 140, 104, .18);
+}
+.ms-foot b { color: #d8c58a; }
+
+.op-body { padding: 6px 20px 20px; overflow-y: auto; scrollbar-width: thin; }
+.op-sec { padding: 14px 0 6px; border-bottom: 1px solid rgba(150, 140, 104, .14); }
+.op-sec:last-child { border-bottom: 0; }
+.op-sec h3 {
+  margin: 0 0 10px;
+  font-size: 10.5px; letter-spacing: .3em; text-transform: uppercase;
+  color: #d8c58a;
+}
+.op-hint {
+  margin: 8px 0 0;
+  font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+  color: rgba(155, 161, 137, .75);
+}
+.op-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.op-chip {
+  font: inherit; font-size: 10.5px; font-weight: 700; letter-spacing: .18em;
+  text-transform: uppercase; cursor: pointer;
+  padding: 8px 16px;
+  background: rgba(160, 180, 210, .05);
+  border: 1px solid rgba(150, 170, 200, .22);
+  color: #9aa8ba;
+  transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.op-chip:hover { color: #dce8f7; border-color: rgba(160, 190, 230, .45); }
+.op-chip.active {
+  background: rgba(196, 168, 96, .18);
+  border-color: rgba(196, 168, 96, .62);
+  color: #f0e3bb;
+}
+.op-binds {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 6px 14px;
+}
+.bind-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(150, 140, 104, .1);
+}
+.bind-label {
+  font-size: 10px; letter-spacing: .16em; text-transform: uppercase;
+  color: rgba(178, 186, 170, .9);
+}
+.bind-key {
+  font: inherit; font-size: 10px; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; cursor: pointer;
+  min-width: 86px; padding: 6px 10px;
+  background: rgba(160, 180, 210, .06);
+  border: 1px solid rgba(150, 170, 200, .26);
+  color: #cfe4ff;
+  transition: background .12s ease, border-color .12s ease;
+}
+.bind-key:hover { border-color: rgba(160, 190, 230, .5); }
+.bind-key.listening {
+  background: rgba(196, 168, 96, .22);
+  border-color: rgba(196, 168, 96, .8);
+  color: #fdf3d6;
+  animation: pulseKey 1s ease-in-out infinite;
+}
+@keyframes pulseKey { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }

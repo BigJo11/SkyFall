@@ -338,6 +338,64 @@ await test('cosmetics: pick colours and a material, locked ones need the code', 
   pump(2);
 });
 
+await test('options open from the main menu: aim assist levels and live rebinding', async () => {
+  const sk = window.SKYFALL;
+  const $id = (id) => document.getElementById(id);
+  assert.ok($id('optionsBtn'), 'there is an OPTIONS button on the title screen');
+
+  $id('optionsBtn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  assert.equal(sk.optionsOpen(), true, 'panel opened');
+  assert.equal($id('options').classList.contains('hidden'), false);
+
+  // aim assist: three levels, one active
+  const chips = [...$id('assistChips').children];
+  assert.deepEqual(chips.map((c) => c.textContent), ['OFF', 'SLIGHT', 'STRONG']);
+  const active = () => [...$id('assistChips').children].filter((c) => c.classList.contains('active'));
+  assert.equal(active().length, 1, 'exactly one level is selected');
+  $id('assistChips').querySelector('[data-assist="strong"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(1);
+  assert.equal(sk.settings.aimAssist, 'strong', 'the setting took');
+  assert.equal(active()[0].dataset.assist, 'strong', 'the chip moved');
+  assert.match($id('assistHint').textContent, /strong/i);
+  $id('assistChips').querySelector('[data-assist="slight"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(1);
+
+  // keybinds: every action has a row, and rebinding takes
+  const rows = [...$id('bindList').children];
+  assert.ok(rows.length >= 12, `${rows.length} bindable actions listed`);
+  const jumpBtn = $id('bindList').querySelector('[data-bind="jump"]');
+  assert.equal(jumpBtn.textContent, 'SPACE');
+  jumpBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(1);
+  // the list is re-rendered, so look the button up again
+  assert.match($id('bindList').querySelector('[data-bind="jump"]').textContent,
+    /PRESS A KEY/, 'waiting for a key');
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyF' }));
+  pump(1);
+  assert.equal(sk.settings.binds.jump, 'KeyF', 'jump is now F');
+  assert.equal($id('bindList').querySelector('[data-bind="jump"]').textContent, 'F');
+  assert.deepEqual(sk.input.codes('jump'), ['KeyF'], 'the input layer follows');
+
+  // a reserved key is refused rather than swallowed
+  $id('bindList').querySelector('[data-bind="reload"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Escape' }));
+  pump(1);
+  assert.equal(sk.settings.binds.reload, 'KeyR', 'ESC cannot be stolen');
+  assert.equal(sk.optionsOpen(), true, 'and ESC still only cancels the capture');
+
+  // reset puts the shipped layout back
+  $id('bindList').querySelector('[data-bind="reload"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  $id('bindReset').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(1);
+  assert.equal(sk.settings.binds.jump, 'Space', 'defaults restored');
+  assert.deepEqual(sk.input.codes('jump'), ['Space']);
+
+  $id('optionsClose').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(1);
+  assert.equal(sk.optionsOpen(), false, 'panel closed');
+});
+
 await test('deploy connects to the real server and enters the match', async () => {
   const sk0 = window.SKYFALL;
   document.getElementById('nameInput').value = 'JSDOM';
@@ -349,6 +407,21 @@ await test('deploy connects to the real server and enters the match', async () =
   pump(2);
   assert.equal(sk0.updatesOpen(), false, 'deploy closed the panel');
   assert.equal(document.getElementById('changelog').classList.contains('hidden'), true);
+
+  // DEPLOY asks which arena first: one card per map, each with a live count
+  const picker = document.getElementById('mapSelect');
+  assert.equal(picker.classList.contains('hidden'), false, 'the drop-zone picker opens');
+  const cards = [...picker.querySelectorAll('.ms-card')];
+  assert.ok(cards.length >= 2, `a card per map (${cards.length})`);
+  for (const card of cards) {
+    assert.match(card.textContent, /\d+\s+players?/, `card shows a count: ${card.textContent}`);
+  }
+  assert.ok(cards.some((c) => c.dataset.map === 'big'), 'the big map is offered');
+  assert.ok(cards.some((c) => c.dataset.map === 'small'), 'the small map is offered');
+
+  picker.querySelector('[data-map="big"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  assert.equal(picker.classList.contains('hidden'), true, 'picking closes the picker');
   assert.equal(document.getElementById('title').classList.contains('hidden'), true);
   assert.equal(document.getElementById('loading').classList.contains('hidden'), false);
 
@@ -362,6 +435,9 @@ await test('deploy connects to the real server and enters the match', async () =
 
   const status = await (await fetch(`http://127.0.0.1:${PORT}/api/status`)).json();
   assert.ok(status.players.some((p) => p.name === 'JSDOM'), 'server knows the player');
+  assert.equal(status.players.find((p) => p.name === 'JSDOM').map, 'big', 'joined the big map');
+  assert.equal(status.maps.big, 1, 'the big map reports one player');
+  assert.ok(Array.isArray(status.mapList) && status.mapList.length >= 2, 'the status lists both maps');
 });
 
 await test('gameplay frames run and the player can move + fire', async () => {
@@ -933,6 +1009,35 @@ await test('completion overlay keeps you practising or returns to title', async 
   assert.equal(document.getElementById('title').classList.contains('hidden'), false);
   assert.equal(document.getElementById('hud').classList.contains('hidden'), true);
   assert.equal(sk.avatars.map.size, 0, 'dummies cleaned up');
+});
+
+await test('switching maps rebuilds the arena the player moves in', async () => {
+  const sk = window.SKYFALL;
+  const before = sk.world;
+  assert.equal(before.mapId, 'big', 'the match on the big map');
+  const bigSolids = before.solids.length;
+  const sceneBefore = sk.scene.children.length;
+
+  sk.setWorld('small');
+  pump(3);
+  const after = sk.world;
+  assert.notEqual(after, before, 'a new world was built');
+  assert.equal(after.mapId, 'small');
+  assert.notEqual(after.solids.length, bigSolids, 'different geometry');
+  assert.equal(sk.body.solids, after.solids, 'collision follows the new arena');
+  assert.equal(sk.world.half, 48, 'the small arena is 96 m across');
+  // nothing was stacked: the old arena left the scene
+  assert.ok(sk.scene.children.length <= sceneBefore + 2,
+    `scene did not grow (${sceneBefore} -> ${sk.scene.children.length})`);
+
+  // a shot still resolves against the new geometry
+  const trace = sk.aimTrace();
+  assert.ok(trace && trace.dir, 'raycasts still work');
+
+  sk.setWorld('big');
+  pump(3);
+  assert.equal(sk.world.mapId, 'big', 'and back again');
+  assert.equal(sk.body.solids, sk.world.solids);
 });
 
 await test('leaving returns to the title screen', async () => {

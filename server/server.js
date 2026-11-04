@@ -7,6 +7,7 @@ import { WebSocketServer } from 'ws';
 import { Game } from './game.js';
 import { Leaderboard } from './leaderboard.js';
 import { RESERVED } from '../shared/constants.js';
+import { MAP_LIST, DEFAULT_MAP, MAPS } from '../shared/map.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -33,7 +34,12 @@ const MIME = {
 const BOARD_FILE = process.env.LEADERBOARD_FILE
   || path.join(ROOT, 'data', 'leaderboard.json');
 const leaderboard = new Leaderboard(BOARD_FILE);
-const game = new Game({ leaderboard }).start();
+// One room per map: players pick a drop zone on the way in, and each room keeps
+// its own player list, spawns and map geometry. The all-time board is shared.
+const games = new Map();
+for (const entry of MAP_LIST) games.set(entry.id, new Game({ leaderboard, map: entry.id }).start());
+const gameFor = (id) => games.get(id) || games.get(DEFAULT_MAP);
+const roomCounts = () => Object.fromEntries([...games].map(([id, g]) => [id, g.players.size]));
 console.log(`[board] ${leaderboard.size} all-time rows from ${path.relative(ROOT, BOARD_FILE)}`);
 
 // ---------------------------------------------------------------------------
@@ -129,9 +135,20 @@ const server = http.createServer((req, res) => {
   }
 
   if (urlPath === '/api/status') {
-    const list = [...game.players.values()].map((p) => ({ name: p.name, kills: p.kills, deaths: p.deaths }));
+    const rooms = roomCounts();
+    const list = [];
+    for (const g of games.values()) {
+      for (const p of g.players.values()) {
+        list.push({ name: p.name, kills: p.kills, deaths: p.deaths, map: g.mapId });
+      }
+    }
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify({ players: list, uptime: process.uptime() }));
+    res.end(JSON.stringify({
+      players: list,
+      maps: rooms,
+      mapList: MAP_LIST.map((m) => ({ id: m.id, name: m.name, blurb: m.blurb, players: rooms[m.id] || 0 })),
+      uptime: process.uptime(),
+    }));
     return;
   }
 
@@ -152,6 +169,7 @@ const wss = new WebSocketServer({ server, maxPayload: 8 * 1024 });
 
 wss.on('connection', (socket) => {
   let player = null;
+  let room = null;
   let alive = true;
 
   socket.on('message', (raw) => {
@@ -164,16 +182,17 @@ wss.on('connection', (socket) => {
       if (msg.t === 'join') {
         // the crew code unlocks reserved callsigns and the glow skin
         const crew = RESERVED.normaliseCode(msg.code) === RESERVED.code;
-        player = game.addPlayer(socket, msg.name, crew, msg.cosmetic);
+        room = gameFor(msg.map);
+        player = room.addPlayer(socket, msg.name, crew, msg.cosmetic);
       }
       return;
     }
-    game.handle(player, msg);
+    room.handle(player, msg);
   });
 
   socket.on('close', () => {
     alive = false;
-    if (player) game.removePlayer(player.id);
+    if (player && room) room.removePlayer(player.id);
   });
   socket.on('error', () => {});
 });
@@ -208,7 +227,7 @@ server.listen(PORT, HOST, () => {
 
 process.on('SIGINT', () => {
   console.log('\n[server] shutting down');
-  game.stop();
+  for (const g of games.values()) g.stop();
   wss.close();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 500);

@@ -19,6 +19,7 @@ globalThis.requestAnimationFrame = window.requestAnimationFrame.bind(window);
 const { WEAPONS } = await import('../shared/constants.js');
 const { Hud } = await import('../public/js/hud.js');
 const { Input } = await import('../public/js/input.js');
+const { DEFAULT_BINDS } = await import('../public/js/keybinds.js');
 
 let passed = 0;
 let failed = 0;
@@ -268,6 +269,58 @@ test('tutorial objective card + completion overlay', () => {
 test('ping readout', () => {
   hud.setPingValue(12.6);
   assert.equal(document.getElementById('hudPing').textContent, '13');
+});
+
+
+test('the options panel exists on the main menu, with keybinds and aim assist', () => {
+  assert.ok(document.getElementById('optionsBtn'), 'OPTIONS button on the title screen');
+  const panel = document.getElementById('options');
+  assert.ok(panel, 'options panel');
+  assert.equal(panel.classList.contains('hidden'), true, 'closed until asked for');
+  for (const id of ['assistChips', 'bindList', 'bindReset', 'optSens', 'optFov', 'optVol']) {
+    assert.ok(document.getElementById(id), `#${id}`);
+  }
+});
+
+test('the drop-zone picker exists for online play', () => {
+  const picker = document.getElementById('mapSelect');
+  assert.ok(picker, 'map picker');
+  assert.equal(picker.classList.contains('hidden'), true);
+  for (const id of ['mapList', 'mapClose']) assert.ok(document.getElementById(id), `#${id}`);
+});
+
+test('a rebound key drives the action, and the old key stops working', () => {
+  const canvas = document.getElementById('gl');
+  const input = new Input(canvas);
+  input.enabled = true;
+  input.setBinds({ ...DEFAULT_BINDS, jump: 'KeyF' });
+
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyF' }));
+  assert.equal(input.actionPressed('jump'), true, 'the new key jumps');
+  assert.equal(input.actionDown('jump'), true);
+  input.endFrame();
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'KeyF' }));
+
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Space' }));
+  assert.equal(input.actionPressed('jump'), false, 'the old key is free');
+  input.endFrame();
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space' }));
+  input.setBinds(DEFAULT_BINDS);
+});
+
+test('rebinding movement keys keeps WASD and arrows working together', () => {
+  const canvas = document.getElementById('gl');
+  const input = new Input(canvas);
+  input.enabled = true;
+  input.setBinds({ ...DEFAULT_BINDS, forward: 'KeyI', back: 'KeyK' });
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyI' }));
+  assert.equal(input.axes().forward, 1, 'the bound key moves forward');
+  input.endFrame();
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ArrowUp' }));
+  assert.equal(input.axes().forward, 1, 'and so does the arrow key');
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'KeyI' }));
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'ArrowUp' }));
+  input.setBinds(DEFAULT_BINDS);
 });
 
 test('input tracks keys, mouse buttons and look deltas', () => {

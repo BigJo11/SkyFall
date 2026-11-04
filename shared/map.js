@@ -867,6 +867,9 @@ export const PRACTICE = {
 };
 
 export const ARENA = {
+  id: 'big',
+  name: 'BROKEN SKY',
+  blurb: 'floating forest plateau · 240 m · long sight lines',
   boxes,
   spawns: SPAWNS,
   size: MAP_SIZE,                 // the forest plateau
@@ -904,5 +907,198 @@ export const ARENA = {
     ground: 0x4d6b3c,
   },
 };
+
+
+// ===========================================================================
+// PINE HOLLOW — the small map.
+//
+// A tight, walled forest bowl: 96 x 96 m instead of 240, so a fight is always
+// a few seconds away and there is nowhere to hide from one. Everything is
+// built from the same boxes as the big map, with its own local helpers so it
+// cannot disturb the plateau above.
+//
+//        ┌─────────── pine hollow (96 x 96) ──────────┐
+//        │  cliff rim, wall-runnable all the way round │
+//        │      trees        ┌ keep ┐        trees     │
+//        │   boulders   ─────┴──────┴─────  boulders   │
+//        │      trees        south yard     trees      │
+//        └────────────────────────────────────────────┘
+// ===========================================================================
+function buildPineHollow() {
+  const out = [];
+  const HALF_S = 48;
+  const SIZE_S = HALF_S * 2;
+  const add = (x, y, z, w, h, d, c, ct = null, solid = true) =>
+    out.push({ p: [x, y, z], s: [w, h, d], c, ct, solid });
+  const stand = (x, z, w, d, top, c, ct) => add(x, top / 2, z, w, top, d, c, ct);
+  const thick = 0.6;
+
+  const r = mulberry32(0x9061ca5);
+  const rng = (a, b) => a + r() * (b - a);
+
+  // ---- floor
+  add(0, -0.5, 0, SIZE_S, 1, SIZE_S, C.grassDark, C.grassDarkTop);
+  // a faded trail crossing the bowl
+  for (let i = -6; i <= 6; i++) {
+    add(i * 6, 0.03, 0, 5.6, 0.1, 7.5, C.path, C.pathTop);
+    add(0, 0.03, i * 6, 7.5, 0.1, 5.6, C.path, C.pathTop);
+  }
+
+  // ---- cliff rim: tall enough to wall run, thick enough to never clip
+  const RIM = 12;
+  const T = 8;
+  add(0, RIM / 2, -HALF_S - T / 2, SIZE_S + T * 2, RIM, T, C.cliff, C.cliffTop);
+  add(0, RIM / 2, HALF_S + T / 2, SIZE_S + T * 2, RIM, T, C.cliff, C.cliffTop);
+  add(-HALF_S - T / 2, RIM / 2, 0, T, RIM, SIZE_S, C.cliff, C.cliffTop);
+  add(HALF_S + T / 2, RIM / 2, 0, T, RIM, SIZE_S, C.cliff, C.cliffTop);
+
+  // ---- central keep: the one high ground on the map, open on two sides
+  const KEEP = { x: 0, z: 0, w: 16, d: 16, top: 3.4 };
+  stand(KEEP.x, KEEP.z, KEEP.w, KEEP.d, KEEP.top, C.stone, C.stoneTop);
+  // two stair flights so the keep is never a trap
+  const flights = [
+    { dir: 's', x: KEEP.x, z: KEEP.z + KEEP.d / 2 },
+    { dir: 'n', x: KEEP.x, z: KEEP.z - KEEP.d / 2 },
+  ];
+  for (const f of flights) {
+    const steps = 7;
+    const rise = KEEP.top / steps;
+    const run = 0.62;
+    for (let i = 0; i < steps; i++) {
+      const h = rise * (i + 1);
+      const off = run * (i + 0.5);
+      const z = f.z + (f.dir === 's' ? off : -off);
+      add(f.x, h / 2, z, 5.4, h, run, C.stone, C.stoneTop);
+    }
+  }
+  // low parapet on the keep (cover you can shoot over while standing behind it)
+  for (const [dx, dz, w, d] of [[-KEEP.w / 2 + 0.4, 0, 0.8, KEEP.d - 3], [KEEP.w / 2 - 0.4, 0, 0.8, KEEP.d - 3]]) {
+    stand(KEEP.x + dx, KEEP.z + dz, w, d, KEEP.top + 0.9, C.stone, C.stoneTop);
+  }
+
+  // ---- four cover clusters, mirror-symmetric so no side is favoured
+  const clusters = [
+    { x: -15, z: -15 }, { x: 15, z: -15 }, { x: -15, z: 15 }, { x: 15, z: 15 },
+  ];
+  for (const c of clusters) {
+    for (let i = 0; i < 5; i++) {
+      const a = r() * Math.PI * 2;
+      const rad = rng(0, 4.5);
+      const w = rng(1.6, 3.6);
+      const h = rng(1.2, 3.4);
+      stand(c.x + Math.cos(a) * rad, c.z + Math.sin(a) * rad, w, w * rng(0.7, 1.3), h,
+        C.rockMoss, C.rockMossTop);
+    }
+  }
+
+  // ---- two long low ridges: lanes of cover across the bowl
+  for (const [x, z, w, d] of [[-16, -18, 3.4, 16], [16, 18, 3.4, 16]]) {
+    stand(x, z, w, 2.4, d, C.rock, C.rockTop);
+    stand(x, z, w, 1.1, d, C.rock, C.rockTop);
+  }
+
+  // ---- spawn ring, laid out first so nothing can be built on top of it
+  const spawns = [];
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const rad = HALF_S - 9;
+    spawns.push({ pos: [Math.cos(a) * rad, 0.05, Math.sin(a) * rad], yaw: 0 });
+  }
+  const nearSpawn = (x, z, pad) => spawns.some((sp) =>
+    Math.hypot(sp.pos[0] - x, sp.pos[2] - z) < pad);
+
+  // ---- trees around the edge (solid trunks, canopy drawn by world.js)
+  const trees = [];
+  for (let i = 0; i < 26; i++) {
+    const a = (i / 26) * Math.PI * 2 + rng(-0.07, 0.07);
+    const rad = rng(HALF_S - 13, HALF_S - 5);
+    const x = Math.cos(a) * rad;
+    const z = Math.sin(a) * rad;
+    if (nearSpawn(x, z, 7.5)) continue;
+    const kind = r() > 0.55 ? 'pine' : 'broad';
+    const h = kind === 'pine' ? rng(8, 12) : rng(6, 9);
+    const trunkW = rng(0.8, 1.2);
+    stand(x, z, trunkW, trunkW, h * 0.62, C.bark, C.barkTop);
+    trees.push({
+      x, z, baseY: 0, h, trunkW, kind,
+      radius: kind === 'pine' ? h * 0.25 : h * 0.38,
+      tint: [C.leafA, C.leafB, C.leafC][Math.floor(r() * 3)],
+    });
+  }
+
+  // ---- a couple of fallen logs to vault
+  const logs = [
+    { x: -22, z: 8, len: 7, rot: 0.35 },
+    { x: 24, z: -9, len: 6, rot: -0.5 },
+  ];
+  for (const l of logs) {
+    add(l.x, 0.32, l.z, l.len, 0.64, 1.1, C.log, C.logTop);
+  }
+
+  // ---- seat every spawn on whatever surface is under it, facing the keep
+  for (const sp of spawns) {
+    sp.yaw = Math.atan2(sp.pos[0], sp.pos[2]);
+    const [x, , z] = sp.pos;
+    let top = 0;
+    for (const b of out) {
+      if (b.solid === false) continue;
+      const minX = b.p[0] - b.s[0] / 2;
+      const maxX = b.p[0] + b.s[0] / 2;
+      const minZ = b.p[2] - b.s[2] / 2;
+      const maxZ = b.p[2] + b.s[2] / 2;
+      const boxTop = b.p[1] + b.s[1] / 2;
+      if (x > minX && x < maxX && z > minZ && z < maxZ && boxTop <= 1 && boxTop > top) top = boxTop;
+    }
+    sp.pos[1] = top + 0.05;
+  }
+
+  return {
+    id: 'small',
+    name: 'PINE HOLLOW',
+    blurb: 'walled forest bowl · 96 m · constant contact',
+    boxes: out,
+    spawns,
+    size: SIZE_S,
+    bounds: { minX: -HALF_S, maxX: HALF_S, minZ: -HALF_S, maxZ: HALF_S },
+    killY: -40,
+    trees,
+    boulders: [],
+    logs,
+    ridges: [],
+    lake: null,
+    islands: [],
+    hill: { cx: 0, cz: 0, radius: 8, height: 3.4 },
+    clearings: [{ x0: -22, x1: 22, z0: -22, z1: 22 }],
+    patches: [],
+    woods: [],
+    props: { tanks: [], pipes: [], lamps: [], cranes: [] },
+    barriers: [],
+    barrier: null,
+    industrial: null,
+    sky: {
+      top: 0x2a6ea8,
+      horizon: 0xc9dbe4,
+      fog: 0xbfd3dd,
+      sun: 0xffe9c2,
+      ground: 0x4a6538,
+    },
+  };
+}
+
+export const SMALL = buildPineHollow();
+
+// Every playable map, by id. The server keeps one room per map.
+export const MAPS = { big: ARENA, small: SMALL };
+
+export const MAP_LIST = [
+  { id: 'big', name: ARENA.name, blurb: ARENA.blurb, size: ARENA.size, spawns: SPAWNS.length },
+  { id: 'small', name: SMALL.name, blurb: SMALL.blurb, size: SMALL.size, spawns: SMALL.spawns.length },
+];
+
+export const DEFAULT_MAP = 'big';
+
+export function mapById(id) {
+  return MAPS[id] || MAPS[DEFAULT_MAP];
+}
 
 export default ARENA;
