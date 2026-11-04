@@ -74,6 +74,7 @@
             <button id="tutorialBtn" class="btn mode">TUTORIAL</button>
           </div>
           <div class="mode-note">practice &amp; tutorial run offline — no server needed</div>
+          <button id="optionsBtn" class="btn updates">OPTIONS · KEYBINDS</button>
           <button id="changelogBtn" class="btn updates">UPDATES · V.2</button>
 
           <div class="server-line">
@@ -95,7 +96,7 @@
         <div class="title-cols">
           <div class="panel col">
             <h3>CONTROLS</h3>
-            <ul class="keys">
+            <ul class="keys" id="keysList">
               <li><b>WASD</b> move</li>
               <li><b>SHIFT</b> sprint</li>
               <li><b>SPACE</b> jump · double jump · wall kick</li>
@@ -182,6 +183,65 @@
         <span class="dotsep">•</span>
         <span>KEYBOARD + MOUSE</span>
       </footer>
+    </div>
+
+    <!-- map pick: shown by DEPLOY. One card per room, live player counts. -->
+    <div id="mapSelect" class="hidden" role="dialog" aria-modal="true" aria-label="Choose a map">
+      <div class="ms-inner panel">
+        <div class="ms-head">
+          <div class="cl-title">
+            <h2>DROP ZONE</h2>
+            <span class="cl-sub">pick the arena you want to fight in</span>
+          </div>
+          <button id="mapClose" class="btn tiny ghost">BACK</button>
+        </div>
+        <div class="ms-list" id="mapList"></div>
+        <div class="ms-foot">player counts are live · <b>ESC</b> goes back</div>
+      </div>
+    </div>
+
+    <!-- options: aim assist, sensitivity and keybinds, all from the main menu -->
+    <div id="options" class="hidden" role="dialog" aria-modal="true" aria-label="Options">
+      <div class="op-inner panel">
+        <div class="op-head">
+          <div class="cl-title">
+            <h2>OPTIONS</h2>
+            <span class="cl-sub">settings &amp; keybinds</span>
+          </div>
+          <button id="optionsClose" class="btn tiny ghost">CLOSE</button>
+        </div>
+        <div class="op-body">
+          <section class="op-sec">
+            <h3>AIM ASSIST</h3>
+            <div class="op-chips" id="assistChips"></div>
+            <p class="op-hint" id="assistHint">slight — nudges a shot that is already close</p>
+          </section>
+          <section class="op-sec">
+            <h3>AIM</h3>
+            <div class="slider-row">
+              <label for="optSens">MOUSE SENS</label>
+              <input id="optSens" type="range" min="0.2" max="3" step="0.05" value="1" />
+              <output id="optSensOut">1.00</output>
+            </div>
+            <div class="slider-row">
+              <label for="optFov">FIELD OF VIEW</label>
+              <input id="optFov" type="range" min="70" max="110" step="1" value="88" />
+              <output id="optFovOut">88°</output>
+            </div>
+            <div class="slider-row">
+              <label for="optVol">VOLUME</label>
+              <input id="optVol" type="range" min="0" max="1" step="0.02" value="0.7" />
+              <output id="optVolOut">70%</output>
+            </div>
+          </section>
+          <section class="op-sec">
+            <h3>KEYBINDS</h3>
+            <p class="op-hint">click a key, then press the one you want</p>
+            <div class="op-binds" id="bindList"></div>
+            <button id="bindReset" class="btn tiny ghost">RESET TO DEFAULT</button>
+          </section>
+        </div>
+      </div>
     </div>
 
     <!-- update history: reads shared/changelog.js, sits above the title screen -->

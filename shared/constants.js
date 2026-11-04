@@ -2,9 +2,17 @@
 // Everything here must stay dependency-free and side-effect-free.
 
 export const NET = {
-  TICK_HZ: 20,            // server snapshots per second
-  INPUT_HZ: 20,           // client position reports per second
+  TICK_HZ: 40,            // server snapshots per second
+  INPUT_HZ: 30,           // client position reports per second
   MAX_NAME: 16,
+
+  // Lag compensation. Remote players are drawn slightly in the past (the
+  // client interpolates between snapshots), so the server rewinds every other
+  // player by the shooter's own latency before resolving a shot. Without this a
+  // moving target is hit where it used to be and the shot is wasted.
+  LAG_COMP_MAX_MS: 260,   // never rewind further than this
+  INTERP_FLOOR_MS: 60,    // a client always needs about this much smoothing
+  MAX_RTT_MS: 400,        // anything above this is treated as a spike
 };
 
 // ---------------------------------------------------------------- identity
@@ -294,14 +302,42 @@ export function headshotDamage(weapon, head) {
 // Slight bullet magnetism. Deliberately weak: it only nudges shots that were
 // already close, never yanks a shot across the screen, and it is disabled on the
 // sniper and the knife.
+// Aim assist is a setting now, because players move fast and the honest answer
+// is that a controller-sized cone is what makes the shooting feel fair.
+//   off    — no magnetism at all
+//   slight — helps without doing the aiming for you (the default)
+//   strong — a real magnet for players who want the help
+// Radius/target rules are identical at every level; only the cone and the cap
+// move.
+export const AIM_ASSIST_LEVELS = [
+  { id: 'off', name: 'OFF', blurb: 'raw aim, no magnetism', coneDeg: 0, strength: 0, maxPullDeg: 0 },
+  { id: 'slight', name: 'SLIGHT', blurb: 'nudges a nearly-on-target shot', coneDeg: 4.2, strength: 0.78, maxPullDeg: 3.4 },
+  { id: 'strong', name: 'STRONG', blurb: 'pulls hard, forgiving cone', coneDeg: 7.5, strength: 0.92, maxPullDeg: 6.5 },
+];
+
+export const AIM_ASSIST_DEFAULT = 'slight';
+
+// The `slight` level, exposed as the plain config the shared maths expects.
 export const AIM_ASSIST = {
   enabled: true,
-  coneDeg: 3.2,        // only targets this close to the crosshair are eligible
-  strength: 0.7,       // fraction of the angular error corrected (scaled by aim)
-  maxPullDeg: 2.4,     // hard cap on how far a shot can be bent
+  coneDeg: 4.2,        // only targets this close to the crosshair are eligible
+  strength: 0.78,      // fraction of the angular error corrected (scaled by aim)
+  maxPullDeg: 3.4,     // hard cap on how far a shot can be bent
   range: 95,           // metres
   chestHeight: 0.62,   // aim at this fraction of the target's height
 };
+
+export function aimAssistConfig(levelId) {
+  const level = AIM_ASSIST_LEVELS.find((l) => l.id === levelId) || null;
+  if (!level || level.id === 'off') return { ...AIM_ASSIST, ...(level || {}), enabled: !!level && level.id !== 'off' };
+  return {
+    ...AIM_ASSIST,
+    coneDeg: level.coneDeg,
+    strength: level.strength,
+    maxPullDeg: level.maxPullDeg,
+    enabled: true,
+  };
+}
 
 export function weaponAmmoInfinite(w) {
   return !Number.isFinite(w.magSize);

@@ -30,6 +30,35 @@ export function angleBetween(a, b) {
 }
 
 /**
+ * The point on a standing player's capsule axis that the aim ray passes closest
+ * to. Keeping the assist anchored here means a shot at the head is nudged toward
+ * the head, never yanked down to the chest.
+ */
+export function closestBodyPoint(origin, aim, feet, height = PLAYER.height) {
+  // the full standing capsule: a shot at the head maps to the head, so the
+  // assist can never pull a headshot down into the shoulders
+  const a0 = feet[1] + 0.05;
+  const a1 = feet[1] + height - 0.05;
+  const vy = a1 - a0;
+  if (vy < 1e-6) return [feet[0], feet[1] + height / 2, feet[2]];
+
+  const wy = origin[1] - a0;
+  const d = aim[0] * (origin[0] - feet[0]) + aim[1] * wy + aim[2] * (origin[2] - feet[2]);
+  const b = aim[1] * vy;
+  const c = vy * vy;
+  const e = vy * wy;
+
+  // t = position along the body axis of the point closest to the aim ray
+  let t = (e - b * d) / (c - b * b);
+  if (!Number.isFinite(t)) t = 0;
+  t = Math.max(0, Math.min(1, t));
+
+  // the centre line is the safest thing to aim at: any hit inside the capsule
+  // counts, and keeping t from the ray means a head-level shot stays head-level
+  return [feet[0], a0 + vy * t, feet[2]];
+}
+
+/**
  * Bend `dir` slightly toward the most promising target.
  *
  * @param {number[]} origin   eye position [x,y,z]
@@ -54,7 +83,10 @@ export function aimAssist(origin, dir, targets, opts = {}) {
   for (const t of targets) {
     if (!t || !Array.isArray(t.pos)) continue;
     const height = Number.isFinite(t.height) ? t.height : PLAYER.height;
-    const point = [t.pos[0], t.pos[1] + height * cfg.chestHeight, t.pos[2]];
+    // Aim at the point of the body the crosshair is closest to, not a fixed
+    // chest height. A fixed chest point used to drag headshots down onto the
+    // shoulders, which turned a good shot into a bad one.
+    const point = closestBodyPoint(origin, aim, t.pos, height);
     const to = [point[0] - origin[0], point[1] - origin[1], point[2] - origin[2]];
     const dist = len3(to);
     if (dist < 1e-4 || dist > cfg.range) continue;
@@ -64,7 +96,7 @@ export function aimAssist(origin, dir, targets, opts = {}) {
 
     const ang = angleBetween(aim, unit);
     if (ang > coneRad) continue;
-    if (!best || ang < best.angle) best = { target: t, unit, ang, dist, point };
+    if (!best || ang < best.angle) best = { target: t, unit, ang, dist, point, height };
   }
 
   if (!best) return unchanged;
@@ -80,11 +112,23 @@ export function aimAssist(origin, dir, targets, opts = {}) {
   if (pullRad > 1e-6) {
     // Rotate `aim` toward `best.unit` inside the plane the two of them span.
     const along = dot3(aim, best.unit);
-    const perp = norm3([
+    let perp = norm3([
       best.unit[0] - aim[0] * along,
       best.unit[1] - aim[1] * along,
       best.unit[2] - aim[2] * along,
     ]);
+
+    // If the crosshair is already on the body, correct sideways only. Pulling
+    // vertically there would shave a headshot down onto the shoulders, and no
+    // amount of magnetism is worth taking a better shot off a player.
+    if (perp) {
+      const feetY = best.target.pos[1];
+      const rayY = origin[1] + aim[1] * best.dist;
+      const onBody = rayY > feetY + 0.05 && rayY < feetY + best.height - 0.05;
+      if (onBody && Math.abs(perp[1]) > 1e-9) {
+        perp = norm3([perp[0], 0, perp[2]]) || perp;
+      }
+    }
     if (perp) {
       const c = Math.cos(pullRad);
       const s = Math.sin(pullRad);

@@ -84,20 +84,72 @@ the server applied.
 
 ### Aim assist
 
-A deliberately slight bit of bullet magnetism, on the rifle and the SMG only:
+Bullet magnetism on the rifle and the SMG, with three levels you pick **from the
+main menu** (OPTIONS → AIM ASSIST):
 
-| | |
-| --- | --- |
-| Cone | 3.2° around the crosshair |
-| Correction | up to 70% of the angular error, faded toward the edge of the cone |
-| Hard cap | 2.4° — a shot is never yanked across the screen |
-| Range | 95 m |
-| Line of sight | required: cover still wins, assist cannot shoot through walls |
+| Level | Cone | Correction | Hard cap |
+| --- | --- | --- | --- |
+| **OFF** | — | none at all | — |
+| **SLIGHT** (default) | 4.2° | up to 78% of the angular error, faded toward the edge | 3.4° |
+| **STRONG** | 7.5° | up to 92% | 6.5° |
 
-It only ever helps a shot that was already close, and it is switched off for the
-sniper (a precision weapon) and the knife (melee). Tune it in `AIM_ASSIST` in
-`shared/constants.js`; the maths lives in `shared/aimassist.js` and is unit
-tested independently of the browser.
+Range is 95 m, line of sight is required (cover still wins, the assist can never
+shoot through a wall), and it is switched off for the sniper (a precision
+weapon) and the knife (melee).
+
+Two rules keep it from ever making a shot *worse* than the one you took:
+
+* it aims at the point of the body the crosshair is closest to, not a fixed
+  chest height, so a head-level shot is never dragged onto the shoulders;
+* once the crosshair is on the body it only corrects **sideways**.
+
+Tune the levels in `AIM_ASSIST_LEVELS` in `shared/constants.js`; the maths lives
+in `shared/aimassist.js` and is unit tested independently of the browser.
+
+### Keybinds
+
+Every gameplay key is an *action*, not a physical key: `public/js/keybinds.js`
+maps actions (`jump`, `sprint`, `reload`, …) to keys, and the options screen
+rebinds them. Bindings are stored in `localStorage`, survive a reload, and the
+controls card on the title screen always shows the keys you actually have bound.
+The arrow keys stay available for movement whatever you bind, and ESC and the
+number keys cannot be stolen (the menu and the weapon slots need them).
+
+## Maps
+
+Two arenas, picked when you hit DEPLOY. The drop-zone screen lists both with
+**live player counts**, so you can see where the game is before you commit.
+
+| Map | Size | Feel |
+| --- | --- | --- |
+| **BROKEN SKY** | 240 × 240 m | the floating forest plateau: mesas, ridges, a lake, an industrial annex |
+| **PINE HOLLOW** | 96 × 96 m | a walled forest bowl: a stone keep in the middle, four cover clusters, 8 spawns |
+
+Each map is its own room on the server: its own player list, spawns and
+collision, and a shot fired in one room never reaches the other. The all-time
+leaderboard is shared. `/api/status` reports the count per map.
+
+## Network play
+
+The thing that makes an online shooter feel broken is a shot that visibly hit
+not counting. Three things keep that from happening:
+
+* **40 Hz snapshots, 30 Hz position reports** — twice the old rate, so other
+  players are sampled finely enough to draw smoothly.
+* **Interpolation on the client.** Remote players are drawn a short, adaptive
+  delay in the past and interpolated between two real snapshots (with a brief
+  extrapolation if a packet is late), instead of sliding toward the last known
+  spot. That is what stops them from hop-and-freezing — the "teleporting" look.
+* **Lag compensation on the server.** Every shot is resolved against both the
+  target's live capsule *and* where they were when the shooter pulled the
+  trigger (`rtt/2` plus a little smoothing, capped at 260 ms), and whichever is
+  closer wins. A shot that looks right on your screen lands.
+
+Position reports are validated against a **movement budget** rather than a
+per-packet distance: packets arrive in bursts on a real network, and measuring
+each one against its own arrival time used to flag honest sprinting as a
+teleport. Genuine teleports are still refused, and small corrections are ignored
+client-side so a stray packet never snaps you across the map.
 
 ## Movement
 
@@ -361,7 +413,7 @@ nothing"). The build id is also shown in the bottom-right of the title screen an
 sent as an `X-Skyfall-Build` header, and the client flags a mismatch on screen if
 it ever sees one.
 
-If a menu button ever seems dead, check the tag: `build <id> · forest v16`
+If a menu button ever seems dead, check the tag: `build <id> · forest v17`
 means the current code is running. Press `Ctrl/Cmd + Shift + R` to force a fresh
 load.
 

@@ -18,7 +18,7 @@ async function test(name, fn) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function client(name) {
+function client(name, map = null) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
     const inbox = [];
@@ -32,7 +32,7 @@ function client(name) {
     });
     ws.on('error', reject);
     ws.on('open', () => {
-      ws.send(JSON.stringify({ t: 'join', name }));
+      ws.send(JSON.stringify({ t: 'join', name, ...(map ? { map } : {}) }));
       resolve({
         ws,
         inbox,
@@ -202,6 +202,51 @@ await test('the all-time leaderboard is served and records a death', async () =>
   assert.ok(row.deaths >= 1, `the death was recorded (${row.deaths})`);
   a.ws.close();
   await sleep(150);
+});
+
+await test('the two maps are separate rooms with live player counts', async () => {
+  const before = await (await fetch(`${BASE}/api/status`)).json();
+  assert.ok(before.maps, 'status reports per-map counts');
+  assert.equal(typeof before.maps.big, 'number');
+  assert.equal(typeof before.maps.small, 'number');
+  assert.equal(before.mapList.length, 2);
+  assert.notEqual(before.mapList[0].name, before.mapList[1].name);
+
+  const big = await client('BIGROOM', 'big');
+  const bigWelcome = await big.waitFor((m) => m.t === 'welcome');
+  assert.equal(bigWelcome.map, 'big', 'the welcome names the room');
+
+  const small = await client('SMALLROOM', 'small');
+  const smallWelcome = await small.waitFor((m) => m.t === 'welcome');
+  assert.equal(smallWelcome.map, 'small');
+  assert.equal(smallWelcome.players.length, 0, 'the small room is empty: they cannot see each other');
+  // spawned inside the smaller arena
+  assert.ok(Math.abs(smallWelcome.you.pos[0]) <= 48 && Math.abs(smallWelcome.you.pos[2]) <= 48,
+    `spawn ${smallWelcome.you.pos.join(',')}`);
+
+  await sleep(150);
+  const during = await (await fetch(`${BASE}/api/status`)).json();
+  assert.ok(during.maps.big >= 1, 'a body in the big room');
+  assert.ok(during.maps.small >= 1, 'a body in the small room');
+  assert.equal(during.players.find((p) => p.name === 'SMALLROOM').map, 'small');
+
+  // a shot fired in one room does not reach the other
+  const smallShots = small.of('shot').length;
+  big.send({ t: 'fire', dir: [0, 0, -1] });
+  await sleep(200);
+  assert.equal(small.of('shot').length, smallShots, 'rooms are isolated');
+
+  big.ws.close();
+  small.ws.close();
+  await sleep(150);
+});
+
+await test('an unknown map falls back to the big one', async () => {
+  const c = await client('LOSTBOI', 'nowhere');
+  const w = await c.waitFor((m) => m.t === 'welcome');
+  assert.equal(w.map, 'big');
+  c.ws.close();
+  await sleep(120);
 });
 
 await test('a cosmetic is accepted over the wire and locked materials are enforced', async () => {

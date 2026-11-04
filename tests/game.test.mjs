@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { Game } from '../server/game.js';
 import { Leaderboard } from '../server/leaderboard.js';
-import { WEAPONS, RESERVED, CREW_GLOW, COSMETIC } from '../shared/constants.js';
+import { WEAPONS, RESERVED, CREW_GLOW, COSMETIC, NET } from '../shared/constants.js';
 import { rayAABB, rayCapsule, solidAABBs } from '../shared/collision.js';
 import ARENA from '../shared/map.js';
 
@@ -421,6 +421,124 @@ await test('the crew code keeps the name and lights the player up', () => {
   assert.equal(p.crew, true);
   assert.equal(p.color, CREW_GLOW);
   assert.equal(game.pub(p).crew, true, 'the snapshot carries the crew flag');
+});
+
+
+// ---------------------------------------------------------------- netcode
+
+// Two players in the open lane used by the rest of this file (x = 31).
+function duel() {
+  const game = new Game();
+  const sa = fakeSocket();
+  const sb = fakeSocket();
+  const a = game.addPlayer(sa, 'SHOOTER');
+  const b = game.addPlayer(sb, 'TARGET');
+  game.broadcast = () => {};
+  a.pos = [31, 0.01, -58]; a.yaw = 0; a.pitch = 0; a.weapon = 0;
+  b.pos = [31, 0.01, -70];
+  return { game, a, b, sa, sb };
+}
+
+await test('a shot lands where the target was, not only where it is', () => {
+  const { game, a, b, sb } = duel();
+  // The target was standing in the line of fire a moment ago and has since
+  // sprinted sideways out of it.
+  const t = Date.now();
+  b.pos = [31, 0.01, -70];
+  game.recordHistory(t - 240);
+  game.recordHistory(t - 120);
+  b.pos = [40, 0.01, -70];
+  game.recordHistory(t - 40);
+
+  // a slow link: the shooter is seeing the world ~160 ms in the past
+  a.rtt = 200;
+  a.lastShot[0] = 0;
+  sb.sent.length = 0;
+  game.onFire(a, { dir: [0, 0, -1] });
+
+  const hit = sb.sent.find((m) => m.t === 'damaged');
+  assert.ok(hit, 'the target is told it was hit');
+  assert.equal(b.hp, 100 - hit.dmg, `the rewound capsule was hit (hp ${b.hp})`);
+  assert.ok(hit.dmg >= WEAPONS[0].damage, `a real hit (${hit.dmg})`);
+});
+
+await test('without the rewind the same shot misses, which is the bug it fixes', () => {
+  const { game, a, b } = duel();
+  const t = Date.now();
+  b.pos = [31, 0.01, -70];
+  game.recordHistory(t - 240);
+  game.recordHistory(t - 120);
+  b.pos = [40, 0.01, -70];
+  game.recordHistory(t - 40);
+
+  a.rtt = 0;                 // a perfect link: nothing to compensate for
+  a.lastShot[0] = 0;
+  game.onFire(a, { dir: [0, 0, -1] });
+  assert.equal(b.hp, 100, 'the live capsule is no longer in the way');
+});
+
+await test('the rewind never reaches further back than the cap', () => {
+  const game = new Game();
+  const p = game.addPlayer(fakeSocket(), 'SLOWPOKE');
+  p.rtt = 4000;
+  const back = Date.now() - game.rewindTimeFor(p);
+  assert.ok(back <= NET.LAG_COMP_MAX_MS + 20, `rewound ${back.toFixed(0)} ms`);
+  p.rtt = 40;
+  const small = Date.now() - game.rewindTimeFor(p);
+  assert.ok(small > 0 && small < back, 'a fast link rewinds less');
+});
+
+await test('positions between snapshots are interpolated, not snapped', () => {
+  const game = new Game();
+  const p = game.addPlayer(fakeSocket(), 'WALKER');
+  const t = 100000;
+  p.pos = [0, 0, 0];
+  game.recordHistory(t);
+  p.pos = [10, 0, 0];
+  game.recordHistory(t + 100);
+  const mid = game.positionAt(p.id, t + 50);
+  assert.ok(Math.abs(mid[0] - 5) < 0.01, `halfway across (${mid[0]})`);
+});
+
+await test('position reports arriving in a burst are not treated as teleports', () => {
+  const { game, a, sa } = duel();
+  const corrected = () => sa.sent.filter((m) => m.t === 'correct').length;
+
+  // a steady report, then a hitch where two frames of movement land together
+  game.onInput(a, { p: [31, 0.01, -58], yaw: 0 });
+  assert.equal(corrected(), 0);
+  sa.sent.length = 0;
+  // 250 ms of sprinting shows up at once, then the next report is 1 ms later
+  a.lastInputAt = Date.now() - 250;
+  game.onInput(a, { p: [31, 0.01, -60.5], yaw: 0 });
+  game.onInput(a, { p: [31, 0.01, -63], yaw: 0 });
+  assert.equal(corrected(), 0, 'honest movement is never corrected');
+  assert.ok(Math.abs(a.pos[2] + 63) < 0.01, 'both reports were kept');
+});
+
+await test('a genuine teleport is still refused', () => {
+  const { game, a, sa } = duel();
+  game.onInput(a, { p: [31, 0.01, -58], yaw: 0 });
+  sa.sent.length = 0;
+  game.onInput(a, { p: [31, 0.01, -180], yaw: 0 });
+  assert.ok(sa.sent.some((m) => m.t === 'correct'), 'the jump is rejected');
+  assert.ok(a.pos[2] > -70, 'and clamped back toward the last good position');
+});
+
+await test('snapshots go out faster than they used to', () => {
+  assert.ok(NET.TICK_HZ >= 40, `tick rate ${NET.TICK_HZ} Hz`);
+  assert.ok(NET.INPUT_HZ >= 30, `input rate ${NET.INPUT_HZ} Hz`);
+});
+
+await test('each map is its own room, with its own spawns', () => {
+  const big = new Game({ map: 'big' });
+  const small = new Game({ map: 'small' });
+  assert.equal(big.mapId, 'big');
+  assert.equal(small.mapId, 'small');
+  assert.notEqual(big.arena.size, small.arena.size);
+  const p = small.addPlayer(fakeSocket(), 'SMALLER');
+  assert.ok(Math.abs(p.pos[0]) <= small.arena.size / 2, 'spawned inside the small map');
+  assert.equal(big.players.size, 0, 'the other room is untouched');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

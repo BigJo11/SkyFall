@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WEAPONS, PLAYER, NET, MOVE, RESERVED, CREW_GLOW, COSMETIC, isHeadHit, headshotDamage } from '../../shared/constants.js';
+import { WEAPONS, PLAYER, NET, MOVE, RESERVED, CREW_GLOW, COSMETIC, isHeadHit, headshotDamage, AIM_ASSIST, AIM_ASSIST_LEVELS, AIM_ASSIST_DEFAULT, aimAssistConfig } from '../../shared/constants.js';
 import { aimAssist, weaponHasAssist } from '../../shared/aimassist.js';
 import { raycastAABBs, rayCapsule } from '../../shared/collision.js';
 import { buildWorld } from './world.js';
@@ -13,6 +13,8 @@ import { Effects } from './effects.js';
 import { sfx } from './audio.js';
 import { PracticeMode, Tutorial, PRACTICE_SPAWN } from './practice.js';
 import { renderEntry, renderTabs, DEFAULT_ENTRY, LATEST_VERSION } from './updates.js';
+import { ACTIONS, DEFAULT_BINDS, keyLabel, assign, normalise, reserved, ownerOf } from './keybinds.js';
+import { MAP_LIST, DEFAULT_MAP, mapById } from '../../shared/map.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -71,7 +73,9 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(88, 1, 0.06, 2000);
 camera.rotation.order = 'YXZ';
 
-const world = buildWorld(renderer, scene, camera);
+// The title backdrop always shows the big plateau; the arena is rebuilt when a
+// player drops into a different map.
+let world = buildWorld(renderer, scene, camera, DEFAULT_MAP);
 const body = new Body(world.solids);
 const input = new Input(canvas);
 const net = new Net();
@@ -94,13 +98,25 @@ const store = {
   },
 };
 
+// Value is stored as JSON; anything unreadable falls back quietly.
+function readJson(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw == null ? fallback : JSON.parse(raw);
+  } catch { return fallback; }
+}
+
 // ---------------------------------------------------------------- settings
 const settings = {
   sens: Number(store.get('skyfall.sens', 1)) || 1,
   volume: Number(store.get('skyfall.volume', 0.7)),
   fov: Number(store.get('skyfall.fov', 88)) || 88,
+  aimAssist: store.get('skyfall.aimAssist', AIM_ASSIST_DEFAULT),
+  map: store.get('skyfall.map', DEFAULT_MAP),
+  binds: normalise(readJson('skyfall.binds', {})),
 };
 sfx.volume = settings.volume;
+input.setBinds(settings.binds);
 
 const state = {
   phase: 'title',       // title | loading | playing | dead
@@ -139,6 +155,8 @@ const state = {
   updatesEntry: null,          // which changelog tab the panel is showing
   cosmetic: { ...COSMETIC.default },
   leaderboard: [],
+  mapList: [],                 // [{id,name,blurb,players}] from the server
+  map: DEFAULT_MAP,
   firedSinceSwitch: false,
   lastKiller: null,
   deathWeapon: null,
@@ -151,7 +169,7 @@ let session = null;
 // Build stamp: makes it obvious which version the browser actually loaded, and
 // catches the classic "new page, old cached scripts" situation where every
 // button appears dead.
-const BUILD = 'forest v16';
+const BUILD = 'forest v17';
 
 function detectStaleBuild() {
   try {
@@ -279,7 +297,8 @@ function aimAssistResult(dir = aimDirection()) {
   return aimAssist(
     [camera.position.x, camera.position.y, camera.position.z],
     dir,
-    assistCandidates(Math.min(w.range, 95)),
+    assistCandidates(Math.min(w.range, AIM_ASSIST.range)),
+    aimAssistConfig(settings.aimAssist),
   );
 }
 
@@ -456,8 +475,8 @@ function handleGameplayInput(now, dt) {
   if (input.wheel !== 0) {
     switchWeapon((state.weapon + (input.wheel > 0 ? 1 : WEAPONS.length - 1)) % WEAPONS.length);
   }
-  if (input.pressed('KeyR')) startReload();
-  if (input.pressed('KeyQ')) {
+  if (input.actionPressed('reload')) startReload();
+  if (input.actionPressed('swap')) {
     // last weapon
     if (state.lastWeapon != null) switchWeapon(state.lastWeapon);
   }
@@ -483,11 +502,9 @@ function handleGameplayInput(now, dt) {
   // Jump: a fresh press always jumps. HOLDING the key keeps hopping as soon as
   // you touch down, so sprinting and spamming space never eats an input.
   const canAct = state.alive && !state.paused;
-  body.jumpHeld = canAct && input.down('Space');
-  if (input.pressed('Space') && canAct) body.wantJump = true;
-  if (input.pressed('KeyC') || input.pressed('ControlLeft') || input.pressed('ControlRight')) {
-    if (state.alive && !state.paused) body.wantSlide = true;
-  }
+  body.jumpHeld = canAct && input.actionDown('jump');
+  if (input.actionPressed('jump') && canAct) body.wantJump = true;
+  if (input.actionPressed('slide') && canAct) body.wantSlide = true;
 
   if (!state.paused) body.update(dt, wish, state.yaw);
 
@@ -499,7 +516,15 @@ function handleGameplayInput(now, dt) {
   // network position at NET.INPUT_HZ
   if (now - state.lastInputSent > 1000 / NET.INPUT_HZ) {
     state.lastInputSent = now;
-    net.send({ t: 'input', p: [round(body.x), round(body.y), round(body.z)], yaw: state.yaw, pitch: state.pitch });
+    // rtt goes along with every report: the server rewinds moving targets by
+    // half of it before it decides whether a shot connects
+    net.send({
+      t: 'input',
+      p: [round(body.x), round(body.y), round(body.z)],
+      yaw: state.yaw,
+      pitch: state.pitch,
+      rtt: net.rtt,
+    });
   }
 }
 
@@ -526,6 +551,9 @@ function forwardMovementEvents() {
 // local damage. The shared weapon/movement code is reused unchanged.
 function startLocalMode(kind) {
   hideUpdates();
+  hideMapSelect();
+  // practice and tutorial live on the big plateau, whatever map was picked last
+  setWorld(DEFAULT_MAP);
   clearTimeout(connectTimer);
   net.disconnect();
   session?.dispose?.();
@@ -601,12 +629,27 @@ function endLocalMode() {
   state.mode = 'online';
 }
 
+// ---------------------------------------------------------------- maps
+// Swapping arenas means tearing down the old geometry and building the new one;
+// collisions, the practice spawn and everything that raycasts follow along.
+function setWorld(mapId) {
+  const id = mapById(mapId).id;
+  if (world.mapId === id) return;
+  const old = world;
+  world = buildWorld(renderer, scene, camera, id);
+  body.solids = world.solids;
+  old.dispose?.();
+  settings.map = id;
+  store.set('skyfall.map', id);
+  refreshLobby();
+}
+
 // ---------------------------------------------------------------- network
 let lastSnapshotAt = 0;
 
 let connectTimer = null;
 
-function connect(name, code = '', cosmetic = null) {
+function connect(name, code = '', cosmetic = null, map = DEFAULT_MAP) {
   state.phase = 'loading';
   $('title').classList.add('hidden');
   $('loading').classList.remove('hidden');
@@ -616,7 +659,7 @@ function connect(name, code = '', cosmetic = null) {
     if (state.phase === 'loading') leaveToTitle('The server did not respond — is it running?');
   }, 9000);
 
-  net.connect(name, code, cosmetic || state.cosmetic)
+  net.connect(name, code, cosmetic || state.cosmetic, map)
     .then(() => {
       // wait for welcome (handled below)
     })
@@ -630,6 +673,7 @@ function connect(name, code = '', cosmetic = null) {
 
 net.on('welcome', (msg) => {
   clearTimeout(connectTimer);
+  if (msg.map) setWorld(msg.map);
   state.id = msg.id;
   state.name = msg.name;
   state.color = msg.color;
@@ -835,7 +879,13 @@ net.on('reload', (msg) => {
 
 net.on('empty', () => { sfx.empty(); });
 
+// The server only corrects when a position report is impossible. Small
+// corrections are measurement noise (packet jitter), so they are ignored rather
+// than snapped: a visible teleport is worse than a centimetre of drift.
 net.on('correct', (msg) => {
+  const dx = msg.pos[0] - body.x;
+  const dz = msg.pos[2] - body.z;
+  if (Math.hypot(dx, dz) < 1.6) return;
   body.teleport(msg.pos[0], msg.pos[1], msg.pos[2]);
 });
 
@@ -1051,23 +1101,292 @@ function buildCosmeticUI() {
   renderCosmetic();
 }
 
-on('deployBtn', 'click', () => {
+// DEPLOY asks which arena first. The picks carry live player counts, so you can
+// see where the game is before you commit to it.
+function playerCountFor(mapId) {
+  const entry = (state.mapList || []).find((m) => m.id === mapId);
+  return entry && Number.isFinite(entry.players) ? entry.players : 0;
+}
+
+function renderMapCards() {
+  const list = $('mapList');
+  if (!list) return;
+  list.innerHTML = '';
+  for (const m of MAP_LIST) {
+    const n = playerCountFor(m.id);
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'ms-card';
+    card.dataset.map = m.id;
+    card.innerHTML = `<span class="ms-text"><span class="ms-name">${m.name}</span>`
+      + `<span class="ms-blurb">${m.blurb}</span></span>`
+      + `<span class="ms-count"><b data-count="${m.id}">${n}</b>`
+      + `${n === 1 ? ' player' : ' players'}</span>`;
+    card.addEventListener('click', () => joinOnline(m.id));
+    list.appendChild(card);
+  }
+}
+
+function mapSelectOpen() {
+  const el = $('mapSelect');
+  return !!el && !el.classList.contains('hidden');
+}
+
+function showMapSelect() {
+  if (state.phase !== 'title') return;
+  hideUpdates();
+  hideOptions();
+  renderMapCards();
+  $('mapSelect').classList.remove('hidden');
+  refreshLobby();
+}
+
+function hideMapSelect() {
+  $('mapSelect')?.classList.add('hidden');
+}
+
+// only refresh the numbers in place while the panel is open, so a click never
+// lands on a card that was just rebuilt underneath the pointer
+function updateMapCounts() {
+  for (const m of MAP_LIST) {
+    const el = document.querySelector(`[data-count="${m.id}"]`);
+    if (!el) continue;
+    const n = playerCountFor(m.id);
+    el.textContent = String(n);
+    const tail = el.parentElement;
+    if (tail) tail.childNodes[tail.childNodes.length - 1].textContent = n === 1 ? ' player' : ' players';
+  }
+}
+
+function joinOnline(mapId) {
   const name = ($('nameInput').value || '').trim().toUpperCase() || `PLAYER ${Math.floor(Math.random() * 900 + 100)}`;
   if (RESERVED.isReserved(name) && !crewUnlocked()) {
     titleNotice('THAT CALLSIGN IS TAKEN');
+    hideMapSelect();
     return;
   }
+  hideMapSelect();
   hideUpdates();
   store.set('skyfall.name', name);
   state.name = name;
   state.crew = crewUnlocked();
+  state.map = mapId;
+  setWorld(mapId);
   sfx.init();
   sfx.resume();
-  connect(name, state.crew ? RESERVED.code : '', state.cosmetic);
+  connect(name, state.crew ? RESERVED.code : '', state.cosmetic, mapId);
+}
+
+on('deployBtn', 'click', () => {
+  // the callsign is checked before the map picker: it is about the name, and
+  // bouncing halfway through the flow is worse than saying it up front
+  const name = ($('nameInput').value || '').trim().toUpperCase();
+  if (name && RESERVED.isReserved(name) && !crewUnlocked()) {
+    titleNotice('THAT CALLSIGN IS TAKEN');
+    return;
+  }
+  sfx.init();
+  sfx.resume();
+  showMapSelect();
 });
+on('mapClose', 'click', () => hideMapSelect());
 
 on('nameInput', 'keydown', (e) => {
   if (e.key === 'Enter') $('deployBtn').click();
+});
+
+
+// ------------------------------------------------------------ options panel
+// Everything that used to be pause-menu-only lives here too, because the main
+// menu is where people look for it. Keybinds included.
+let rebinding = null;         // action id currently waiting for a key
+
+function optionsOpen() {
+  const el = $('options');
+  return !!el && !el.classList.contains('hidden');
+}
+
+function assistLevel() {
+  return AIM_ASSIST_LEVELS.find((l) => l.id === settings.aimAssist) || AIM_ASSIST_LEVELS[1];
+}
+
+function renderAssistChips() {
+  const wrap = $('assistChips');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  for (const level of AIM_ASSIST_LEVELS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `op-chip${level.id === settings.aimAssist ? ' active' : ''}`;
+    b.dataset.assist = level.id;
+    b.textContent = level.name;
+    b.addEventListener('click', () => setAimAssist(level.id));
+    wrap.appendChild(b);
+  }
+  const hint = $('assistHint');
+  if (hint) hint.textContent = `${assistLevel().name.toLowerCase()} — ${assistLevel().blurb}`;
+}
+
+function setAimAssist(levelId) {
+  settings.aimAssist = levelId;
+  store.set('skyfall.aimAssist', levelId);
+  renderAssistChips();
+}
+
+// The title screen lists the keys the player actually has bound, so a rebind
+// never leaves the controls card lying.
+function renderKeyList() {
+  const list = $('keysList');
+  if (!list) return;
+  const k = (a) => keyLabel(settings.binds[a]);
+  const move = `${k('forward')}${k('left')}${k('back')}${k('right')}`;
+  const rows = [
+    [`${move}`, 'move'],
+    [k('sprint'), 'sprint'],
+    [k('jump'), 'jump · double jump · wall kick'],
+    [k('jump'), 'on touchdown keeps your speed'],
+    [k('slide'), 'slide (while sprinting)'],
+    ['WALLS', 'run along them in the air'],
+    ['LMB', 'fire'],
+    ['RMB', 'scope (sniper)'],
+    ['1 2 3 4', 'or WHEEL weapons'],
+    [k('reload'), 'reload'],
+    [`${k('scoreboard')} / ${k('leaderboard')}`, 'scoreboard · leaderboard'],
+    [k('pause'), 'pause'],
+  ];
+  list.innerHTML = rows
+    .map(([key, what]) => `<li><b>${key}</b> ${what}</li>`)
+    .join('');
+}
+
+function renderBinds() {
+  const wrap = $('bindList');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  for (const action of ACTIONS) {
+    const row = document.createElement('div');
+    row.className = 'bind-row';
+    const label = document.createElement('span');
+    label.className = 'bind-label';
+    label.textContent = action.label;
+    const key = document.createElement('button');
+    key.type = 'button';
+    key.className = `bind-key${rebinding === action.id ? ' listening' : ''}`;
+    key.dataset.bind = action.id;
+    key.textContent = rebinding === action.id ? 'PRESS A KEY…' : keyLabel(settings.binds[action.id]);
+    key.addEventListener('click', () => listenForBind(action.id));
+    row.appendChild(label);
+    row.appendChild(key);
+    wrap.appendChild(row);
+  }
+}
+
+function listenForBind(actionId) {
+  rebinding = actionId;
+  renderBinds();
+}
+
+function captureBind(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.code === 'Escape') { rebinding = null; renderBinds(); return; }
+  if (reserved(e.code)) {
+    titleNotice('THAT KEY IS RESERVED');
+    return;
+  }
+  const owner = ownerOf(settings.binds, e.code, rebinding);
+  if (owner) titleNotice(`${keyLabel(e.code)} WAS ${owner.label} — SWAPPED`);
+  settings.binds = assign(settings.binds, rebinding, e.code);
+  store.set('skyfall.binds', JSON.stringify(settings.binds));
+  input.setBinds(settings.binds);
+  rebinding = null;
+  renderBinds();
+  renderKeyList();
+  sfx.init();
+  sfx.objectiveDone?.();
+}
+
+function resetBinds() {
+  settings.binds = { ...DEFAULT_BINDS };
+  store.set('skyfall.binds', JSON.stringify(settings.binds));
+  input.setBinds(settings.binds);
+  rebinding = null;
+  renderBinds();
+  renderKeyList();
+}
+
+function syncOptionSliders() {
+  const pairs = [
+    ['optSens', settings.sens, (v) => Number(v).toFixed(2)],
+    ['optFov', settings.fov, (v) => `${Math.round(v)}°`],
+    ['optVol', settings.volume, (v) => `${Math.round(v * 100)}%`],
+  ];
+  for (const [id, value, fmt] of pairs) {
+    const el = $(id);
+    if (el) el.value = value;
+    const out = $(`${id}Out`);
+    if (out) out.textContent = fmt(value);
+  }
+}
+
+function showOptions() {
+  if (state.phase !== 'title') return;
+  hideUpdates();
+  hideMapSelect();
+  rebinding = null;
+  renderAssistChips();
+  renderBinds();
+  syncOptionSliders();
+  $('options').classList.remove('hidden');
+}
+
+function hideOptions() {
+  rebinding = null;
+  $('options')?.classList.add('hidden');
+}
+
+function toggleOptions() {
+  if (optionsOpen()) hideOptions();
+  else showOptions();
+}
+
+renderKeyList();
+
+on('optionsBtn', 'click', () => { sfx.init(); sfx.resume(); showOptions(); });
+on('optionsClose', 'click', () => hideOptions());
+on('bindReset', 'click', () => resetBinds());
+
+// sliders: the options panel and the pause menu share one set of settings
+function bindOptionSlider(id, apply) {
+  const el = $(id);
+  if (!el) return;
+  el.addEventListener('input', () => {
+    apply(Number(el.value));
+    const out = $(`${id}Out`);
+    if (out) out.textContent = id === 'optSens' ? Number(el.value).toFixed(2)
+      : id === 'optFov' ? `${Math.round(el.value)}°` : `${Math.round(el.value * 100)}%`;
+    syncOptionSliders();
+  });
+}
+
+bindOptionSlider('optSens', (v) => {
+  settings.sens = v;
+  store.set('skyfall.sens', String(v));
+  sensRange.value = v;
+  $('sensOut').textContent = v.toFixed(2);
+});
+bindOptionSlider('optFov', (v) => {
+  settings.fov = v;
+  store.set('skyfall.fov', String(v));
+  fovRange.value = v;
+  $('fovOut').textContent = `${Math.round(v)}°`;
+});
+bindOptionSlider('optVol', (v) => {
+  settings.volume = v;
+  sfx.setVolume(v);
+  store.set('skyfall.volume', String(v));
+  volRange.value = v;
+  $('volOut').textContent = `${Math.round(v * 100)}%`;
 });
 
 // ------------------------------------------------------------ crew code
@@ -1242,31 +1561,39 @@ canvas.addEventListener('mousedown', () => {
 });
 
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Escape') {
+  // A keybind capture owns the keyboard until it resolves.
+  if (rebinding) { captureBind(e); return; }
+
+  if (input.matches(e.code, 'pause')) {
+    if (optionsOpen()) { hideOptions(); return; }
+    if (mapSelectOpen()) { hideMapSelect(); return; }
     if (updatesOpen()) { hideUpdates(); return; }
     if (state.phase === 'title') return;
     if (state.paused) hidePause();
     else showPause();
+    return;
   }
-  if (e.code === 'Tab' && state.phase !== 'title') {
+  if (input.matches(e.code, 'scoreboard') && state.phase !== 'title') {
     state.shownScoreboard = true;
   }
-  if (e.code === 'KeyL' && state.phase !== 'title') {
+  if (input.matches(e.code, 'leaderboard') && state.phase !== 'title') {
     state.shownLeaderboard = !state.shownLeaderboard;
     refreshLeaderboard();
   }
-  if (e.code === 'KeyU' && state.phase === 'title' && !fieldFocused()) toggleUpdates();
-  if (e.code === 'KeyN' && state.mode === 'tutorial' && !state.paused) {
+  if (input.matches(e.code, 'updates') && state.phase === 'title' && !fieldFocused()) toggleUpdates();
+  if (input.matches(e.code, 'skip') && state.mode === 'tutorial' && !state.paused) {
     session?.skipStep?.();
   }
-  if (e.code === 'KeyM') {
+  if (input.matches(e.code, 'mute')) {
     sfx.setVolume(settings.volume = settings.volume > 0 ? 0 : 0.7);
     volRange.value = settings.volume;
     $('volOut').textContent = Math.round(settings.volume * 100) + '%';
+    const optVol = $('optVol');
+    if (optVol) { optVol.value = settings.volume; $('optVolOut').textContent = Math.round(settings.volume * 100) + '%'; }
   }
 });
 window.addEventListener('keyup', (e) => {
-  if (e.code === 'Tab') state.shownScoreboard = false;
+  if (input.matches(e.code, 'scoreboard')) state.shownScoreboard = false;
 });
 
 document.addEventListener('visibilitychange', () => {
@@ -1297,11 +1624,14 @@ async function refreshLobby() {
   try {
     const res = await fetch('/api/status', { cache: 'no-store' });
     const data = await res.json();
+    if (Array.isArray(data.mapList)) state.mapList = data.mapList;
+    if (mapSelectOpen()) updateMapCounts();
     const dot = $('srvDot');
     dot.className = 'dot on';
     const list = data.players || [];
+    const here = list.filter((p) => !p.map || p.map === settings.map).length;
     $('srvStatus').textContent = list.length
-      ? `${list.length} player${list.length === 1 ? '' : 's'} in the arena`
+      ? `${list.length} online · ${here} on this map`
       : 'server online — be the first in';
     $('lobbyList').innerHTML = list.length
       ? list.map((p) => `<span class="chip">${escape(p.name)} · ${p.kills}K</span>`).join('')
@@ -1442,9 +1772,13 @@ requestAnimationFrame(frame);
 
 // Small debug handle: handy in the console, and used by the automated tests.
 window.SKYFALL = {
-  state, hud, net, body, camera, avatars, viewmodel, effects, world, settings, input, scene,
+  state, hud, net, body, camera, avatars, viewmodel, effects, settings, input, scene,
   get cosmetic() { return state.cosmetic; },
   showUpdates, hideUpdates, updatesOpen,
+  showOptions, hideOptions, optionsOpen,
+  showMapSelect, hideMapSelect, mapSelectOpen, joinOnline,
+  get world() { return world; },
+  setWorld,
   weaponAccent: () => viewmodel.accent,
   applyCosmetic, renderCosmetic,
   get session() { return session; },

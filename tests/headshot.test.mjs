@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import {
   WEAPONS, WEAPON_BY_ID, PLAYER, HEADSHOT, AIM_ASSIST,
+  AIM_ASSIST_LEVELS, aimAssistConfig,
   isHeadHit, headshotDamage,
 } from '../shared/constants.js';
 import { aimAssist, angleBetween, weaponHasAssist } from '../shared/aimassist.js';
@@ -187,6 +188,85 @@ test('assist works vertically too (high ground, targets below)', () => {
   assert.ok(res.dir[1] < dir[1], 'pitched down');
   const after = angleBetween(res.dir, [0, Math.sin(ideal), -Math.cos(ideal)]);
   assert.ok(after * RAD < 1.5, `closer than the ${(1.5).toFixed(1)} deg it started at`);
+});
+
+
+// The assist setting: three honest levels, and the promise that it never turns
+// a good shot into a bad one.
+test('the assist levels are off, slight and strong, and off is really off', () => {
+  assert.deepEqual(AIM_ASSIST_LEVELS.map((l) => l.id), ['off', 'slight', 'strong']);
+  const off = aimAssistConfig('off');
+  assert.equal(off.enabled, false);
+  const origin = [0, PLAYER.eye, 0];
+  const target = { id: 4, pos: [0, 0, -20] };
+  const res = aimAssist(origin, heading(2), [target], off);
+  assert.equal(res.pullDeg, 0, 'off means no magnetism at all');
+  assert.equal(res.targetId, null);
+});
+
+test('strong pulls harder than slight and keeps the same rules', () => {
+  const origin = [0, PLAYER.eye, 0];
+  const target = { id: 5, pos: [0, 0, -24] };
+  const aim = heading(3);
+  const slight = aimAssist(origin, aim, [target], aimAssistConfig('slight'));
+  const strong = aimAssist(origin, aim, [target], aimAssistConfig('strong'));
+  assert.ok(slight.pullDeg > 0 && strong.pullDeg > 0, 'both help');
+  assert.ok(strong.pullDeg > slight.pullDeg,
+    `strong ${strong.pullDeg.toFixed(2)} deg vs slight ${slight.pullDeg.toFixed(2)}`);
+  assert.ok(strong.pullDeg <= aimAssistConfig('strong').maxPullDeg + 1e-9, 'still capped');
+  const far = heading(30);
+  assert.equal(aimAssist(origin, far, [target], aimAssistConfig('strong')).pullDeg, 0,
+    'even strong has a cone');
+});
+
+test('the assist never drags a headshot down into the shoulders', () => {
+  // A target 14 m away, aimed at the head. The pull must never lower the shot:
+  // turning a headshot into a body shot is worse than no assist at all.
+  const origin = [0, PLAYER.eye, 0];
+  const feet = [0, 0, -14];
+  const headY = feet[1] + PLAYER.height - HEADSHOT.zoneHeight / 2;
+  const hitYFor = (dir) => origin[1] + (dir[1] / Math.abs(dir[2])) * 14;
+  for (const offBy of [-1.2, -0.6, 0, 0.6, 1.2]) {
+    for (const drift of [-1.5, 0, 1.5]) {
+      const pitch = Math.atan2(headY - origin[1], 14) + offBy * DEG;
+      const yaw = drift * DEG;
+      const dir = [
+        Math.sin(yaw) * Math.cos(pitch),
+        Math.sin(pitch),
+        -Math.cos(yaw) * Math.cos(pitch),
+      ];
+      const rawY = hitYFor(dir) - feet[1];
+      for (const level of ['slight', 'strong']) {
+        const res = aimAssist(origin, dir, [{ id: 9, pos: feet }], aimAssistConfig(level));
+        assert.ok(res.targetId === 9, 'target acquired');
+        const bentY = hitYFor(res.dir) - feet[1];
+        // Once the crosshair is on the body the assist only corrects sideways.
+        // A shot sailing over the head may still be pulled down onto it — that
+        // is help, not harm — so only shots that already cross the body are
+        // held to the "never lower it" rule.
+        const onBody = rawY > 0.05 && rawY < PLAYER.height - 0.05;
+        if (onBody) {
+          assert.ok(bentY >= rawY - 0.02,
+            `${level} at ${offBy}/${drift} deg does not drag an on-body shot down (${rawY.toFixed(2)} -> ${bentY.toFixed(2)})`);
+        }
+        if (isHeadHit(rawY)) {
+          assert.ok(isHeadHit(bentY),
+            `${level} at ${offBy}/${drift} deg keeps a headshot a headshot (${bentY.toFixed(2)} m up)`);
+        }
+      }
+    }
+  }
+});
+
+test('a chest shot stays a chest shot under the assist', () => {
+  const origin = [0, PLAYER.eye, 0];
+  const feet = [0, 0, -14];
+  const chestY = feet[1] + 0.95;
+  const pitch = Math.atan2(chestY - origin[1], 14) + 1 * DEG;
+  const dir = [0, Math.sin(pitch), -Math.cos(pitch)];
+  const res = aimAssist(origin, dir, [{ id: 10, pos: feet }], aimAssistConfig('slight'));
+  const hitY = origin[1] + (res.dir[1] / Math.abs(res.dir[2])) * 14;
+  assert.equal(isHeadHit(hitY - feet[1]), false, 'not promoted into a headshot either');
 });
 
 for (const [name, fn] of tests) {

@@ -6,7 +6,7 @@
 // here as instanced geometry so the whole map still costs a handful of draw
 // calls.
 import * as THREE from 'three';
-import ARENA from '../../shared/map.js';
+import ARENA, { mapById, DEFAULT_MAP } from '../../shared/map.js';
 import { solidAABBs } from '../../shared/collision.js';
 import { cloudTexture, softCircleTexture } from './textures.js';
 
@@ -17,7 +17,10 @@ const SKY_LOW = 0xd7e7ee;
 const LEAF_TINTS = [0x3f7a35, 0x4b8a3c, 0x336a2e, 0x577f38];
 const PINE_TINTS = [0x2c5c31, 0x356b37, 0x27502c];
 
-export function buildWorld(renderer, scene, camera) {
+export function buildWorld(renderer, scene, camera, mapId = DEFAULT_MAP) {
+  // The map is a parameter now: the same builder dresses either arena.
+  const ARENA = mapById(mapId);
+  const before = new Set(scene.children);
   const palette = ARENA.sky || {};
   scene.fog = new THREE.Fog(palette.fog ?? 0xc3d8e4, 240, 760);
 
@@ -558,10 +561,29 @@ export function buildWorld(renderer, scene, camera) {
     sun.target.updateMatrixWorld();
   }
 
+  // Everything this call added to the scene, so switching maps can tear the old
+  // arena down cleanly instead of stacking two worlds in the same place.
+  const added = scene.children.filter((o) => !before.has(o));
+  const dispose = () => {
+    for (const obj of added) {
+      scene.remove(obj);
+      obj.traverse?.((o) => {
+        o.geometry?.dispose?.();
+        const mat = o.material;
+        if (Array.isArray(mat)) mat.forEach((m) => m?.dispose?.());
+        else mat?.dispose?.();
+      });
+    }
+    // fog belongs to the scene, not to the arena: the next buildWorld sets its
+    // own before the old one is torn down, so leave it alone here
+  };
+
   return {
     scene,
     solids,
     update,
+    dispose,
+    mapId,
     sunDir: skyMat.uniforms.sunDir.value.clone(),
     trees: trunks,
     half: HALF,
