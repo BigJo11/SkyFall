@@ -149,6 +149,9 @@ export const MOVE = {
   // is readable instead of frame-perfect.
   landJumpWindow: 0.22,     // press within this many seconds of hitting the
                             // floor and the jump waits for touchdown
+  jumpBufferWindow: 0.5,    // a press made in the air with no double jump left
+                            // waits this long for touchdown, so a jump tapped
+                            // anywhere in a hop is still felt when you land.
   landWindow: 0.18,         // press this soon after touchdown and you keep it
   landKeepBonus: 1.02,      // a timed landing jump keeps 100% + a nudge
 

@@ -426,20 +426,24 @@ export class Body {
         this.slideTime = 0;
         this.events.jumped = true;
         if (this.isSprintJump(wish, startSpeed)) this.events.sprintJump = true;
-      } else if (this.airJumps > 0) {
-        // pressing jump in the last moments of a fall queues the jump for
-        // touchdown instead of burning the double jump on nothing
+      } else {
+        // Airborne press. A double jump fires right away; anything else is
+        // queued for touchdown instead of being thrown away. That matters most
+        // with no double jump left: hopping along at a sprint you are off the
+        // ground more often than not, and a press made in one of those frames
+        // used to vanish — which read as "jump does nothing while I run".
         const toFloor = this.vy <= 0 ? this.timeToFloor() : Infinity;
-        if (toFloor <= MOVE.landJumpWindow) {
-          // wait for the floor instead: it becomes a landing jump on contact
-          this.jumpBuffer = Math.max(0.05, toFloor + 0.08);
-          this.events.jumpBuffered = true;
-        } else {
+        if (this.airJumps > 0 && toFloor > MOVE.landJumpWindow) {
           this.airJumps -= 1;
           this.vy = Math.max(this.vy * 0.3, 0) + MOVE.doubleJumpSpeed;
           // a double jump costs you SOME speed, not all of it
           this.scaleHorizontal(MOVE.doubleJumpKeep);
           this.events.doubleJumped = true;
+        } else {
+          // wait for the floor instead: it becomes a jump on contact
+          const wait = Math.min(MOVE.jumpBufferWindow, Math.max(0, toFloor) + 0.08);
+          this.jumpBuffer = Math.max(this.jumpBuffer, wait);
+          this.events.jumpBuffered = true;
         }
       }
     }
