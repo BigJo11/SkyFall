@@ -866,9 +866,10 @@ net.on('shot', (msg) => {
   else effects.impact(to, dir.negate(), 'world');
 });
 
-net.on('pong', (msg) => {
-  const rtt = Date.now() - msg.c;
-  hud.setPingValue(rtt);
+net.on('pong', () => {
+  // the same smoothed round trip the server uses to decide how far back to
+  // rewind a moving target, so the number on screen means something
+  hud.setPingValue(net.rtt);
 });
 
 net.on('reload', (msg) => {
