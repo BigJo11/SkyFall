@@ -129,6 +129,39 @@ test('practice dummies take double damage from a headshot', () => {
   assert.equal(d.hp, before - rifle.damage);
 });
 
+test('the sprint jump step completes from the body alone, with no event', () => {
+  // Regression: a jump that really happened at sprint pace must count even if
+  // the sprintJump event never reaches the tutorial that frame.
+  const ctx = makeCtx();
+  const t = new Tutorial(ctx);
+  t.start();
+  while (TUTORIAL_STEPS[t.step].id !== 'sprintjump') t.advance();
+  assert.equal(TUTORIAL_STEPS[t.step].id, 'sprintjump');
+
+  // a real sprint jump: airborne, rising, fast — but no onEvent call at all
+  const body = ctx.body;
+  body.onGround = false;
+  body.vy = 6.2;
+  body.vx = 9.6;
+  body.vz = 9.6;
+  t.update(1 / 60, 2000, body);
+  assert.equal(TUTORIAL_STEPS[t.step].id, 'doublejump', 'the step advanced from the body state');
+});
+
+test('a slow jump does not count as a sprint jump', () => {
+  const ctx = makeCtx();
+  const t = new Tutorial(ctx);
+  t.start();
+  while (TUTORIAL_STEPS[t.step].id !== 'sprintjump') t.advance();
+  const body = ctx.body;
+  body.onGround = false;
+  body.vy = 6.2;
+  body.vx = 2;
+  body.vz = 1;
+  t.update(1 / 60, 2000, body);
+  assert.equal(TUTORIAL_STEPS[t.step].id, 'sprintjump', 'still waiting for a sprint-speed jump');
+});
+
 test('dead dummies ignore further hits and come back at full health', () => {
   const ctx = makeCtx();
   const p = new PracticeMode(ctx);

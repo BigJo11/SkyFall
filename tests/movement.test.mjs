@@ -467,6 +467,46 @@ test('falling out of the world still works', () => {
 });
 
 
+test('a sprint jump is recognised by speed, not just by the shift bit', () => {
+  const b = player(flatWorld());
+  sim(b, 1.6, fwd(true), Math.PI);
+  const speed = speedOf(b);
+  assert.ok(speed > 9.5, `sprinting at ${speed.toFixed(2)}`);
+
+  // the key state is sampled per frame; carried momentum must still count
+  const wasSprint = b.isSprintJump({ forward: 1, right: 0, sprint: false }, speed);
+  assert.equal(wasSprint, true, 'sprint-speed jump counts even with shift missed');
+
+  // a walking-speed jump without shift is not a sprint jump
+  assert.equal(b.isSprintJump({ forward: 1, right: 0, sprint: false }, 6.5), false);
+  // but holding shift just above walking pace still counts
+  assert.equal(b.isSprintJump({ forward: 1, right: 0, sprint: true }, 7.0), true);
+
+  // and the body really raises the event
+  b.wantJump = true;
+  b.update(DT, { forward: 1, right: 0, sprint: false }, Math.PI);
+  assert.equal(b.events.jumped, true);
+  assert.equal(b.events.sprintJump, true, 'event raised from carried speed');
+  assert.ok(b.vy > 0 && !b.onGround, 'it actually jumped');
+});
+
+test('jumping never loses the press while sprinting forward', () => {
+  // twenty consecutive taps: every single one must leave the ground
+  const b = player(flatWorld());
+  sim(b, 1.5, fwd(true), Math.PI);
+  for (let tap = 0; tap < 20; tap++) {
+    if (!b.onGround) {
+      // wait for the floor, then land into the next tap
+      let guard = 0;
+      while (!b.onGround && guard++ < 400) b.update(DT, fwd(true), Math.PI);
+    }
+    b.wantJump = true;
+    b.update(DT, fwd(true), Math.PI);
+    assert.ok(b.vy > 0 && !b.onGround, `tap ${tap + 1} lifted off (vy ${b.vy.toFixed(2)})`);
+    assert.ok(speedOf(b) > 7.4, `tap ${tap + 1} kept sprint pace (${speedOf(b).toFixed(2)})`);
+  }
+});
+
 console.log('\nmovement feel:');
 
 test('a plain forward jump does not accelerate you in the air', () => {

@@ -207,6 +207,15 @@ export class Body {
     return (vy + Math.sqrt(vy * vy + 2 * g * gap)) / g;
   }
 
+  // Did this jump leave the ground at sprinting pace? Judged by the speed you
+  // actually had, not by whether SHIFT happened to be sampled on that exact
+  // frame — carried momentum from a slide or a wall kick counts too, and a
+  // dropped keydown can never make a sprint jump look like a standing one.
+  isSprintJump(wish, startSpeed) {
+    if (startSpeed > PLAYER.walkSpeed * 1.05) return true;
+    return !!wish.sprint && startSpeed > PLAYER.walkSpeed * 0.9;
+  }
+
   setHorizontal(u) {
     const s = this.horizontalSpeed;
     if (s < 1e-5) return;
@@ -416,7 +425,7 @@ export class Body {
         this.sliding = false;              // jumping out of a slide keeps speed
         this.slideTime = 0;
         this.events.jumped = true;
-        if (wish.sprint && startSpeed > PLAYER.walkSpeed * 0.9) this.events.sprintJump = true;
+        if (this.isSprintJump(wish, startSpeed)) this.events.sprintJump = true;
       } else if (this.airJumps > 0) {
         // pressing jump in the last moments of a fall queues the jump for
         // touchdown instead of burning the double jump on nothing
@@ -444,7 +453,7 @@ export class Body {
       this.sliding = false;
       this.slideTime = 0;
       this.events.jumped = true;
-      this.events.sprintJump = wish.sprint && startSpeed > PLAYER.walkSpeed * 0.9;
+      this.events.sprintJump = this.isSprintJump(wish, startSpeed);
     }
 
     // ---- horizontal motion
