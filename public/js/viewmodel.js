@@ -179,6 +179,7 @@ export class ViewModel {
     }
     this.swapT = 1;
     this.reloadT = 0;
+    this.chamberT = 0;
     this.scoped = false;
   }
 
@@ -198,6 +199,15 @@ export class ViewModel {
   }
 
   cancelReload() { this.reloadT = 0; }
+
+  // The sniper chambers the next round instead of waiting on a cooldown: a
+  // short bolt pull, much smaller than the full reload animation.
+  chamber(ms) {
+    this.chamberDur = ms / 1000;
+    this.chamberT = this.chamberDur;
+  }
+
+  cancelChamber() { this.chamberT = 0; }
 
   setScoped(v) { this.scoped = v; }
 
@@ -245,6 +255,16 @@ export class ViewModel {
       reloadRot = s * 0.85;
       reloadDrop = s * 0.16;
       reloadRoll = s * 0.35;
+    }
+
+    // chambering: the same motion, quicker and shallower
+    if (this.chamberT > 0) {
+      this.chamberT = Math.max(0, this.chamberT - dt);
+      const p = 1 - this.chamberT / Math.max(0.001, this.chamberDur);
+      const s = Math.sin(Math.PI * Math.min(1, p * 1.05));
+      reloadRot += s * 0.3;
+      reloadDrop += s * 0.045;
+      reloadRoll += s * 0.5;
     }
 
     // knife swing arc

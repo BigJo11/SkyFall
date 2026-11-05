@@ -10,6 +10,7 @@ export const ACTIONS = [
   { id: 'sprint', label: 'SPRINT', group: 'MOVEMENT', def: 'ShiftLeft', alt: ['ShiftRight'] },
   { id: 'jump', label: 'JUMP', group: 'MOVEMENT', def: 'Space' },
   { id: 'slide', label: 'SLIDE', group: 'MOVEMENT', def: 'KeyC', alt: ['ControlLeft', 'ControlRight'] },
+  { id: 'fire', label: 'FIRE', group: 'COMBAT', def: 'KeyF' },
   { id: 'reload', label: 'RELOAD', group: 'COMBAT', def: 'KeyR' },
   { id: 'swap', label: 'LAST WEAPON', group: 'COMBAT', def: 'KeyQ' },
   { id: 'scoreboard', label: 'SCOREBOARD', group: 'INTERFACE', def: 'Tab' },

@@ -191,6 +191,20 @@ export class Sfx {
     click(dur * 0.9, 2400, 0.09);
   }
 
+  // the sniper's bolt cycle: two quick metal clicks, far shorter than a reload
+  chamber() {
+    if (!this.ready) return;
+    const click = (delay, f, p) => setTimeout(() => {
+      if (!this.ready) return;
+      const n = this.noiseSrc(0.04);
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = 3;
+      n.connect(bp).connect(this.env(0.04, p, 0.001));
+    }, delay * 1000);
+    click(0.015, 2200, 0.085);
+    click(0.16, 1500, 0.07);
+  }
+
   empty() {
     if (!this.ready) return;
     const n = this.noiseSrc(0.05);

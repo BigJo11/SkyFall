@@ -721,6 +721,18 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
 #speedVal { color: #cfeeff; font-family: var(--mono); letter-spacing: .04em; font-size: 12px; }
 #speedometer .unit { opacity: .5; margin: 0 6px; }
 /* tutorial objective card */
+/* radar: bottom right, clear of the speedometer and the weapon block */
+#minimap {
+  position: absolute; right: 22px; bottom: 132px;
+  width: 156px; height: 156px;
+  border-radius: 50%;
+  background: rgba(6, 14, 22, .58);
+  border: 1px solid rgba(120, 190, 235, .28);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, .5), inset 0 0 26px rgba(0, 0, 0, .6);
+  pointer-events: none;
+}
+
+/* objective */
 #objective {
   position: absolute; top: 62px; left: 20px; width: min(300px, 40vw);
   padding: 13px 15px;
@@ -1261,3 +1273,8 @@ body.crew .cos-hint { color: rgba(216, 197, 138, .9); }
   animation: pulseKey 1s ease-in-out infinite;
 }
 @keyframes pulseKey { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+
+/* the radar gives up space before it starts crowding the weapon block */
+@media (max-height: 780px), (max-width: 900px) {
+  #minimap { width: 116px; height: 116px; bottom: 122px; right: 18px; }
+}

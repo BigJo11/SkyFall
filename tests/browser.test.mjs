@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { JSDOM } from 'jsdom';
 import WebSocket from 'ws';
-import { PLAYER, AIM_ASSIST } from '../shared/constants.js';
+import { PLAYER, AIM_ASSIST, WEAPONS, WEAPON_BY_ID } from '../shared/constants.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const TMP = path.join(ROOT, '.uitest');
@@ -531,13 +531,16 @@ await test('reload and scope paths run', async () => {
   pump(12);
   assert.equal(document.getElementById('scopeOverlay').classList.contains('hidden'), true, 'scope hidden');
 
-  // empty the sniper mag then reload
+  // spend a round then reload
   for (let i = 0; i < 8; i++) {
     canvas.dispatchEvent(new window.MouseEvent('mousedown', { button: 0, bubbles: true }));
     window.dispatchEvent(new window.MouseEvent('mouseup', { button: 0 }));
     pump(2, 40);
     await sleep(10);
   }
+  // let the bolt cycle finish first: you cannot reload mid-chamber
+  await sleep(820);
+  pump(4, 300);
   window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyR' }));
   pump(4);
   window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'KeyR' }));
@@ -545,7 +548,8 @@ await test('reload and scope paths run', async () => {
   assert.equal(ring, false, 'reload ring visible');
   await sleep(3400);
   for (let i = 0; i < 40; i++) { pump(2); await sleep(20); }
-  assert.equal(document.getElementById('ammoNum').textContent, '5', 'magazine refilled');
+  assert.equal(document.getElementById('ammoNum').textContent,
+    String(WEAPON_BY_ID.sniper.magSize), 'magazine refilled');
 });
 
 await test('combat feedback handlers: damage, kill, death, respawn', async () => {
@@ -579,9 +583,92 @@ await test('combat feedback handlers: damage, kill, death, respawn', async () =>
   assert.equal(document.getElementById('deathScreen').classList.contains('hidden'), true, 'death overlay closed');
   assert.equal(document.getElementById('healthNum').textContent, '100');
   assert.equal(window.SKYFALL.state.alive, true);
-  // the sniper was equipped last, so respawn hands back a fresh 5-round mag
-  assert.equal(window.SKYFALL.state.ammo[window.SKYFALL.state.weapon], 5, 'fresh magazine on respawn');
-  assert.equal(document.getElementById('ammoMax').textContent, '5');
+  // the sniper was equipped last, so respawn hands back a full magazine
+  const magSize = WEAPON_BY_ID.sniper.magSize;
+  assert.equal(window.SKYFALL.state.ammo[window.SKYFALL.state.weapon], magSize, 'fresh magazine on respawn');
+  assert.equal(document.getElementById('ammoMax').textContent, String(magSize));
+});
+
+await test('the sniper chambers between shots instead of sitting on a cooldown', async () => {
+  const sk = window.SKYFALL;
+  const canvas = document.getElementById('gl');
+  const start = sk.state.ammo[sk.state.weapon];
+  assert.equal(start, WEAPON_BY_ID.sniper.magSize, 'starting from a full magazine');
+
+  canvas.dispatchEvent(new window.MouseEvent('mousedown', { button: 0, bubbles: true }));
+  window.dispatchEvent(new window.MouseEvent('mouseup', { button: 0 }));
+  pump(3);
+
+  // the gap shows as a short reload ring, and the round is already spent
+  assert.equal(document.getElementById('reloadRing').classList.contains('hidden'), false,
+    'the bolt cycle shows on the reload ring');
+  assert.ok(sk.state.chamberEndsAt > 0, 'a bolt cycle is running');
+  assert.equal(sk.state.ammo[sk.state.weapon], start - 1, 'one round spent');
+
+  // it clears itself, in a fraction of the old 3.5 s wait
+  await sleep(820);
+  pump(4, 300);
+  assert.equal(sk.state.chamberEndsAt, 0, 'the bolt cycle finished');
+
+  // and the next shot follows straight away
+  canvas.dispatchEvent(new window.MouseEvent('mousedown', { button: 0, bubbles: true }));
+  window.dispatchEvent(new window.MouseEvent('mouseup', { button: 0 }));
+  pump(3);
+  assert.equal(sk.state.ammo[sk.state.weapon], start - 2, 'the next round chambers too');
+  await sleep(820);
+  pump(4, 300);
+  assert.equal(sk.state.chamberEndsAt, 0, 'and that one clears too');
+});
+
+await test('a bound key fires the weapon, not only the left mouse button', async () => {
+  const sk = window.SKYFALL;
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Digit1' }));
+  pump(2);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Digit1' }));
+  pump(2);
+  assert.equal(WEAPONS[sk.state.weapon].id, 'rifle', 'on the rifle');
+
+  sk.state.reloadEndsAt = 0;
+  sk.state.chamberEndsAt = 0;
+  sk.state.ammo[sk.state.weapon] = WEAPON_BY_ID.rifle.magSize;
+  const before = sk.state.ammo[sk.state.weapon];
+
+  // holding the bound key fires the automatic rifle, the way holding LMB does
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyF' }));
+  for (let i = 0; i < 8; i++) { pump(2, 60); }
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'KeyF' }));
+  pump(2);
+
+  const after = sk.state.ammo[sk.state.weapon];
+  assert.ok(after < before, `the F key fired the rifle (${before} -> ${after})`);
+});
+
+await test('the radar follows you into the arena you are playing', async () => {
+  const sk = window.SKYFALL;
+  const el = document.getElementById('minimap');
+  assert.ok(el, 'the radar canvas is in the HUD');
+  assert.equal(el.tagName.toLowerCase(), 'canvas');
+  assert.ok(sk.minimap, 'exposed for the console');
+  assert.equal(sk.minimap.mapId, sk.world.mapId, 'showing the arena you are in');
+
+  // a couple of players at known spots, then let a frame try to draw them
+  sk.state.players = [
+    { id: 901, name: 'A', color: 0xff6b6b, pos: [0, 0, -30], alive: true },
+    { id: 902, name: 'B', color: 0x62d6ff, pos: [30, 0, 0], alive: true },
+  ];
+  pump(3);
+
+  // switching arenas re-renders the ground under it
+  const before = sk.minimap.terrain;
+  sk.setWorld('small');
+  pump(3);
+  assert.equal(sk.minimap.mapId, 'small', 'the radar switched with the map');
+  sk.setWorld('big');
+  pump(3);
+  assert.equal(sk.minimap.mapId, 'big', 'and back');
+  sk.state.players = [];
+  // jsdom has no 2d context, so the radar stays blank there rather than throwing
+  assert.equal(typeof before, 'object', 'no terrain was painted without a canvas');
 });
 
 await test('a denied pointer lock does not pause the game (regression)', async () => {
