@@ -15,6 +15,7 @@ import { PracticeMode, Tutorial, PRACTICE_SPAWN } from './practice.js';
 import { renderEntry, renderTabs, DEFAULT_ENTRY, LATEST_VERSION } from './updates.js';
 import { ACTIONS, DEFAULT_BINDS, keyLabel, assign, normalise, reserved, ownerOf } from './keybinds.js';
 import { MAP_LIST, DEFAULT_MAP, mapById } from '../../shared/map.js';
+import { Minimap } from './minimap.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -80,6 +81,8 @@ const body = new Body(world.solids);
 const input = new Input(canvas);
 const net = new Net();
 const hud = new Hud();
+const minimap = new Minimap($('minimap'));
+minimap.setMap(world.mapId);
 const avatars = new Avatars(scene);
 const viewmodel = new ViewModel(renderer);
 const effects = new Effects(scene);
@@ -134,6 +137,8 @@ const state = {
   ammo: WEAPONS.map((w) => w.magSize),
   reloadEndsAt: 0,
   reloadDur: 0,
+  chamberEndsAt: 0,       // the sniper's bolt cycle between shots
+  chamberDur: 0,
   nextFireAt: WEAPONS.map(() => 0),
   recoilBloom: 0,
   scoped: false,
@@ -169,7 +174,7 @@ let session = null;
 // Build stamp: makes it obvious which version the browser actually loaded, and
 // catches the classic "new page, old cached scripts" situation where every
 // button appears dead.
-const BUILD = 'forest v18';
+const BUILD = 'forest v19';
 
 function detectStaleBuild() {
   try {
@@ -214,6 +219,7 @@ function resize() {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   viewmodel.resize(w, h);
+  minimap.resize();
 }
 window.addEventListener('resize', resize);
 resize();
@@ -326,12 +332,15 @@ function canReload() {
   const w = currentWeapon();
   if (!Number.isFinite(w.magSize)) return false;
   if (state.reloadEndsAt) return false;
+  if (state.chamberEndsAt) return false;   // mid bolt cycle
   return state.ammo[state.weapon] < w.magSize;
 }
 
 function startReload() {
   const w = currentWeapon();
   if (!canReload()) return;
+  state.chamberEndsAt = 0;
+  viewmodel.cancelChamber();
   state.reloadEndsAt = performance.now() + w.reloadTime;
   state.reloadDur = w.reloadTime;
   viewmodel.startReload(w.reloadTime);
@@ -344,8 +353,9 @@ function switchWeapon(i, send = true) {
   if (i < 0 || i >= WEAPONS.length || i === state.weapon) return;
   state.lastWeapon = state.weapon;
   state.weapon = i;
-  state.reloadEndsAt = 0;
+  state.reloadEndsAt = 0; state.chamberEndsAt = 0;
   viewmodel.cancelReload();
+  viewmodel.cancelChamber();
   viewmodel.setWeapon(WEAPONS[i].id);
   hud.setWeapon(i, state.ammo[i]);
   hud.reloadProgress(null);
@@ -385,6 +395,15 @@ function fireOnce(now) {
     state.ammo[state.weapon] -= 1;
     hud.setAmmo(state.ammo[state.weapon]);
     if (state.ammo[state.weapon] <= 0) setTimeout(() => canReload() && state.phase === 'playing' && startReload(), 120);
+  }
+
+  // Weapons that chamber (the sniper) show the gap between shots as a short
+  // reload instead of a dead cooldown: the ring fills, the bolt cycles, fire.
+  if (w.chamber) {
+    state.chamberEndsAt = performance.now() + w.interval;
+    state.chamberDur = w.interval;
+    viewmodel.chamber(w.interval);
+    sfx.chamber();
   }
 
   // recoil + feel
@@ -490,7 +509,11 @@ function handleGameplayInput(now, dt) {
 
   // firing
   const w = currentWeapon();
-  const trigger = w.automatic ? input.mouseDown(0) : input.mousePressed(0);
+  // A bound key works exactly like the left mouse button: held for the
+  // automatic weapons, tapped for the sniper and the knife.
+  const mouse = w.automatic ? input.mouseDown(0) : input.mousePressed(0);
+  const bound = w.automatic ? input.actionDown('fire') : input.actionPressed('fire');
+  const trigger = mouse || bound;
   if (trigger && state.alive && !state.paused) fireOnce(now);
 
   // movement
@@ -568,7 +591,7 @@ function startLocalMode(kind) {
   state.weapon = 0;
   state.ammo = WEAPONS.map((w) => w.magSize);
   state.nextFireAt = WEAPONS.map(() => 0);
-  state.reloadEndsAt = 0;
+  state.reloadEndsAt = 0; state.chamberEndsAt = 0;
   state.reloadDur = 0;
   state.alive = true;
   state.hp = PLAYER.maxHealth;
@@ -641,6 +664,7 @@ function setWorld(mapId) {
   old.dispose?.();
   settings.map = id;
   store.set('skyfall.map', id);
+  minimap.setMap(id);
   refreshLobby();
 }
 
@@ -689,7 +713,7 @@ net.on('welcome', (msg) => {
   state.ammo = WEAPONS.map((w) => w.magSize);
   state.weapon = 0;
   state.nextFireAt = WEAPONS.map(() => 0);
-  state.reloadEndsAt = 0;
+  state.reloadEndsAt = 0; state.chamberEndsAt = 0;
 
   avatars.sync(msg.players || [], state.id);
   viewmodel.setWeapon(WEAPONS[0].id);
@@ -776,7 +800,7 @@ net.on('spawn', (msg) => {
   state.hp = msg.hp ?? PLAYER.maxHealth;
   state.alive = true;
   state.phase = 'playing';
-  state.reloadEndsAt = 0;
+  state.reloadEndsAt = 0; state.chamberEndsAt = 0;
   state.ammo = WEAPONS.map((w) => w.magSize);
   viewmodel.cancelReload();
   hud.setHealth(state.hp);
@@ -843,7 +867,7 @@ net.on('died', (msg) => {
   state.alive = false;
   state.phase = 'dead';
   state.respawnAt = msg.respawnAt || (Date.now() + PLAYER.respawnTime);
-  state.reloadEndsAt = 0;
+  state.reloadEndsAt = 0; state.chamberEndsAt = 0;
   viewmodel.cancelReload();
   setScoped(false);
   hud.showDeath(msg.by, msg.weapon);
@@ -1248,7 +1272,7 @@ function renderKeyList() {
     [k('jump'), 'on touchdown keeps your speed'],
     [k('slide'), 'slide (while sprinting)'],
     ['WALLS', 'run along them in the air'],
-    ['LMB', 'fire'],
+    [`LMB / ${k('fire')}`, 'fire'],
     ['RMB', 'scope (sniper)'],
     ['1 2 3 4', 'or WHEEL weapons'],
     [k('reload'), 'reload'],
@@ -1701,6 +1725,16 @@ function frame(now) {
       const dur = state.reloadDur || WEAPONS[state.weapon].reloadTime;
       hud.reloadProgress(Math.max(0, Math.min(1, 1 - remaining / dur)));
     }
+  } else if (state.chamberEndsAt) {
+    // the bolt cycle, drawn as a short reload ring
+    const left = state.chamberEndsAt - performance.now();
+    if (left <= 0) {
+      state.chamberEndsAt = 0;
+      hud.reloadProgress(null);
+    } else {
+      const dur = state.chamberDur || WEAPONS[state.weapon].interval;
+      hud.reloadProgress(Math.max(0, Math.min(1, 1 - left / dur)));
+    }
   } else {
     hud.reloadProgress(null);
   }
@@ -1746,6 +1780,17 @@ function frame(now) {
   world.update(dt, camera.position);
   effects.update(dt);
   avatars.update(dt, state.time);
+
+  // radar: everyone on the map, drawn the way you are facing
+  if (state.phase === 'playing') {
+    minimap.draw({
+      x: body.x, y: body.y + PLAYER.eye, z: body.z, yaw: state.yaw,
+      players: state.players || [],
+      myId: state.id,
+    });
+  } else {
+    minimap.clear();
+  }
   hud.update(dt);
 
   // scoreboard (throttled: rebuilt only a few times a second)
@@ -1773,7 +1818,7 @@ requestAnimationFrame(frame);
 
 // Small debug handle: handy in the console, and used by the automated tests.
 window.SKYFALL = {
-  state, hud, net, body, camera, avatars, viewmodel, effects, settings, input, scene,
+  state, hud, net, body, camera, avatars, viewmodel, effects, settings, input, scene, minimap,
   get cosmetic() { return state.cosmetic; },
   showUpdates, hideUpdates, updatesOpen,
   showOptions, hideOptions, optionsOpen,

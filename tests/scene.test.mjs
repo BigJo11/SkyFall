@@ -210,7 +210,10 @@ test('weapon balance numbers', () => {
   assert.ok(Math.abs(1000 / rifle.interval - 4) < 1e-9, 'rifle fires 4 shots/sec');
   assert.equal(Math.ceil(100 / rifle.damage), 4, 'rifle kills in 4 shots');
   assert.equal(sniper.damage, 100, 'sniper one-shots');
-  assert.equal(sniper.interval, 3500, 'sniper cooldown 3.5s');
+  assert.equal(sniper.interval, 700, 'sniper chambers in 0.7s');
+  assert.equal(sniper.chamber, true, 'the sniper shows the gap as a reload');
+  assert.equal(sniper.magSize, 3, 'three rounds before the full reload');
+  assert.equal(sniper.reloadTime, 3200, 'the regular reload is the long one');
   assert.equal(smg.damage, 8, 'smg damage');
   assert.equal(Math.ceil(100 / smg.damage), 13, 'smg kills in 13 shots');
   assert.ok(Math.abs(1000 / smg.interval - 15) < 1e-9, 'smg fires 15 shots/sec');
@@ -225,6 +228,14 @@ test('weapon balance numbers', () => {
   assert.equal(knife.damage, 100, 'knife one-shots');
   assert.equal(knife.interval, 500, 'knife cooldown 0.5s');
   assert.equal(PLAYER.maxHealth, 100);
+});
+
+test('the sniper fires in bursts: three quick shots, then the long reload', () => {
+  const sniper = WEAPONS.find((w) => w.id === 'sniper');
+  const burst = sniper.magSize * sniper.interval;   // three rounds, chambered
+  assert.ok(burst < sniper.reloadTime, 'emptying the mag is quicker than one reload');
+  assert.ok(burst < 3500, 'three shots land faster than one used to');
+  assert.ok(sniper.reloadTime > sniper.interval * 4, 'the reload is the real pause');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

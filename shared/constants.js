@@ -202,7 +202,7 @@ export const MAX_LEGIT_SPEED = MOVE.airSpeedCap;
 
 // Weapon definitions. damage / interval are the balance numbers requested:
 //  rifle  : 4 shots/sec, 17 dmg  -> 6 shots to kill (6 * 17 = 102)
-//  sniper : 100 dmg, 1 shot every 3.5s
+//  sniper : 100 dmg, 0.7s bolt cycle, 3 rounds then a 3.2s reload
 //  smg    : 15 shots/sec, 5 dmg
 //  knife  : 100 dmg (one shot), 0.5s swing cooldown
 export const WEAPONS = [
@@ -228,8 +228,9 @@ export const WEAPONS = [
     name: 'SNIPER',
     slot: 2,
     damage: 100,
-    interval: 3500,       // one shot every 3.5 seconds
-    magSize: 5,
+    interval: 700,        // the bolt cycle: chamber the next round
+    magSize: 3,           // three rounds, then the full reload
+    chamber: true,        // the gap between shots is a short visible reload
     reloadTime: 3200,
     range: 500,
     melee: false,

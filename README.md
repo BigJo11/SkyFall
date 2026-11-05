@@ -58,12 +58,20 @@ Change the port with `PORT=8080 npm start`.
 | Weapon | Damage | Headshot | Fire rate | Kill time | Notes |
 | --- | --- | --- | --- | --- | --- |
 | **RIFLE** | 25 | **50** | 4 shots/sec (250 ms) | 4 body / **2 head** | 30 round mag, fully automatic |
-| **SNIPER** | 100 | 100 | 1 shot every 3.5 s | one shot kill | 5 round mag, right-click to scope |
+| **SNIPER** | 100 | 100 | 0.7 s bolt cycle | one shot kill | 3 round mag, right-click to scope |
 | **SMG** | 8 | **16** | 15 shots/sec (66.7 ms) | 13 body / **7 head** | 45 round mag, wide spread |
 | **KNIFE** | 100 | 100 | 0.5 s swing cooldown | one shot kill | 2.7 m reach, never crits |
 
 Fire rate is enforced **per weapon** on the server, so swapping guns can never
 cheat a cooldown.
+
+### The sniper fires in bursts
+
+The sniper no longer waits a flat 3.5 seconds between shots. Firing starts a
+**0.7 s bolt cycle** — the reload ring fills, the bolt runs, and you can fire
+again. After **three rounds** the magazine is dry and the full **3.2 s** reload
+takes over, so the weapon works in quick bursts with a real pause between them.
+You cannot reload mid-cycle; the chamber has to finish first.
 
 ### Headshots
 
@@ -109,11 +117,29 @@ in `shared/aimassist.js` and is unit tested independently of the browser.
 ### Keybinds
 
 Every gameplay key is an *action*, not a physical key: `public/js/keybinds.js`
-maps actions (`jump`, `sprint`, `reload`, …) to keys, and the options screen
+maps actions (`jump`, `sprint`, `fire`, `reload`, …) to keys, and the options screen
 rebinds them. Bindings are stored in `localStorage`, survive a reload, and the
 controls card on the title screen always shows the keys you actually have bound.
 The arrow keys stay available for movement whatever you bind, and ESC and the
 number keys cannot be stolen (the menu and the weapon slots need them).
+
+**Firing is bindable** (`F` by default) and behaves exactly like the left mouse
+button: held for the automatic weapons, tapped for the sniper and the knife.
+The mouse always works too, so binding a key adds a second way to shoot rather
+than replacing the first.
+
+## Mini map
+
+A circular radar sits in the bottom-right of the HUD. **It shows every player on
+the map** — through cover and at any range — as a coloured dot, with you as the
+arrow in the middle.
+
+It is drawn **rotated to the way you are facing**, so something ahead of you is
+always up on the radar rather than off to one side. A dot with a chevron above
+it is a storey or more above you, below it and they are underneath; the dead
+fade instead of vanishing, so you can still read where a fight just happened.
+The ground underneath is the arena's own layout, pre-rendered once per map, so
+switching arenas switches the radar too.
 
 ## Maps
 
@@ -272,7 +298,7 @@ enforces before anything reaches the board.
 | `WASD` | move |
 | `Shift` | sprint |
 | `Space` | jump · double jump · wall kick |
-| `Left mouse` | fire (hold for automatic) |
+| `Left mouse` / `F` | fire (hold for automatic) |
 | `Right mouse` | scope (sniper) |
 | `1` `2` `3` `4` / mouse wheel | switch weapon |
 | `Q` | previous weapon |
@@ -413,7 +439,7 @@ nothing"). The build id is also shown in the bottom-right of the title screen an
 sent as an `X-Skyfall-Build` header, and the client flags a mismatch on screen if
 it ever sees one.
 
-If a menu button ever seems dead, check the tag: `build <id> · forest v18`
+If a menu button ever seems dead, check the tag: `build <id> · forest v19`
 means the current code is running. Press `Ctrl/Cmd + Shift + R` to force a fresh
 load.
 

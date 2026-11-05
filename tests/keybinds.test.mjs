@@ -18,7 +18,7 @@ console.log('\nSKYFALL keybind tests\n');
 test('every action the game asks for is declared, and defaults are complete', () => {
   const ids = ACTIONS.map((a) => a.id);
   for (const needed of ['forward', 'back', 'left', 'right', 'sprint', 'jump', 'slide',
-    'reload', 'swap', 'scoreboard', 'leaderboard', 'pause']) {
+    'fire', 'reload', 'swap', 'scoreboard', 'leaderboard', 'pause']) {
     assert.ok(ids.includes(needed), `${needed} is bindable`);
   }
   for (const a of ACTIONS) {
@@ -64,6 +64,20 @@ test('stored bindings are merged over the defaults and junk is ignored', () => {
   assert.equal(merged.jump, DEFAULT_BINDS.jump, 'a bad value falls back');
   assert.equal(merged.nonsense, undefined, 'unknown actions are dropped');
   assert.deepEqual(normalise(null), { ...DEFAULT_BINDS });
+});
+
+test('firing is a bindable action, not only the left mouse button', () => {
+  const fire = ACTIONS.find((a) => a.id === 'fire');
+  assert.ok(fire, 'fire is an action');
+  assert.equal(fire.group, 'COMBAT', 'listed with the other combat keys');
+  assert.equal(DEFAULT_BINDS.fire, 'KeyF', 'F by default');
+  assert.equal(keyLabel(DEFAULT_BINDS.fire), 'F');
+  assert.equal(reserved('KeyF'), false, 'and it can be moved');
+
+  const moved = assign(DEFAULT_BINDS, 'fire', 'KeyV');
+  assert.equal(moved.fire, 'KeyV');
+  assert.ok(codesFor('fire', moved).includes('KeyV'), 'the new key fires');
+  assert.equal(ownerOf(moved, 'KeyV'), fire, 'the radar of who owns what agrees');
 });
 
 test('key labels are readable', () => {

@@ -597,7 +597,7 @@ export const TUTORIAL_STEPS = [
   {
     id: 'sniper',
     title: 'SNIPER',
-    text: 'The sniper does 100 damage: one shot, one kill, but 3.5 seconds between shots. Right-click to scope.',
+    text: 'The sniper does 100 damage: one shot, one kill. It chambers in 0.7s, so three rounds come quickly — then the long reload. Right-click to scope.',
     tip: 'KEY 2 · RIGHT MOUSE TO SCOPE',
     enter: (ctx, t) => {
       ctx.place(PRACTICE_SPAWN.pos, PRACTICE_SPAWN.yaw);
