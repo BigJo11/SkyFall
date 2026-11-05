@@ -206,7 +206,7 @@ await test('typing the code into the access field does not double the digits', a
   code.value = '';
 });
 
-await test('the changelog opens from the title screen and shows both entries', async () => {
+await test('the changelog opens from the title screen and shows every entry', async () => {
   const sk = window.SKYFALL;
   const $id = (id) => document.getElementById(id);
   const panel = $id('changelog');
@@ -219,14 +219,27 @@ await test('the changelog opens from the title screen and shows both entries', a
 
   // newest update selected, with its content rendered
   const tabs = () => [...$id('changelogTabs').children];
-  assert.equal(tabs().length, 2, 'two milestones listed');
+  assert.equal(tabs().length, 3, 'three milestones listed');
   assert.equal(tabs().filter((t) => t.classList.contains('active')).length, 1, 'one active tab');
-  assert.match(tabs().find((t) => t.classList.contains('active')).textContent, /V\.2/);
+  // the newest entry opens first, and it is the patch
+  assert.match(tabs()[0].textContent, /V\.2\.5/);
+  assert.match(tabs().find((t) => t.classList.contains('active')).textContent, /V\.2\.5/);
+  const patch = $id('changelogBody').textContent;
+  assert.match(patch, /PINE HOLLOW/, 'the second map is announced');
+  assert.match(patch, /live player counts/i, 'the picker is explained');
+  assert.match(patch, /patch/i, 'labelled a patch');
+  assert.doesNotMatch(patch, /1013/, 'no access code on screen');
+  assert.doesNotMatch(patch, /titanfall/i, 'no other game named');
+  assert.ok($id('changelogBody').querySelector('ul'), 'formatted content, not a wall of text');
+
+  // the V.2 entry is still there, one tab back
+  tabs().find((t) => t.dataset.entry === 'v2')
+    .dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
   const v2 = $id('changelogBody').textContent;
-  assert.match(v2, /240 × 240 m/, 'the new map size is on screen');
+  assert.match(v2, /240 × 240 m/, 'the big map size is on screen');
   assert.match(v2, /eleven times the area/i, 'the change is explained');
   assert.match(v2, /Movement: momentum/i, 'movement covered');
-  // the panel is player-facing: it must not leak the access code or name another game
   assert.doesNotMatch(v2, /1013/, 'no access code on screen');
   assert.doesNotMatch(v2, /titanfall/i, 'no other game named');
   assert.ok($id('changelogBody').querySelector('table, ul'), 'formatted content, not a wall of text');

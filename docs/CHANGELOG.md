@@ -111,3 +111,34 @@ Only fixes to things that already existed and were being used:
 - **The tutorial could get stuck.** It stalled on the jump step and, more quietly, on double jump, wall running, wall jumping and sliding: the steps checked for a signal the client never sent. Every step is now verified by the action itself.
 - **Weapon accents never actually glowed.** The coloured highlights on every gun were being fed into a flat-shaded material, so they rendered dark. They light up now.
 - **Players could end up on a stale page** after an update — an older cached build running against a newer server. The game now serves itself fresh and warns when the page and server disagree.
+
+---
+
+# V.2.5
+
+_Patch and minor update._
+
+A patch release with one more place to fight and a handful of small changes. The base game is untouched: still a browser LAN deathmatch, still exactly four weapons.
+
+## A second map
+
+**PINE HOLLOW** is a walled forest bowl roughly a sixth the size of the plateau, built so that a fight is always a few seconds away: a stone keep in the middle you can climb from two sides, four cover clusters, ridges to break sight lines, and rim cliffs to run along.
+
+**DEPLOY now asks where you want to drop.** The picker lists both maps with **live player counts**, so you can see where the game already is before you commit. Each map is its own match: its own players, its own spawns, its own collision. The all-time leaderboard is shared between them.
+
+## Hits land when they look like they landed
+
+Online, a shot that clearly connected sometimes did nothing, and players on a slower link appeared to skip around the map. Two things were wrong, and both are fixed.
+
+- **Positions are sampled twice as often**, and other players are now drawn by interpolating between real updates instead of sliding toward the last one. That is what removes the skipping.
+- **The server now checks each shot against where your target was when you pulled the trigger**, not only where they are by the time the message arrives. Cover still blocks shots — it just no longer blocks one that already landed on your screen.
+
+## Smaller changes
+
+- **Aim assist is a setting**: `OFF`, `SLIGHT` or `STRONG`, chosen from the new options panel. It still refuses to make a good shot worse — it never drags a headshot down onto the shoulders, and once your crosshair is on the body it only corrects sideways.
+- **Every key can be rebound**, from the same options panel. Your controls card on the title screen updates to show the keys you actually have.
+- **Both maps report how busy they are** in the title screen status line, so an empty arena is never a mystery.
+
+## Fixes worth knowing about
+
+- **Jumping while sprinting forward could be swallowed.** Sprinting leaves you off the ground a good share of the time, and a jump pressed during one of those moments was dropped. It now registers the instant you touch down, at full sprint speed.
