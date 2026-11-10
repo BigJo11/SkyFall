@@ -671,6 +671,43 @@ await test('the radar follows you into the arena you are playing', async () => {
   assert.equal(typeof before, 'object', 'no terrain was painted without a canvas');
 });
 
+await test('the Core meter, the cockpit panel and the RPG lock are wired up', async () => {
+  const sk = window.SKYFALL;
+  const $id = (id) => document.getElementById(id);
+  assert.ok($id('coreMeter'), 'the Core meter is in the HUD');
+  assert.ok($id('mechHud'), 'the cockpit panel exists');
+  assert.ok($id('coreFail'), 'the core failure prompt exists');
+  assert.ok($id('lockBox'), 'the lock box exists');
+  assert.ok(sk.mechs, 'the mech renderer is exposed');
+
+  // not piloting, so the cockpit stays put
+  assert.equal(sk.state.mech, null, 'no mech');
+  assert.equal($id('mechHud').classList.contains('hidden'), true, 'and no cockpit HUD');
+  assert.equal($id('coreFail').classList.contains('hidden'), true);
+
+  // the Core starts empty and the "ready" hint stays hidden until it is full
+  assert.equal($id('corePct').textContent, '0%');
+  assert.equal($id('coreReady').classList.contains('hidden'), true, 'no mech on an empty Core');
+
+  // the RPG is the fifth slot, and only it locks on
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Digit5' }));
+  pump(3);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Digit5' }));
+  pump(2);
+  assert.equal(WEAPONS[sk.state.weapon].id, 'rpg', 'the RPG sits in slot five');
+  assert.equal(WEAPONS[sk.state.weapon].lockOn, true, 'and it fires on a lock');
+  assert.equal($id('lockBox').classList.contains('hidden'), false, 'the lock box shows');
+  assert.equal($id('lockText').textContent, 'SEEKING', 'looking for a mech');
+  assert.equal(sk.state.lockState, 'seeking');
+
+  // any other weapon and the lock box goes away
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'Digit1' }));
+  pump(3);
+  window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Digit1' }));
+  pump(2);
+  assert.equal($id('lockBox').classList.contains('hidden'), true, 'only the RPG locks');
+});
+
 await test('a denied pointer lock does not pause the game (regression)', async () => {
   // Browsers fire pointerlockchange/error when a lock request is refused, which
   // is the normal case inside an iframe. Entering a mode must still work.

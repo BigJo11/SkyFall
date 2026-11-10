@@ -90,7 +90,24 @@ function buildKnife() {
   return { group: g, muzzle: new THREE.Vector3(0, 0.02, -0.5) };
 }
 
-const BUILDERS = { rifle: buildRifle, sniper: buildSniper, smg: buildSmg, knife: buildKnife };
+// The RPG: a fat tube with a rocket already in it, and a sight that only ever
+// lights up for a mech.
+function buildRpg() {
+  const g = new THREE.Group();
+  g.add(cyl(0.062, 0.062, 0.86, 0x3a4152, 0, 0, -0.1));    // tube
+  g.add(cyl(0.072, 0.072, 0.1, 0x22262f, 0, 0, -0.52));    // rear flare
+  g.add(cyl(0.078, 0.078, 0.1, 0x22262f, 0, 0, 0.34));     // muzzle flare
+  g.add(bx(0.05, 0.05, 0.16, 0xffb45e, 0, 0, -0.58));      // the rocket, loaded
+  g.add(bx(0.06, 0.14, 0.07, 0x2a2f3a, 0, -0.12, -0.06));  // grip
+  g.add(bx(0.05, 0.05, 0.1, 0x2a2f3a, 0, -0.06, 0.06));    // trigger block
+  g.add(bx(0.07, 0.09, 0.2, 0x3a4152, 0, -0.02, 0.28));    // shoulder rest
+  // the lock sight: amber, because it is looking for armour
+  g.add(bx(0.012, 0.012, 0.3, glow(0xffb45e), 0.055, 0.045, -0.16));
+  g.add(bx(0.026, 0.026, 0.02, glow(0xffd479), 0, 0.075, -0.05));
+  return { group: g, muzzle: new THREE.Vector3(0, 0.02, -0.62) };
+}
+
+const BUILDERS = { rifle: buildRifle, sniper: buildSniper, smg: buildSmg, knife: buildKnife, rpg: buildRpg };
 
 // rest poses per weapon
 const REST = {
@@ -98,6 +115,7 @@ const REST = {
   sniper: { pos: [0.19, -0.18, -0.3], rot: [0.02, 0.05, 0] },
   smg: { pos: [0.19, -0.19, -0.34], rot: [0.02, 0.04, 0] },
   knife: { pos: [0.24, -0.24, -0.3], rot: [0.1, 0.35, -0.15] },
+  rpg: { pos: [0.17, -0.22, -0.34], rot: [0.02, 0.03, 0] },
 };
 
 export class ViewModel {

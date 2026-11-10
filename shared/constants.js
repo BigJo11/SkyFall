@@ -200,6 +200,53 @@ export const MOVE = {
 // uses this to reject teleports without punishing speed play.
 export const MAX_LEGIT_SPEED = MOVE.airSpeedCap;
 
+// ------------------------------------------------------------------ the Core
+// Kills and movement charge the Core. A full one calls down a mech. It is kept
+// across death, so a bad life does not throw the charge away.
+export const CORE = {
+  max: 100,
+  perKill: 10,             // ten kills from empty
+  perCombo: 3,             // or fewer, if you move well
+  comboWindowMs: 2600,     // two different moves this close together is a combo
+  comboCooldownMs: 4000,   // ...and at most one award this often, so it cannot
+                           // be farmed by hopping on the spot
+};
+
+// ----------------------------------------------------------------- the mech
+// Ten times a player's health, its own shield, and it goes out with a bang.
+// Big map only: the small arena has no room for one.
+export const MECH = {
+  maxHealth: 1000,
+  height: 9.5,
+  radius: 2.1,
+  eyeHeight: 7.4,          // where the pilot looks out from
+  dropHeight: 95,          // it falls in from this far up
+  dropTimeMs: 1700,
+
+  // No knife aboard. The punch is the knife, with a far bigger hitbox.
+  punch: { damage: 100, interval: 500, range: 4.6, radius: 1.5 },
+
+  // Energy shield: five seconds from full, four to refill, and it can be
+  // raised early for proportionally less time.
+  shield: { duration: 5, recharge: 4, minToRaise: 0.25 },
+
+  // Core failure: the pilot has five seconds to punch out.
+  coreFailure: { durationMs: 5000, presses: 3 },
+
+  // ...and then it goes up, killing anything right on top of it.
+  explosion: { radius: 8, damage: 1000 },
+
+  // A knife bounces off a mech. So does everything else that is not built
+  // for armour.
+  immuneTo: ['knife'],
+
+  // The RPG's lock: it acquires mechs and nothing else.
+  lockRange: 220,
+  lockConeDeg: 22,
+
+  bigMapOnly: true,
+};
+
 // Weapon definitions. damage / interval are the balance numbers requested:
 //  rifle  : 4 shots/sec, 17 dmg  -> 6 shots to kill (6 * 17 = 102)
 //  sniper : 100 dmg, 0.7s bolt cycle, 3 rounds then a 3.2s reload
@@ -276,6 +323,25 @@ export const WEAPONS = [
     headshot: 1,          // melee: any hit is lethal
     assist: false,
     color: 0xff8f8f,
+  },
+  {
+    id: 'rpg',
+    name: 'RPG',
+    slot: 5,
+    damage: 200,          // five rockets to drop a full-health mech
+    interval: 1800,
+    magSize: 1,
+    reloadTime: 2800,
+    range: 220,
+    melee: false,
+    automatic: false,
+    spread: 0,
+    recoil: 4.5,
+    headshot: 1,          // no crit bonus on armour
+    assist: false,        // it goes where you point it
+    lockOn: true,         // acquires mechs only — it will not track a person
+    antiPersonnel: false, // and does nothing at all to players
+    color: 0xffb45e,
   },
 ];
 

@@ -51,6 +51,19 @@ export class Hud {
       psSlides: $('psSlides'),
       psMomentum: $('psMomentum'),
       objectiveDone: $('objectiveDone'),
+      // the Core and the mech
+      coreMeter: $('coreMeter'),
+      corePct: $('corePct'),
+      coreFill: $('coreFill'),
+      coreReady: $('coreReady'),
+      mechHud: $('mechHud'),
+      mechHpFill: $('mechHpFill'),
+      shieldFill: $('shieldFill'),
+      coreFail: $('coreFail'),
+      coreFailPips: document.querySelectorAll('#coreFail .cf-pips i'),
+      coreFailFill: $('coreFailFill'),
+      lockBox: $('lockBox'),
+      lockText: $('lockText'),
     };
     this.objectiveId = null;
     this.killfeedEntries = [];
@@ -333,6 +346,59 @@ export class Hud {
 
   showObjectiveDone(on) {
     this.el.objectiveDone.classList.toggle('hidden', !on);
+  }
+
+  // ------------------------------------------------------------ the Core
+  // Kills and movement fill it; a full one means a mech is waiting.
+  setCore(pct, ready) {
+    const v = Math.max(0, Math.min(100, Math.round(pct)));
+    this.el.corePct.textContent = v + '%';
+    this.el.coreFill.style.width = v + '%';
+    this.el.coreMeter.classList.toggle('full', ready);
+    this.el.coreReady.classList.toggle('hidden', !ready);
+  }
+
+  // ------------------------------------------------------- piloting a mech
+  showMech(on) {
+    this.el.mechHud.classList.toggle('hidden', !on);
+    if (!on) this.showCoreFailure(null);
+  }
+
+  setMechHp(hp, maxHp) {
+    const pct = maxHp > 0 ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : 0;
+    this.el.mechHpFill.style.width = pct.toFixed(1) + '%';
+  }
+
+  setShield(fraction, up) {
+    this.el.shieldFill.style.width = (Math.max(0, Math.min(1, fraction)) * 100).toFixed(1) + '%';
+    this.el.mechHud.classList.toggle('shield-up', !!up);
+  }
+
+  // Core failure: three presses, a countdown, then it goes up. `info` of null
+  // hides the whole prompt.
+  showCoreFailure(info) {
+    if (!info) {
+      this.el.coreFail.classList.add('hidden');
+      return;
+    }
+    this.el.coreFail.classList.remove('hidden');
+    const pips = this.el.coreFailPips;
+    for (let i = 0; i < pips.length; i++) pips[i].classList.toggle('on', i < info.presses);
+    const left = info.durationMs > 0
+      ? Math.max(0, Math.min(1, info.msLeft / info.durationMs))
+      : 0;
+    this.el.coreFailFill.style.width = (left * 100).toFixed(1) + '%';
+  }
+
+  // The RPG locks a mech and nothing else.
+  showLock(state, text) {
+    if (!state) {
+      this.el.lockBox.classList.add('hidden');
+      return;
+    }
+    this.el.lockBox.classList.remove('hidden');
+    this.el.lockBox.classList.toggle('locked', state === 'locked');
+    this.el.lockText.textContent = text;
   }
 
   flash(amount = 0.5) {

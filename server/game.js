@@ -1,4 +1,5 @@
-import { PLAYER, WEAPONS, PLAYER_COLORS, NET, MAX_LEGIT_SPEED, RESERVED, CREW_GLOW, COSMETIC, isHeadHit, headshotDamage } from '../shared/constants.js';
+import { PLAYER, WEAPONS, PLAYER_COLORS, NET, MAX_LEGIT_SPEED, RESERVED, CREW_GLOW, COSMETIC, isHeadHit, headshotDamage, MECH, CORE } from '../shared/constants.js';
+import { addCore, isCombo, pruneTraversal, stepShield, raiseShield, explosionDamage, mechDamage, lockAcquired, hasEjected } from '../shared/mech.js';
 import ARENA, { MAPS, mapById, DEFAULT_MAP } from '../shared/map.js';
 import { solidAABBs, raycastAABBs, rayCapsule } from '../shared/collision.js';
 import { Leaderboard } from './leaderboard.js';
@@ -37,6 +38,11 @@ export class Game {
     // against where the other players were when the shooter actually pulled the
     // trigger, not where they are now.
     this.history = [];
+    // Mechs, and the Core that calls one down. Big map only — the small arena
+    // has no room for one.
+    this.mechs = new Map();
+    this.nextMechId = 1;
+    this.mechsAllowed = !MECH.bigMapOnly || this.mapId === 'big';
   }
 
   start() {
@@ -83,7 +89,7 @@ export class Game {
       ammo: WEAPONS.map((w) => (Number.isFinite(w.magSize) ? w.magSize : -1)),
       reloadEnd: 0,
       reloadWeapon: 0,
-      lastShot: [0, 0, 0, 0],
+      lastShot: WEAPONS.map(() => 0),
       lastDamage: 0,
       kills: 0,
       deaths: 0,
@@ -91,6 +97,10 @@ export class Game {
       lastInputAt: now(),
       lastInputPos: spawn.pos.slice(),
       lastFallDeath: 0,
+      core: 0,                 // the Core charge: kills and movement fill it
+      traversal: [],           // recent movement moves, for combo detection
+      lastComboAt: 0,
+      mechId: 0,               // piloting a mech, if set
       rtt: 0,                  // client-measured round trip, ms
       vel: [0, 0, 0],          // for clients that extrapolate between snapshots
       stepBudget: 6,           // metres of legitimate movement in the bank
@@ -117,6 +127,7 @@ export class Game {
   removePlayer(id) {
     const p = this.players.get(id);
     if (!p) return;
+    if (p.mechId) this.mechs.delete(p.mechId);
     this.players.delete(id);
     this.broadcast({ t: 'leave', id, name: p.name });
     console.log(`[game] ${p.name} left (${this.players.size} online)`);
@@ -154,6 +165,8 @@ export class Game {
       kills: p.kills,
       deaths: p.deaths,
       ammo: p.ammo[p.weapon],
+      core: Math.round(p.core || 0),
+      mechId: p.mechId || 0,
       reloadEnd: p.reloadEnd ? Math.max(0, p.reloadEnd - now()) : 0,
       v: [round2(p.vel[0]), round2(p.vel[2])],
       rtt: Math.round(p.rtt || 0),
@@ -190,7 +203,7 @@ export class Game {
     p.alive = true;
     p.ammo = WEAPONS.map((w) => (Number.isFinite(w.magSize) ? w.magSize : -1));
     p.reloadEnd = 0;
-    p.lastShot = [0, 0, 0, 0];
+    p.lastShot = WEAPONS.map(() => 0);
     p.respawnAt = 0;
     p.lastInputPos = p.pos.slice();
     p.stepBudget = 6;
@@ -207,6 +220,10 @@ export class Game {
       case 'weapon': return this.onWeapon(player, msg);
       case 'fire': return this.onFire(player, msg);
       case 'reload': return this.startReload(player);
+      case 'deploy': return this.deployMech(player);
+      case 'shield': return this.onShield(player);
+      case 'eject': return this.onEject(player);
+      case 'traversal': return this.onTraversal(player, msg);
       case 'ping': return this.send(player, { t: 'pong', c: msg.c });
       default: return;
     }
@@ -295,6 +312,181 @@ export class Game {
     this.broadcast({ t: 'reload', id: p.id, weapon: p.weapon }, p.id);
   }
 
+
+  // ------------------------------------------------------------------ mechs
+  //
+  // A mech is ridden by its pilot. The pilot's body stops taking hits — every
+  // one goes to the armour instead — and the pair move and aim as one thing.
+
+  pubMech(m) {
+    return {
+      id: m.id,
+      ownerId: m.ownerId,
+      pos: [round2(m.pos[0]), round2(m.pos[1]), round2(m.pos[2])],
+      yaw: round3(m.yaw),
+      hp: Math.max(0, Math.round(m.hp)),
+      maxHp: m.maxHp,
+      state: m.state,
+      shield: { charge: round3(m.shield.charge), time: round2(m.shield.time) },
+      coreFailureEnd: m.coreFailureEnd ? Math.max(0, m.coreFailureEnd - now()) : 0,
+      ejectPresses: m.ejectPresses,
+    };
+  }
+
+  deployMech(p) {
+    if (!p.alive || p.mechId) return;
+    if (!this.mechsAllowed) { this.send(p, { t: 'core', core: p.core, reason: 'nomech' }); return; }
+    if ((p.core || 0) < CORE.max) return;
+
+    const m = {
+      id: this.nextMechId++,
+      ownerId: p.id,
+      pos: [p.pos[0], p.pos[1] + MECH.dropHeight, p.pos[2]],
+      yaw: p.yaw,
+      hp: MECH.maxHealth,
+      maxHp: MECH.maxHealth,
+      state: 'dropping',
+      dropStart: now(),
+      shield: { charge: 1, time: 0 },
+      coreFailureEnd: 0,
+      ejectPresses: 0,
+    };
+    this.mechs.set(m.id, m);
+    p.mechId = m.id;
+    p.core = 0;                 // spent the moment it is called
+    p.reloadEnd = 0;
+    this.broadcast({ t: 'mechDrop', mech: this.pubMech(m) });
+    this.send(p, { t: 'core', core: 0, reason: 'deploy' });
+  }
+
+  // The shield can be raised early for proportionally less time — that is what
+  // makes a half-charged shield worth using instead of waiting.
+  onShield(p) {
+    const m = p.mechId ? this.mechs.get(p.mechId) : null;
+    if (!m || m.state !== 'active') return;
+    const raised = raiseShield(m.shield);
+    if (!raised) return;
+    m.shield = raised;
+    this.broadcast({ t: 'mechShield', id: m.id, time: round2(raised.time) });
+  }
+
+  onEject(p) {
+    const m = p.mechId ? this.mechs.get(p.mechId) : null;
+    if (!m || m.state !== 'core-failure') return;
+    m.ejectPresses += 1;
+    if (!hasEjected(m.ejectPresses)) {
+      this.send(p, { t: 'mechEject', id: m.id, presses: m.ejectPresses });
+      return;
+    }
+    // out, and thrown clear before it goes
+    this.exitMech(p);
+    p.pos[1] += 6;
+    this.send(p, { t: 'mechEject', id: m.id, presses: m.ejectPresses, out: true });
+    this.explodeMech(m, p.id);
+  }
+
+  exitMech(p) {
+    if (p.mechId) this.mechs.delete(p.mechId);
+    p.mechId = 0;
+  }
+
+  // A combo is two different traversal moves close together. It pays a little,
+  // and often enough that moving well is the fast route to a mech.
+  onTraversal(p, msg) {
+    if (!p.alive || p.mechId) return;
+    const kind = String(msg.kind || '').slice(0, 24);
+    if (!kind) return;
+    const t = now();
+    p.traversal = pruneTraversal(p.traversal, t);
+    p.traversal.push({ kind, at: t });
+    if (t - p.lastComboAt < CORE.comboCooldownMs) return;
+    if (!isCombo(p.traversal, t)) return;
+    p.lastComboAt = t;
+    p.core = addCore(p.core, 'combo');
+    this.send(p, { t: 'core', core: p.core, reason: 'combo' });
+  }
+
+  damageMech(m, dmg, attacker, weaponId) {
+    if (m.state !== 'active') return;
+    // the shield eats the whole hit while it is up
+    if (m.shield.time > 0) {
+      if (attacker) this.send(attacker, { t: 'hitmark', dmg: 0, kill: false, id: m.ownerId, head: false, shielded: true });
+      return;
+    }
+    m.hp -= dmg;
+    this.broadcast({
+      t: 'mechDamage', id: m.id, hp: Math.max(0, Math.round(m.hp)),
+      dmg: Math.round(dmg), by: attacker ? attacker.id : 0, weapon: weaponId,
+    });
+    if (attacker) {
+      this.send(attacker, { t: 'hitmark', dmg: Math.round(dmg), kill: m.hp <= 0, id: m.ownerId, head: false });
+    }
+    if (m.hp <= 0) {
+      m.hp = 0;
+      m.state = 'core-failure';
+      m.coreFailureEnd = now() + MECH.coreFailure.durationMs;
+      m.ejectPresses = 0;
+      this.broadcast({
+        t: 'mechCoreFailure', id: m.id, ownerId: m.ownerId,
+        durationMs: MECH.coreFailure.durationMs, presses: MECH.coreFailure.presses,
+      });
+    }
+  }
+
+  // Point blank is fatal; a couple of tiles back and you walk away.
+  explodeMech(m, excludeId = -1) {
+    this.broadcast({ t: 'mechExplode', id: m.id, pos: m.pos.map(round2) });
+    for (const p of this.players.values()) {
+      if (!p.alive || p.id === excludeId) continue;
+      const dist = Math.hypot(p.pos[0] - m.pos[0], p.pos[2] - m.pos[2]);
+      const dmg = explosionDamage(dist);
+      if (dmg <= 0) continue;
+      const theirs = p.mechId ? this.mechs.get(p.mechId) : null;
+      if (theirs) this.damageMech(theirs, dmg, null, 'mech');
+      else this.damage(p, dmg, null, 'mech');
+    }
+    this.mechs.delete(m.id);
+    for (const p of this.players.values()) if (p.mechId === m.id) p.mechId = 0;
+  }
+
+  tickMechs(t, dt) {
+    for (const m of [...this.mechs.values()]) {
+      const owner = this.players.get(m.ownerId);
+      if (!owner || !owner.alive) { this.mechs.delete(m.id); continue; }
+      m.yaw = owner.yaw;
+
+      if (m.state === 'dropping') {
+        const prog = clamp((t - m.dropStart) / MECH.dropTimeMs, 0, 1);
+        m.pos[0] = owner.pos[0];
+        m.pos[2] = owner.pos[2];
+        m.pos[1] = owner.pos[1] + MECH.dropHeight * (1 - prog);
+        if (prog >= 1) {
+          m.state = 'active';
+          m.pos[1] = owner.pos[1];
+          this.broadcast({ t: 'mechLanded', id: m.id, pos: m.pos.map(round2) });
+        }
+        continue;
+      }
+
+      // the mech rides exactly where its pilot is
+      m.pos[0] = owner.pos[0];
+      m.pos[1] = owner.pos[1];
+      m.pos[2] = owner.pos[2];
+
+      if (m.state === 'active') {
+        m.shield = stepShield(m.shield, dt);
+        continue;
+      }
+
+      // core failure ran out: the pilot did not get out
+      if (m.state === 'core-failure' && t >= m.coreFailureEnd) {
+        this.exitMech(owner);
+        this.kill(owner, null, 'mech');
+        this.explodeMech(m, -1);
+      }
+    }
+  }
+
   // ------------------------------------------------------------- lag compensation
 
   // Where a player's feet were at `when` (server clock, ms). Interpolated
@@ -339,12 +531,34 @@ export class Game {
   onFire(p, msg) {
     if (!p.alive) return;
     const w = WEAPONS[p.weapon];
+    const mine = p.mechId ? this.mechs.get(p.mechId) : null;
     const t = now();
     if (p.reloadEnd) return;
-    // per-weapon cooldown: swapping guns can never cheat the fire rate
-    if (t - p.lastShot[p.weapon] < w.interval - 20) return;
 
-    if (Number.isFinite(w.magSize)) {
+    // In a mech the knife is a punch: same idea, a far bigger hitbox.
+    const punch = mine && w.melee ? { ...w, ...MECH.punch } : null;
+    const weapon = punch || w;
+
+    // per-weapon cooldown: swapping guns can never cheat the fire rate
+    if (t - p.lastShot[p.weapon] < weapon.interval - 20) return;
+
+    // The RPG only fires on a lock, and it only locks a mech. Pointed at a
+    // person it does not fire at all.
+    if (w.lockOn) {
+      const target = this.mechs.get(Number(msg.lock));
+      if (!target || target.state !== 'active') { this.send(p, { t: 'nolock' }); return; }
+      const eye = p.pos[1] + PLAYER.eye;
+      const cx = target.pos[0], cy = target.pos[1] + MECH.height / 2, cz = target.pos[2];
+      const dist = Math.hypot(cx - p.pos[0], cy - eye, cz - p.pos[2]);
+      const aim = norm3(msg.dir);
+      const to = norm3([cx - p.pos[0], cy - eye, cz - p.pos[2]]);
+      const angle = (aim && to)
+        ? Math.acos(clamp(aim[0] * to[0] + aim[1] * to[1] + aim[2] * to[2], -1, 1))
+        : Math.PI;
+      if (!lockAcquired(dist, angle)) { this.send(p, { t: 'nolock' }); return; }
+    }
+
+    if (Number.isFinite(weapon.magSize)) {
       if (p.ammo[p.weapon] <= 0) { this.startReload(p); return; }
       p.ammo[p.weapon]--;
       if (p.ammo[p.weapon] === 0) this.send(p, { t: 'empty', weapon: p.weapon });
@@ -352,19 +566,19 @@ export class Game {
     p.lastShot[p.weapon] = t;
 
     // origin: server-authoritative eye position (fall back to the reported one)
-    const origin = [p.pos[0], p.pos[1] + PLAYER.eye, p.pos[2]];
+    const origin = [p.pos[0], p.pos[1] + (mine ? MECH.eyeHeight : PLAYER.eye), p.pos[2]];
     let dir = norm3(msg.dir);
     if (!dir) {
-      const cy = Math.cos(p.yaw), sy = Math.sin(p.yaw), cp = Math.cos(p.pitch);
-      dir = [-sy * cp, Math.sin(p.pitch), -cy * cp];
+      const cy2 = Math.cos(p.yaw), sy2 = Math.sin(p.yaw), cp2 = Math.cos(p.pitch);
+      dir = [-sy2 * cp2, Math.sin(p.pitch), -cy2 * cp2];
     }
 
-    const worldHit = raycastAABBs(this.solids, origin[0], origin[1], origin[2], dir[0], dir[1], dir[2], w.range);
+    const worldHit = raycastAABBs(this.solids, origin[0], origin[1], origin[2], dir[0], dir[1], dir[2], weapon.range);
     let endT = worldHit.t;
     let victim = null;
     let victimFeet = null;
-    const pad = w.melee ? 0.22 : 0.02;
-    const radius = PLAYER.radius + pad;
+    let victimMech = null;
+    const pad = weapon.melee ? 0.22 : 0.02;
 
     // Lag compensation: the client draws remote players slightly in the past
     // and its own view of itself slightly in the future. Test the shot against
@@ -374,10 +588,15 @@ export class Game {
     if (endT > 0.001) {
       for (const other of this.players.values()) {
         if (other === p || !other.alive) continue;
+        const theirs = other.mechId ? this.mechs.get(other.mechId) : null;
+        // the RPG does not see people at all
+        if (w.lockOn && !theirs) continue;
+        const height = theirs ? MECH.height : PLAYER.height;
+        const radius = (theirs ? MECH.radius : PLAYER.radius) + pad;
         const past = this.positionAt(other.id, rewound);
         for (const feet of past ? [other.pos, past] : [other.pos]) {
-          const ht = rayCapsule(origin[0], origin[1], origin[2], dir[0], dir[1], dir[2], feet, PLAYER.height, radius, endT);
-          if (ht < endT) { endT = ht; victim = other; victimFeet = feet; }
+          const ht = rayCapsule(origin[0], origin[1], origin[2], dir[0], dir[1], dir[2], feet, height, radius, endT);
+          if (ht < endT) { endT = ht; victim = other; victimFeet = feet; victimMech = theirs; }
         }
       }
     }
@@ -385,9 +604,10 @@ export class Game {
     const end = [origin[0] + dir[0] * endT, origin[1] + dir[1] * endT, origin[2] + dir[2] * endT];
 
     // Headshots: the shot landed in the top slice of the victim's capsule.
+    // Armour has no head to crit.
     const hitY = origin[1] + dir[1] * endT;
-    const head = !!victim && !w.melee && isHeadHit(hitY - (victimFeet || victim.pos)[1]);
-    const dmg = head ? headshotDamage(w, true) : w.damage;
+    const head = !!victim && !victimMech && !weapon.melee && isHeadHit(hitY - (victimFeet || victim.pos)[1]);
+    const dmg = head ? headshotDamage(weapon, true) : weapon.damage;
 
     this.broadcast({
       t: 'shot',
@@ -399,10 +619,20 @@ export class Game {
       head,
     });
 
-    if (victim) {
-      const killed = this.damage(victim, dmg, p, w.id, head);
-      this.send(p, { t: 'hitmark', dmg, kill: killed, id: victim.id, head });
+    if (!victim) return;
+
+    // everything that hits a pilot hits the armour instead
+    if (victimMech) {
+      const md = mechDamage(w.id);
+      if (md > 0) this.damageMech(victimMech, md, p, w.id);
+      else if (p !== victim) {
+        this.send(p, { t: 'hitmark', dmg: 0, kill: false, id: victim.id, head: false, immune: true });
+      }
+      return;
     }
+
+    const killed = this.damage(victim, dmg, p, w.id, head);
+    this.send(p, { t: 'hitmark', dmg, kill: killed, id: victim.id, head });
   }
 
   // ------------------------------------------------------------- damage / death
@@ -432,12 +662,18 @@ export class Game {
 
   kill(victim, killer, weaponId, head = false) {
     if (!victim.alive) return;
+    // a mech does not survive its pilot
+    if (victim.mechId) { this.mechs.delete(victim.mechId); victim.mechId = 0; }
     victim.alive = false;
     victim.hp = 0;
     victim.deaths++;
     victim.reloadEnd = 0;
     victim.respawnAt = now() + PLAYER.respawnTime;
-    if (killer && killer !== victim) killer.kills++;
+    if (killer && killer !== victim) {
+      killer.kills++;
+      killer.core = addCore(killer.core, 'kill');
+      this.send(killer, { t: 'core', core: killer.core, reason: 'kill' });
+    }
 
     // fold the kill into the all-time table (a fall has no killer)
     this.leaderboard.recordKill(
@@ -489,12 +725,15 @@ export class Game {
       }
     }
 
+    this.tickMechs(t, dt);
+
     // keep the rewind buffer current (newest last)
     const newest = this.history[this.history.length - 1];
     if (!newest || t - newest.t >= 1000 / NET.TICK_HZ - 2) this.recordHistory(t);
 
     const players = [...this.players.values()].map((p) => this.pub(p));
-    this.broadcast({ t: 'snapshot', ts: t, players });
+    const mechs = [...this.mechs.values()].map((m) => this.pubMech(m));
+    this.broadcast({ t: 'snapshot', ts: t, players, mechs });
   }
 }
 

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WEAPONS, PLAYER, NET, MOVE, RESERVED, CREW_GLOW, COSMETIC, isHeadHit, headshotDamage, AIM_ASSIST, AIM_ASSIST_LEVELS, AIM_ASSIST_DEFAULT, aimAssistConfig } from '../../shared/constants.js';
+import { WEAPONS, PLAYER, NET, MOVE, RESERVED, CREW_GLOW, COSMETIC, isHeadHit, headshotDamage, AIM_ASSIST, AIM_ASSIST_LEVELS, AIM_ASSIST_DEFAULT, aimAssistConfig, MECH, CORE } from '../../shared/constants.js';
 import { aimAssist, weaponHasAssist } from '../../shared/aimassist.js';
 import { raycastAABBs, rayCapsule } from '../../shared/collision.js';
 import { buildWorld } from './world.js';
@@ -15,6 +15,8 @@ import { PracticeMode, Tutorial, PRACTICE_SPAWN } from './practice.js';
 import { renderEntry, renderTabs, DEFAULT_ENTRY, LATEST_VERSION } from './updates.js';
 import { ACTIONS, DEFAULT_BINDS, keyLabel, assign, normalise, reserved, ownerOf } from './keybinds.js';
 import { MAP_LIST, DEFAULT_MAP, mapById } from '../../shared/map.js';
+import { Mechs } from './mechs.js';
+import { lockAcquired, shieldFraction, ejectionProgress } from '../../shared/mech.js';
 import { Minimap } from './minimap.js';
 
 const $ = (id) => document.getElementById(id);
@@ -84,6 +86,7 @@ const hud = new Hud();
 const minimap = new Minimap($('minimap'));
 minimap.setMap(world.mapId);
 const avatars = new Avatars(scene);
+const mechs = new Mechs(scene);
 const viewmodel = new ViewModel(renderer);
 const effects = new Effects(scene);
 
@@ -140,6 +143,11 @@ const state = {
   chamberEndsAt: 0,       // the sniper's bolt cycle between shots
   chamberDur: 0,
   nextFireAt: WEAPONS.map(() => 0),
+  core: 0,                     // the Core: kills and movement charge it
+  mech: null,                  // the mech you are piloting, straight from the server
+  lockId: 0,                   // the mech the RPG is locked onto
+  lockState: 'none',           // 'none' | 'seeking' | 'locked'
+  mechAllowed: true,           // the small map has no room for one
   recoilBloom: 0,
   scoped: false,
   respawnAt: 0,
@@ -174,7 +182,7 @@ let session = null;
 // Build stamp: makes it obvious which version the browser actually loaded, and
 // catches the classic "new page, old cached scripts" situation where every
 // button appears dead.
-const BUILD = 'forest v19';
+const BUILD = 'forest v20';
 
 function detectStaleBuild() {
   try {
@@ -374,7 +382,9 @@ function setScoped(v) {
 }
 
 function fireOnce(now) {
-  const w = currentWeapon();
+  const held = currentWeapon();
+  // In a mech the knife is a punch: the same swing, a far bigger reach.
+  const w = state.mech && held.melee ? { ...held, ...MECH.punch, name: 'PUNCH' } : held;
   if (!state.alive || state.paused) return;
   if (state.reloadEndsAt) return;
   if (now < state.nextFireAt[state.weapon]) return;
@@ -430,7 +440,77 @@ function fireOnce(now) {
     effects.impact(hit.point, hit.normal, 'world');
   }
 
-  net.send({ t: 'fire', dir: shotDir });
+  // the server re-checks the lock; a rocket fired at a person does not exist
+  net.send({ t: 'fire', dir: shotDir, lock: currentWeapon().lockOn ? (state.lockId || 0) : 0 });
+}
+
+// ---------------------------------------------------------------- the mech
+// Drives every mech-facing part of the HUD from whatever the server last said.
+function syncMechHud() {
+  const m = state.mech;
+  const core = state.core || 0;
+  const ready = !m && state.mechAllowed && core >= CORE.max;
+  hud.setCore(core, ready);
+  hud.showMech(!!m);
+
+  if (m) {
+    hud.setMechHp(m.hp, m.maxHp);
+    const sh = m.shield || { charge: 0, time: 0 };
+    hud.setShield(shieldFraction(sh), (sh.time || 0) > 0);
+  }
+
+  // core failure: the countdown to get out
+  if (m && m.state === 'core-failure') {
+    const dur = state.coreFailDur || MECH.coreFailure.durationMs;
+    hud.showCoreFailure({
+      presses: m.ejectPresses || 0,
+      msLeft: Math.max(0, (state.coreFailEndsAt || 0) - performance.now()),
+      durationMs: dur,
+    });
+    hud.showLock(false);
+    return;
+  }
+  hud.showCoreFailure(null);
+  updateLock();
+}
+
+// The RPG acquires a mech and nothing else. The same cone and range the server
+// checks, so what lights up here is what it will actually fire at.
+function updateLock() {
+  const w = currentWeapon();
+  if (!w || !w.lockOn || state.mech || state.phase !== 'playing') {
+    state.lockId = 0;
+    state.lockState = 'none';
+    hud.showLock(false);
+    return;
+  }
+  const dir = aimDirection();
+  const eyeY = body.y + PLAYER.eye;
+  let best = null;
+  let bestAngle = Infinity;
+  for (const v of mechs.map.values()) {
+    if (v.state !== 'active') continue;
+    const cx = v.pos.x - body.x;
+    const cy = (v.pos.y + MECH.height / 2) - eyeY;
+    const cz = v.pos.z - body.z;
+    const dist = Math.hypot(cx, cy, cz);
+    if (dist < 0.001) continue;
+    const dot = (dir[0] * cx + dir[1] * cy + dir[2] * cz) / dist;
+    const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+    if (!lockAcquired(dist, angle) || angle >= bestAngle) continue;
+    bestAngle = angle;
+    best = v;
+  }
+  if (best) {
+    state.lockId = best.id;
+    state.lockState = 'locked';
+    hud.showLock('locked', 'LOCKED');
+    return;
+  }
+  state.lockId = 0;
+  state.lockState = 'seeking';
+  const denied = performance.now() < (state.lockFlashUntil || 0);
+  hud.showLock('seeking', denied ? 'NO LOCK' : 'SEEKING');
 }
 
 // ---------------------------------------------------------------- camera
@@ -449,7 +529,7 @@ function updateCamera(dt) {
   const bobX = Math.cos(state.bob) * bobAmt * 0.6;
 
   // smooth vertical follow over stairs, and duck while sliding
-  const targetY = body.y + PLAYER.eye + body.eyeOffset;
+  const targetY = body.y + (state.mech ? MECH.eyeHeight : PLAYER.eye) + body.eyeOffset;
   if (state.camY === 0) state.camY = targetY;
   const dy = targetY - state.camY;
   state.camY += dy * Math.min(1, dt * (dy > 0.4 || dy < -0.4 ? 26 : 16));
@@ -495,6 +575,14 @@ function handleGameplayInput(now, dt) {
     switchWeapon((state.weapon + (input.wheel > 0 ? 1 : WEAPONS.length - 1)) % WEAPONS.length);
   }
   if (input.actionPressed('reload')) startReload();
+
+  // The mech key does three jobs: call one down, and once it is dying, punch
+  // out of it. Three presses gets you clear.
+  if (input.actionPressed('deploy')) {
+    if (state.mech && state.mech.state === 'core-failure') net.send({ t: 'eject' });
+    else if (!state.mech) net.send({ t: 'deploy' });
+  }
+  if (input.actionPressed('shield') && state.mech) net.send({ t: 'shield' });
   if (input.actionPressed('swap')) {
     // last weapon
     if (state.lastWeapon != null) switchWeapon(state.lastWeapon);
@@ -566,6 +654,18 @@ function forwardMovementEvents() {
   if (ev.slideLanding) { sfx.slide(); session?.onEvent?.('slideLanding'); }
   if (ev.perfectLanding) { sfx.perfect(); hud.momentumSaved(); session?.onEvent?.('perfectLanding'); }
   if (ev.momentumLost && body.speed > 1) sfx.land();
+
+  // What you just did, for the Core's combo detection. Only the moves worth
+  // watching count — walking and jumping on the spot pay nothing.
+  if (state.mode === 'online' && !state.mech) {
+    const kind = ev.wallRunStarted ? 'wallrun'
+      : ev.wallJumped ? 'walljump'
+      : ev.doubleJumped ? 'doublejump'
+      : ev.slideLanding ? 'slidehop'
+      : ev.perfectLanding ? 'landing'
+      : null;
+    if (kind) net.send({ t: 'traversal', kind });
+  }
   body.events = {};
 }
 
@@ -584,6 +684,9 @@ function startLocalMode(kind) {
 
   state.mode = kind === 'tutorial' ? 'tutorial' : 'practice';
   state.id = 0;
+  state.core = 0;
+  state.mech = null;
+  state.mechAllowed = false;      // no mechs offline: they belong to a match
   state.name = (($('nameInput').value || '').trim() || 'PLAYER').toUpperCase();
   state.kills = 0;
   state.deaths = 0;
@@ -663,6 +766,8 @@ function setWorld(mapId) {
   body.solids = world.solids;
   old.dispose?.();
   settings.map = id;
+  // mechs are a big-map thing: the small arena has no room for one
+  state.mechAllowed = id !== 'small';
   store.set('skyfall.map', id);
   minimap.setMap(id);
   refreshLobby();
@@ -701,6 +806,9 @@ net.on('welcome', (msg) => {
   state.id = msg.id;
   state.name = msg.name;
   state.color = msg.color;
+  state.mechAllowed = (state.map !== 'small');
+  state.core = 0;
+  state.mech = null;
   const you = msg.you || { pos: [0, 0.05, 0], yaw: 0 };
   body.teleport(you.pos[0], you.pos[1], you.pos[2]);
   state.yaw = you.yaw;
@@ -741,11 +849,15 @@ net.on('snapshot', (msg) => {
   if (state.mode !== 'online') return;
   state.players = msg.players;
   avatars.sync(msg.players, state.id);
+  mechs.sync(msg.mechs || [], state.id);
+  // your own mech is not drawn — you are in the cockpit — but you need its state
+  state.mech = (msg.mechs || []).find((m) => m.ownerId === state.id) || null;
   const me = msg.players.find((p) => p.id === state.id);
   if (me) {
     // keep local prediction for movement, trust the server for stats
     state.kills = me.kills;
     state.deaths = me.deaths;
+    state.core = me.core ?? state.core;
     hud.setKillsDeaths(state.kills, state.deaths);
     if (Math.abs(me.hp - state.hp) > 0.6) {
       state.hp = me.hp;
@@ -903,6 +1015,70 @@ net.on('reload', (msg) => {
 });
 
 net.on('empty', () => { sfx.empty(); });
+
+// ------------------------------------------------------------------ mechs
+net.on('core', (msg) => {
+  if (Number.isFinite(msg.core)) state.core = msg.core;
+  if (msg.reason === 'combo') hud.toast(`+${CORE.perCombo}% CORE · COMBO`, 900);
+  if (msg.reason === 'kill') hud.toast(`+${CORE.perKill}% CORE`, 900);
+  if (msg.reason === 'nomech') hud.toast('NO MECHS ON THIS MAP', 1800);
+});
+
+net.on('mechDrop', (msg) => {
+  hud.centerMessage('MECH INBOUND', 1600);
+  sfx.objective();
+  if (msg.mech && msg.mech.ownerId === state.id) hud.flash(0.2);
+});
+
+net.on('mechLanded', (msg) => {
+  if (Array.isArray(msg.pos)) {
+    effects.impact(new THREE.Vector3(msg.pos[0], msg.pos[1] + 0.2, msg.pos[2]),
+      new THREE.Vector3(0, 1, 0), 'world');
+    effects.spawnParticles(new THREE.Vector3(msg.pos[0], msg.pos[1], msg.pos[2]), 26,
+      { color: 0xbfae95, speed: 9, life: 0.9, gravity: -18 });
+  }
+  hud.flash(0.35);
+});
+
+net.on('mechDamage', (msg) => {
+  const view = mechs.get(msg.id);
+  if (view && Number.isFinite(msg.hp)) view.hp = msg.hp;
+});
+
+net.on('mechShield', (msg) => {
+  const view = mechs.get(msg.id);
+  if (view) view.shield = { charge: 0, time: msg.time ?? 0 };
+});
+
+net.on('mechCoreFailure', (msg) => {
+  state.coreFailEndsAt = performance.now() + (msg.durationMs || MECH.coreFailure.durationMs);
+  state.coreFailDur = msg.durationMs || MECH.coreFailure.durationMs;
+  sfx.death();
+  hud.flash(0.5);
+});
+
+net.on('mechEject', (msg) => {
+  if (msg.out) {
+    hud.centerMessage('EJECTED', 1400);
+    hud.flash(0.6);
+  } else {
+    sfx.objective();
+  }
+});
+
+net.on('mechExplode', (msg) => {
+  if (!Array.isArray(msg.pos)) return;
+  const at = new THREE.Vector3(msg.pos[0], msg.pos[1] + 3, msg.pos[2]);
+  effects.spawnParticles(at, 70, { color: 0xffa04a, speed: 22, life: 1.4, gravity: -12 });
+  effects.deathRing(at, 0xffb45e);
+  const d = Math.hypot(body.x - msg.pos[0], body.z - msg.pos[2]);
+  if (d < MECH.explosion.radius * 3) hud.flash(0.7);
+});
+
+// the RPG only fires on a lock
+net.on('nolock', () => {
+  state.lockFlashUntil = performance.now() + 800;
+});
 
 // The server only corrects when a position report is impossible. Small
 // corrections are measurement noise (packet jitter), so they are ignored rather
@@ -1274,8 +1450,11 @@ function renderKeyList() {
     ['WALLS', 'run along them in the air'],
     [`LMB / ${k('fire')}`, 'fire'],
     ['RMB', 'scope (sniper)'],
-    ['1 2 3 4', 'or WHEEL weapons'],
+    ['1 2 3 4 5', 'or WHEEL weapons'],
+    ['5', 'RPG — locks onto mechs'],
     [k('reload'), 'reload'],
+    [k('deploy'), 'deploy mech · eject (press 3×)'],
+    [k('shield'), 'mech energy shield'],
     [`${k('scoreboard')} / ${k('leaderboard')}`, 'scoreboard · leaderboard'],
     [k('pause'), 'pause'],
   ];
@@ -1780,6 +1959,8 @@ function frame(now) {
   world.update(dt, camera.position);
   effects.update(dt);
   avatars.update(dt, state.time);
+  mechs.update(dt, state.time);
+  syncMechHud();
 
   // radar: everyone on the map, drawn the way you are facing
   if (state.phase === 'playing') {
@@ -1818,7 +1999,7 @@ requestAnimationFrame(frame);
 
 // Small debug handle: handy in the console, and used by the automated tests.
 window.SKYFALL = {
-  state, hud, net, body, camera, avatars, viewmodel, effects, settings, input, scene, minimap,
+  state, hud, net, body, camera, avatars, mechs, viewmodel, effects, settings, input, scene, minimap,
   get cosmetic() { return state.cosmetic; },
   showUpdates, hideUpdates, updatesOpen,
   showOptions, hideOptions, optionsOpen,

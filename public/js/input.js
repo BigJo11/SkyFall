@@ -3,7 +3,8 @@
 
 import { DEFAULT_BINDS, codesFor, normalise } from './keybinds.js';
 
-const CODE_WEAPON = ['Digit1', 'Digit2', 'Digit3', 'Digit4'];
+// one per weapon, so a fifth weapon gets a fifth key for free
+const CODE_WEAPON = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'];
 
 export class Input {
   constructor(canvas) {

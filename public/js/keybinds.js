@@ -11,6 +11,9 @@ export const ACTIONS = [
   { id: 'jump', label: 'JUMP', group: 'MOVEMENT', def: 'Space' },
   { id: 'slide', label: 'SLIDE', group: 'MOVEMENT', def: 'KeyC', alt: ['ControlLeft', 'ControlRight'] },
   { id: 'fire', label: 'FIRE', group: 'COMBAT', def: 'KeyF' },
+  // V calls the mech down and, later, throws you out of it.
+  { id: 'deploy', label: 'DEPLOY MECH / EJECT', group: 'COMBAT', def: 'KeyV' },
+  { id: 'shield', label: 'MECH SHIELD', group: 'COMBAT', def: 'KeyG' },
   { id: 'reload', label: 'RELOAD', group: 'COMBAT', def: 'KeyR' },
   { id: 'swap', label: 'LAST WEAPON', group: 'COMBAT', def: 'KeyQ' },
   { id: 'scoreboard', label: 'SCOREBOARD', group: 'INTERFACE', def: 'Tab' },

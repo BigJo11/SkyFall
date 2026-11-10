@@ -1278,3 +1278,91 @@ body.crew .cos-hint { color: rgba(216, 197, 138, .9); }
 @media (max-height: 780px), (max-width: 900px) {
   #minimap { width: 116px; height: 116px; bottom: 122px; right: 18px; }
 }
+
+/* ---------------------------------------------------------------- the Core */
+#coreMeter {
+  position: absolute; left: 22px; bottom: 132px; width: 168px;
+  font-family: var(--mono);
+}
+.core-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 9px; letter-spacing: .3em; color: var(--cyan); margin-bottom: 4px;
+}
+#corePct { font-size: 13px; font-weight: 700; color: var(--ink); letter-spacing: .04em; }
+.core-bar {
+  position: relative; height: 9px; background: rgba(4, 10, 18, .66);
+  border: 1px solid rgba(120, 190, 235, .22); border-radius: 2px; overflow: hidden;
+  transform: skewX(-16deg);
+}
+#coreFill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, #2b7fb8, var(--cyan));
+  transition: width .22s ease-out;
+}
+#coreMeter.full #coreFill { background: linear-gradient(90deg, #ffb347, #ffe08a); }
+#coreMeter.full .core-head { color: #ffd479; }
+#coreReady {
+  margin-top: 5px; font-size: 9px; letter-spacing: .22em; color: #ffd479;
+  text-shadow: 0 0 10px rgba(255, 190, 60, .6); animation: corePulse 1.4s ease-in-out infinite;
+}
+#coreReady b { color: #fff; }
+@keyframes corePulse { 0%, 100% { opacity: .65; } 50% { opacity: 1; } }
+
+/* ------------------------------------------------------------- the cockpit */
+#mechHud { position: absolute; left: 50%; transform: translateX(-50%); bottom: 118px; width: 320px; }
+.mech-hp, .mech-shield {
+  position: relative; height: 11px; background: rgba(4, 10, 18, .7);
+  border: 1px solid rgba(120, 190, 235, .26); border-radius: 2px; overflow: hidden;
+}
+.mech-shield { height: 7px; margin-top: 4px; }
+#mechHpFill {
+  height: 100%; width: 100%;
+  background: linear-gradient(90deg, #b8742a, #ffd479); transition: width .18s ease-out;
+}
+#shieldFill {
+  height: 100%; width: 100%;
+  background: linear-gradient(90deg, #3aa0d8, #8fe8ff); transition: width .1s linear;
+}
+#mechHud.shield-up .mech-shield { border-color: rgba(143, 232, 255, .8); box-shadow: 0 0 14px rgba(120, 200, 255, .45); }
+#mechHint { margin-top: 5px; text-align: center; font-family: var(--mono); font-size: 9px; letter-spacing: .2em; color: rgba(180, 205, 230, .75); }
+#mechHint b { color: var(--cyan); }
+
+/* ----------------------------------------------------------- core failure */
+#coreFail {
+  position: absolute; left: 50%; top: 26%; transform: translateX(-50%);
+  width: 260px; text-align: center; font-family: var(--mono);
+  padding: 14px 16px;
+  background: linear-gradient(180deg, rgba(60, 12, 12, .9), rgba(20, 8, 8, .82));
+  border: 1px solid rgba(255, 110, 90, .5); border-radius: 10px;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, .55);
+  animation: cfIn .2s ease-out;
+}
+@keyframes cfIn { from { opacity: 0; transform: translateX(-50%) scale(.94); } to { opacity: 1; } }
+.cf-title { font-size: 17px; font-weight: 800; letter-spacing: .28em; color: #ff7b6b; text-shadow: 0 0 16px rgba(255, 90, 70, .6); }
+.cf-sub { margin-top: 5px; font-size: 11px; letter-spacing: .2em; color: #ffd0c0; }
+.cf-sub b { color: #fff; }
+.cf-pips { display: flex; gap: 7px; justify-content: center; margin-top: 10px; }
+.cf-pips i {
+  width: 34px; height: 5px; border-radius: 2px;
+  background: rgba(255, 255, 255, .16); border: 1px solid rgba(255, 140, 120, .35);
+}
+.cf-pips i.on { background: #ff8a6a; box-shadow: 0 0 10px rgba(255, 120, 90, .8); }
+.cf-bar { margin-top: 10px; height: 5px; background: rgba(0, 0, 0, .5); border-radius: 2px; overflow: hidden; }
+#coreFailFill { height: 100%; width: 100%; background: linear-gradient(90deg, #ff5a3c, #ffb08a); }
+
+/* ---------------------------------------------------------------- the lock */
+#lockBox {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 92px; height: 92px; pointer-events: none;
+  border: 2px solid rgba(255, 150, 80, .55); border-radius: 4px;
+  display: flex; align-items: flex-end; justify-content: center;
+  padding-bottom: 6px;
+}
+#lockBox.locked { border-color: rgba(255, 120, 70, .95); box-shadow: 0 0 18px rgba(255, 130, 60, .5); }
+#lockText { font-family: var(--mono); font-size: 9px; letter-spacing: .2em; color: #ffb08a; }
+#lockBox.locked #lockText { color: #ff7a5a; }
+
+@media (max-height: 780px), (max-width: 900px) {
+  #coreMeter { width: 132px; bottom: 122px; left: 18px; }
+  #mechHud { width: 260px; bottom: 108px; }
+}
