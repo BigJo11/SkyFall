@@ -182,7 +182,7 @@ let session = null;
 // Build stamp: makes it obvious which version the browser actually loaded, and
 // catches the classic "new page, old cached scripts" situation where every
 // button appears dead.
-const BUILD = 'forest v21';
+const BUILD = 'forest v22';
 
 function detectStaleBuild() {
   try {
@@ -253,11 +253,16 @@ function localRaycast(maxDist, dirOverride = null) {
   if (hit.aabb) {
     _n.set(origin.x + dir[0] * t, origin.y + dir[1] * t, origin.z + dir[2] * t);
   }
+  // A punch swings a fist the size of a person. The server widens the capsule
+  // for it, so the local ray has to as well — otherwise what you see connect
+  // and what the server counts stop agreeing.
+  const punching = !!state.mech && !!currentWeapon().melee;
+  const limb = punching ? MECH.punch.radius : PLAYER.radius + 0.06;
   for (const a of avatars.map.values()) {
     if (!a.alive) continue;
     const ht = rayCapsule(
       origin.x, origin.y, origin.z, dir[0], dir[1], dir[2],
-      [a.pos.x, a.pos.y, a.pos.z], PLAYER.height, PLAYER.radius + 0.06, t
+      [a.pos.x, a.pos.y, a.pos.z], PLAYER.height, limb, t
     );
     if (ht < t) { t = ht; victim = a; }
   }
@@ -388,6 +393,16 @@ function fireOnce(now) {
   if (!state.alive || state.paused) return;
   if (state.reloadEndsAt) return;
   if (now < state.nextFireAt[state.weapon]) return;
+
+  // The RPG only fires on a lock, and it only locks a mech. Online the server
+  // rejects the shot; offline there is nobody to, so it refuses here instead.
+  if (w.lockOn && !state.lockId) {
+    if (session) {
+      state.lockFlashUntil = performance.now() + 800;
+      if (now - state.lastShotVisual > 420) { state.lastShotVisual = now; sfx.empty(); }
+      return;
+    }
+  }
 
   const infinite = !Number.isFinite(w.magSize);
   if (!infinite && state.ammo[state.weapon] <= 0) {
@@ -577,12 +592,23 @@ function handleGameplayInput(now, dt) {
   if (input.actionPressed('reload')) startReload();
 
   // The mech key does three jobs: call one down, and once it is dying, punch
-  // out of it. Three presses gets you clear.
+  // out of it. Three presses gets you clear. Offline the range answers instead
+  // of the server — same key, same rules.
   if (input.actionPressed('deploy')) {
-    if (state.mech && state.mech.state === 'core-failure') net.send({ t: 'eject' });
-    else if (!state.mech) net.send({ t: 'deploy' });
+    const ejecting = state.mech && state.mech.state === 'core-failure';
+    if (session) {
+      if (ejecting) session.onMechCommand?.('eject');
+      else if (!state.mech) session.onMechCommand?.('deploy');
+    } else if (ejecting) {
+      net.send({ t: 'eject' });
+    } else if (!state.mech) {
+      net.send({ t: 'deploy' });
+    }
   }
-  if (input.actionPressed('shield') && state.mech) net.send({ t: 'shield' });
+  if (input.actionPressed('shield') && state.mech) {
+    if (session) session.onMechCommand?.('shield');
+    else net.send({ t: 'shield' });
+  }
   if (input.actionPressed('swap')) {
     // last weapon
     if (state.lastWeapon != null) switchWeapon(state.lastWeapon);
@@ -656,15 +682,19 @@ function forwardMovementEvents() {
   if (ev.momentumLost && body.speed > 1) sfx.land();
 
   // What you just did, for the Core's combo detection. Only the moves worth
-  // watching count — walking and jumping on the spot pay nothing.
-  if (state.mode === 'online' && !state.mech) {
+  // watching count — walking and jumping on the spot pay nothing. Online the
+  // server scores the combo; offline the range does it itself.
+  if (!state.mech) {
     const kind = ev.wallRunStarted ? 'wallrun'
       : ev.wallJumped ? 'walljump'
       : ev.doubleJumped ? 'doublejump'
       : ev.slideLanding ? 'slidehop'
       : ev.perfectLanding ? 'landing'
       : null;
-    if (kind) net.send({ t: 'traversal', kind });
+    if (kind) {
+      if (session) session.onTraversal?.(kind);
+      else if (state.mode === 'online') net.send({ t: 'traversal', kind });
+    }
   }
   body.events = {};
 }
@@ -686,7 +716,9 @@ function startLocalMode(kind) {
   state.id = 0;
   state.core = 0;
   state.mech = null;
-  state.mechAllowed = false;      // no mechs offline: they belong to a match
+  // Practice and the tutorial run on the big plateau, which has room for one.
+  // There is no server here to own it — the range simulates its own.
+  state.mechAllowed = true;
   state.name = (($('nameInput').value || '').trim() || 'PLAYER').toUpperCase();
   state.kills = 0;
   state.deaths = 0;

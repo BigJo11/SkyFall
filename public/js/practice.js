@@ -1,9 +1,11 @@
 // Offline practice range and the tutorial that lives inside it.
 // Both run with no server: dummies are local, damage is local, respawns are
 // local. `ctx` is supplied by main.js and gives access to the live game state.
-import { PLAYER, MOVE, headshotDamage } from '../../shared/constants.js';
+import { PLAYER, MOVE, MECH, CORE, headshotDamage } from '../../shared/constants.js';
 import ARENA, { PRACTICE } from '../../shared/map.js';
 import { solidAABBs, raycastAABBs } from '../../shared/collision.js';
+import { addCore, pruneTraversal, isCombo, explosionDamage } from '../../shared/mech.js';
+import { LocalMech } from './localmech.js';
 
 // Practice dummies are deliberately bad shots: slow reaction, huge spread,
 // tiny damage. They exist to give you moving targets and something shooting
@@ -17,6 +19,11 @@ const DUMMY_AI = {
   aimTime: 1.9,           // seconds of "aiming" before a shot
   spread: 0.17,           // huge scatter: they mostly miss
   damage: 3,
+  // A mech is a thousand hit points of armour, and a practice session is maybe
+  // a minute long. At the damage they do to a player you would never live to
+  // see a core failure, let alone practise getting out of one — so offline
+  // they hit armour harder than they hit you.
+  mechDamage: 25,
   cycleMin: 2.4,
   cycleMax: 4.2,
 };
@@ -69,6 +76,11 @@ export class PracticeMode {
     this.aiStats = { shots: 0, hits: 0, damage: 0 };
     this.now = 0;
     this.finished = false;
+    // Offline there is no server to own the mech, so the range owns one itself
+    this.mechSim = new LocalMech(0);
+    // the same rolling traversal log the server keeps, for combo detection
+    this.traversal = [];
+    this.lastComboAt = -Infinity;
     this.dummies = DUMMY_SPOTS.map((spot, i) => ({
       id: dummyId++,
       name: `DUMMY ${i + 1}`,
@@ -102,12 +114,21 @@ export class PracticeMode {
     hud.centerMessage('PRACTICE RANGE', 1800);
     hud.toast('Dummies respawn when destroyed — no score pressure here', 4200);
     this.placePlayer(PRACTICE_SPAWN);
+    // the Core is how you earn a mech, and it fills fast out here
+    hud.toast('Kills and movement combos charge the CORE · V calls down a mech', 5200);
   }
 
   dispose() {
-    this.ctx.hud.showPractice(false);
-    this.ctx.hud.showObjective(null);
-    this.ctx.hud.showObjectiveDone(false);
+    const { hud, state } = this.ctx;
+    hud.showPractice(false);
+    hud.showObjective(null);
+    hud.showObjectiveDone(false);
+    // leave nothing piloting behind for the next session
+    this.mechSim.clear();
+    state.mech = null;
+    state.coreFailEndsAt = 0;
+    hud.showMech(false);
+    hud.showCoreFailure(null);
   }
 
   placePlayer(spawn = PRACTICE_SPAWN) {
@@ -140,12 +161,191 @@ export class PracticeMode {
 
     if (this.aggressive) this.updateDummies(dt, body);
 
+    // the mech runs on its own clock: falling, fighting, or counting down
+    if (this.mechSim.exists) this.tickMech(dt, now, body);
+
     this.stats.bestSpeed = Math.max(this.stats.bestSpeed, body.speed);
     this.ctx.avatars.sync(this.snapshots(), -1);
     this.ctx.hud.practiceStats(this.stats);
 
-    // fell into the void -> back to the range
-    if (body.y < PLAYER.fallKillY) this.fallRespawn();
+    // fell into the void -> back to the range, with no mech left standing
+    if (body.y < PLAYER.fallKillY) {
+      if (this.mechSim.exists) this.loseMech();
+      this.fallRespawn();
+    }
+  }
+
+  // ------------------------------------------------------------------ mechs
+  // Everything below is what the server does online, run locally instead. The
+  // numbers all come from shared/mech.js, so a mech behaves the same either
+  // way; only who is keeping score is different.
+
+  // Called every frame while a mech exists: it falls, then it fights, then it
+  // either ejects or it does not.
+  tickMech(dt, now, body) {
+    const { state, hud, effects } = this.ctx;
+    const result = this.mechSim.update(dt, now, [body.x, body.y, body.z], state.yaw);
+    state.mech = this.mechSim.snapshot();
+
+    if (result !== 'landed') {
+      if (result === 'expired') this.blowMech({ killPilot: true });
+      return;
+    }
+
+    hud.centerMessage('MECH ONLINE', 1500);
+    hud.flash?.(0.35);
+    const p = state.mech.pos;
+    effects.impact?.({ x: p[0], y: p[1] + 0.2, z: p[2] }, { x: 0, y: 1, z: 0 }, 'world');
+    effects.spawnParticles?.({ x: p[0], y: p[1], z: p[2] }, 26,
+      { color: 0xbfae95, speed: 9, life: 0.9, gravity: -18 });
+    this.onEvent('mechLanded');
+  }
+
+  // A round from the range landing on armour rather than on the pilot.
+  damageMech(dmg) {
+    const { hud, sfx, state } = this.ctx;
+    const r = this.mechSim.hit(dmg);
+    if (r.absorbed) {
+      hud.damageFlash?.(0.15);
+      hud.toast?.('SHIELD ABSORBED', 700);
+      return;
+    }
+    hud.damageFlash?.(0.3);
+    hud.damageNumber?.(dmg, (Math.random() - 0.5) * 120, 30);
+    sfx.hit?.(false);
+    if (!r.killed) return;
+
+    // five seconds to get out, and the HUD counts them down
+    state.coreFailEndsAt = (typeof performance !== 'undefined' ? performance.now() : this.now)
+      + MECH.coreFailure.durationMs;
+    state.coreFailDur = MECH.coreFailure.durationMs;
+    hud.centerMessage('CORE FAILURE — PRESS V TO EJECT', 2000);
+    hud.flash?.(0.5);
+    sfx.death?.();
+    this.onEvent('coreFailure');
+  }
+
+  // The deploy key does three jobs, the same three it does online: call a mech
+  // down, raise the shield once aboard, and punch out of a dying one.
+  onMechCommand(kind) {
+    const { state, hud, sfx, body } = this.ctx;
+    if (kind === 'shield') {
+      if (!this.mechSim.piloting) return;
+      const held = this.mechSim.raise();
+      if (held > 0) {
+        sfx.objective?.();
+        hud.toast?.(`SHIELD UP · ${held.toFixed(1)}s`, 1100);
+        this.onEvent('shield');
+      }
+      return;
+    }
+    if (kind === 'eject') {
+      if (this.mechSim.state !== 'core-failure') return;
+      const r = this.mechSim.pressEject();
+      if (!r.out) {
+        sfx.objective?.();
+        this.onEvent('ejectPress');
+        return;
+      }
+      // out, and thrown clear before it goes
+      hud.centerMessage('EJECTED', 1400);
+      hud.flash?.(0.6);
+      this.onEvent('ejected');
+      this.blowMech({ killPilot: false });
+      return;
+    }
+    if (kind !== 'deploy') return;
+    if (this.mechSim.exists) return;
+    if (!state.mechAllowed) { hud.toast?.('NO MECHS ON THIS MAP', 1800); return; }
+    if ((state.core || 0) < CORE.max) {
+      hud.toast?.(`CORE ${Math.floor(state.core || 0)}% — ${CORE.max} TO DEPLOY`, 1400);
+      return;
+    }
+    this.mechSim.deploy([body.x, body.y, body.z], state.yaw, this.now);
+    state.core = 0;                 // spent the moment it is called
+    state.mech = this.mechSim.snapshot();
+    hud.centerMessage('MECH INBOUND', 1600);
+    sfx.objective?.();
+    this.onEvent('deploy');
+  }
+
+  // The tutorial needs a mech in core failure on demand: shield down, health
+  // gone, five seconds on the clock.
+  drillCoreFailure() {
+    const { state, hud, sfx } = this.ctx;
+    if (!this.mechSim.forceCoreFailure()) return false;
+    state.mech = this.mechSim.snapshot();
+    state.coreFailEndsAt = (typeof performance !== 'undefined' ? performance.now() : this.now)
+      + MECH.coreFailure.durationMs;
+    state.coreFailDur = MECH.coreFailure.durationMs;
+    hud.centerMessage('CORE FAILURE — PRESS V TO EJECT', 2000);
+    hud.flash?.(0.5);
+    sfx.death?.();
+    this.onEvent('coreFailure');
+    return true;
+  }
+
+  // Point blank is fatal; a couple of tiles back and you walk away. The pilot
+  // is spared when they punched out — they are thrown clear first.
+  blowMech({ killPilot = false } = {}) {
+    const { state, hud, sfx, effects, body } = this.ctx;
+    const snap = this.mechSim.snapshot();
+    const at = snap
+      ? { x: snap.pos[0], y: snap.pos[1], z: snap.pos[2] }
+      : { x: body.x, y: body.y, z: body.z };
+    this.mechSim.clear();
+    state.mech = null;
+    state.coreFailEndsAt = 0;
+    hud.showCoreFailure?.(null);
+
+    const centre = { x: at.x, y: at.y + 3, z: at.z };
+    effects.spawnParticles?.(centre, 70, { color: 0xffa04a, speed: 22, life: 1.4, gravity: -12 });
+    effects.deathRing?.(centre, 0xffb45e);
+    hud.flash?.(0.7);
+    sfx.death?.();
+
+    for (const d of this.dummies) {
+      if (!d.alive) continue;
+      const dist = Math.hypot(d.pos[0] - at.x, d.pos[2] - at.z);
+      if (explosionDamage(dist) <= 0) continue;
+      this.killDummy(d, 'mech');
+    }
+
+    if (killPilot) {
+      hud.centerMessage('YOU WENT DOWN WITH IT', 1800);
+      this.onEvent('mechLost');
+      this.playerDown();
+    }
+  }
+
+  // The pilot died some other way. The mech simply goes — it does not
+  // detonate, which is also what happens online.
+  loseMech() {
+    const { state, hud } = this.ctx;
+    this.mechSim.clear();
+    state.mech = null;
+    state.coreFailEndsAt = 0;
+    hud.showCoreFailure?.(null);
+  }
+
+  // Two different traversal moves close together is a combo. Same rule, same
+  // cooldown as the server's, paying the faster offline rate.
+  onTraversal(kind) {
+    const { state, hud } = this.ctx;
+    if (this.mechSim.exists) return;
+    const k = String(kind || '').slice(0, 24);
+    if (!k) return;
+    const t = this.now;
+    this.traversal = pruneTraversal(this.traversal, t);
+    this.traversal.push({ kind: k, at: t });
+    if (t - this.lastComboAt < CORE.comboCooldownMs) return;
+    if (!isCombo(this.traversal, t)) return;
+    this.lastComboAt = t;
+    const before = state.core || 0;
+    state.core = addCore(before, 'combo', true);
+    const gained = state.core - before;
+    if (gained > 0) hud.toast?.(`+${gained}% CORE · COMBO`, 900);
+    this.onEvent('combo');
   }
 
   // -------------------------------------------------------- dummy behaviour
@@ -232,7 +432,9 @@ export class PracticeMode {
     let t = Math.min(worldHit.t, dist + 30);
     const toward = dir[0] * (eye[0] - from[0]) + dir[1] * (eye[1] - from[1]) + dir[2] * (eye[2] - from[2]);
     const closest = pointToSegment(from, dir, eye, dist);
-    const hitPlayer = closest < PLAYER.radius + 0.35 && toward > 0 && t > dist;
+    // a mech is a far bigger target than the pilot standing inside it
+    const targetR = (this.mechSim.piloting ? MECH.radius : PLAYER.radius) + 0.35;
+    const hitPlayer = closest < targetR && toward > 0 && t > dist;
 
     this.aiStats.shots++;
     if (hitPlayer) t = dist;
@@ -247,19 +449,26 @@ export class PracticeMode {
       effects.impact({ x: to[0], y: to[1], z: to[2] }, n, 'world');
     } else {
       this.aiStats.hits++;
-      this.aiStats.damage += DUMMY_AI.damage;
-      state.hp = Math.max(0, state.hp - DUMMY_AI.damage);
-      hud.setHealth(state.hp);
-      hud.damageFlash?.(0.45);
-      hud.damageNumber(DUMMY_AI.damage, (Math.random() - 0.5) * 120, 30);
-      sfx.hit?.(false);
-      if (state.hp <= 0) this.playerDown();
+      if (this.mechSim.piloting) {
+        // armour takes it, not the pilot inside
+        this.aiStats.damage += DUMMY_AI.mechDamage;
+        this.damageMech(DUMMY_AI.mechDamage);
+      } else {
+        this.aiStats.damage += DUMMY_AI.damage;
+        state.hp = Math.max(0, state.hp - DUMMY_AI.damage);
+        hud.setHealth(state.hp);
+        hud.damageFlash?.(0.45);
+        hud.damageNumber(DUMMY_AI.damage, (Math.random() - 0.5) * 120, 30);
+        sfx.hit?.(false);
+        if (state.hp <= 0) this.playerDown();
+      }
     }
     sfx.shot?.('smg', 1);
   }
 
   playerDown() {
     const { hud, state, body } = this.ctx;
+    if (this.mechSim.exists) this.loseMech();
     hud.centerMessage('YOU WENT DOWN', 1400);
     this.placePlayer(PRACTICE_SPAWN);
     state.hp = PLAYER.maxHealth;
@@ -293,19 +502,33 @@ export class PracticeMode {
     const dmg = headshotDamage(weapon, head);
     d.hp -= dmg;
     const killed = d.hp <= 0;
-    if (killed) {
-      d.hp = 0;
-      d.alive = false;
-      d.deaths++;
-      d.respawnAt = this.now + DUMMY_RESPAWN_MS;
-      this.stats.kills++;
-      effects.deathRing({ x: d.pos[0], y: d.pos[1], z: d.pos[2] }, d.color);
-      hud.killFeed(this.ctx.state.name || 'YOU', d.name, weapon.id, { killerIsMe: true, head });
-    }
+    if (killed) this.killDummy(d, weapon.id, head);
     hud.hitmarker(killed, head);
     hud.damageNumber(dmg, (Math.random() - 0.5) * 110, -34 + (Math.random() - 0.5) * 46, { head });
     sfx.hit(killed);
     return killed;
+  }
+
+  // A dummy going down is a kill like any other out here: it charges the Core.
+  // The blast from a dying mech comes through this too, which is why the
+  // weapon is a parameter rather than always the one in your hands.
+  killDummy(d, weaponId = 'mech', head = false) {
+    const { hud, effects, state } = this.ctx;
+    d.hp = 0;
+    d.alive = false;
+    d.deaths++;
+    d.respawnAt = this.now + DUMMY_RESPAWN_MS;
+    this.stats.kills++;
+    effects.deathRing({ x: d.pos[0], y: d.pos[1], z: d.pos[2] }, d.color);
+    hud.killFeed(state.name || 'YOU', d.name, weaponId, { killerIsMe: true, head });
+
+    // Charge the Core, and say so — but only when it actually moved, so a
+    // full meter does not spam you with +0%.
+    const before = state.core || 0;
+    state.core = addCore(before, 'kill', true);
+    const gained = state.core - before;
+    if (gained > 0) hud.toast(`+${gained}% CORE`, 900);
+    this.onEvent('kill');
   }
 
   // Put a dummy a set distance in front of the player (used by the tutorial).
@@ -377,8 +600,8 @@ export class Tutorial extends PracticeMode {
     this.travelled = 0;
     this.look = 0;
     this.flags = {};
-    this.hits = { rifle: 0, sniper: 0, knife: 0 };
-    this.kills = { rifle: 0, sniper: 0, knife: 0 };
+    this.hits = { rifle: 0, sniper: 0, knife: 0, punch: 0 };
+    this.kills = { rifle: 0, sniper: 0, knife: 0, punch: 0 };
     this.lastPos = null;
     this.completed = false;
     this.stepTime = 0;
@@ -439,7 +662,9 @@ export class Tutorial extends PracticeMode {
 
   onLocalHit(avatar, weapon, opts = {}) {
     const killed = super.onLocalHit(avatar, weapon, opts);
-    const id = weapon.id;
+    // Aboard a mech the knife slot is a punch. It shares the knife's id, so it
+    // has to be counted separately or the punch step reads as already done.
+    const id = this.ctx.state.mech && weapon.melee ? 'punch' : weapon.id;
     if (id in this.hits) {
       this.hits[id] += 1;
       if (killed) this.kills[id] += 1;
@@ -486,6 +711,8 @@ export class Tutorial extends PracticeMode {
       flags: this.flags,
       hits: this.hits,
       kills: this.kills,
+      mech: this.ctx.state.mech || null,
+      core: this.ctx.state.core || 0,
       time: this.stepTime,
     };
     if (s.done(c)) {
@@ -496,6 +723,11 @@ export class Tutorial extends PracticeMode {
 }
 
 // ------------------------------------------------------------------- steps
+
+// A mech step can stop being satisfiable — the mech blew up, or was never
+// called. Rather than hang the tutorial on a card it can no longer complete,
+// let it read for a moment and move on.
+const mechStepDone = (test) => (c) => test(c) || (!c.mech && c.time > 1.5);
 
 const aimAtDummy = (ctx, tutorial, index, distance) => {
   const d = tutorial.placeDummyInFront(index, distance);
@@ -630,6 +862,48 @@ export const TUTORIAL_STEPS = [
       ctx.hud.setAmmo(2);
     },
     done: (c) => c.flags.reload,
+  },
+  {
+    id: 'core',
+    title: 'THE CORE',
+    text: 'Kills and movement combos charge the CORE meter, and a full one calls down a mech. Out here it fills fast. Press V to spend it.',
+    tip: 'V',
+    enter: (ctx) => {
+      ctx.place(PRACTICE_SPAWN.pos, PRACTICE_SPAWN.yaw);
+      // the range fills it for you: this is a lesson, not a grind
+      ctx.state.core = CORE.max;
+      ctx.hud.toast('CORE full — press V to call one down', 3600);
+    },
+    done: (c) => !!c.mech,
+  },
+  {
+    id: 'mechpunch',
+    title: 'PUNCH',
+    text: 'There is no knife aboard: that slot swings a fist instead. It kills anything it connects with, and from up here it reaches a lot further than a blade. Look down at the dummy.',
+    tip: 'KEY 4 · LEFT MOUSE',
+    enter: (ctx, t) => {
+      ctx.switchWeapon(3);
+      aimAtDummy(ctx, t, 0, 4);
+    },
+    done: mechStepDone((c) => c.kills.punch >= 1),
+  },
+  {
+    id: 'mechshield',
+    title: 'ENERGY SHIELD',
+    text: 'Press G to raise the shield. It holds for five seconds from full and refills in four — and you can raise it early for proportionally less time, so a half-charged shield is still worth using.',
+    tip: 'G',
+    done: mechStepDone((c) => !!c.flags.shield),
+  },
+  {
+    id: 'mecheject',
+    title: 'CORE FAILURE',
+    text: 'A mech at zero does not just stop — it goes critical. You have five seconds. Press V three times to punch out, or you go up with it.',
+    tip: 'V · V · V',
+    enter: (ctx, t) => {
+      // put the mech into failure so there is actually something to escape
+      t.drillCoreFailure?.();
+    },
+    done: mechStepDone((c) => !!(c.flags.ejected || c.flags.mechLost)),
   },
   {
     id: 'done',

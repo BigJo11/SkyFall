@@ -10,9 +10,16 @@ const weaponById = (id) => WEAPONS.find((w) => w.id === id) || null;
 // ----------------------------------------------------------------- the Core
 // The charge survives death on purpose: a mech you earned should not be lost
 // because you got shot before you could spend it.
-export function addCore(core, kind) {
-  const gain = kind === 'kill' ? CORE.perKill : kind === 'combo' ? CORE.perCombo : 0;
-  return clamp(core + gain, 0, CORE.max);
+// How much one thing is worth. Offline pays the same way, only faster, so the
+// practice range and the tutorial hand you a mech instead of making you grind.
+export function coreGain(kind, practice = false) {
+  if (kind === 'kill') return practice ? CORE.practicePerKill : CORE.perKill;
+  if (kind === 'combo') return practice ? CORE.practicePerCombo : CORE.perCombo;
+  return 0;
+}
+
+export function addCore(core, kind, practice = false) {
+  return clamp(core + coreGain(kind, practice), 0, CORE.max);
 }
 
 export function coreReady(core) {
