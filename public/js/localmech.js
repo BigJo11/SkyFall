@@ -9,8 +9,8 @@
 // shared/mech.js, the same pure module the server calls, so a mech behaves
 // identically whether a server or this class is holding the reins.
 
-import { MECH } from '../../shared/constants.js';
-import { stepShield, raiseShield, hasEjected } from '../../shared/mech.js';
+import { MECH, MECH_COSMETIC } from '../../shared/constants.js';
+import { stepShield, raiseShield, hasEjected, chassisById } from '../../shared/mech.js';
 
 let nextId = 1;
 
@@ -58,6 +58,10 @@ export class LocalMech {
       hp: Math.max(0, Math.round(m.hp)),
       maxHp: m.maxHp,
       state: m.state,
+      chassis: m.chassis,
+      color: m.color,
+      trim: m.trim,
+      material: m.material,
       shield: { charge: m.shield.charge, time: m.shield.time },
       coreFailureEnd: m.coreFailureEnd ? Math.max(0, m.coreFailureEnd - m.now) : 0,
       ejectPresses: m.ejectPresses,
@@ -66,17 +70,23 @@ export class LocalMech {
 
   // ----------------------------------------------------------------- deploy
 
-  // Spent the moment it is called, exactly as it is online.
-  deploy(pos, yaw, nowMs) {
+  // Spent the moment it is called, exactly as it is online. `opts` carries the
+  // pilot's choices: which chassis, and how it is painted.
+  deploy(pos, yaw, nowMs, opts = {}) {
     if (this.mech) return null;
+    const chassis = chassisById(opts.chassis);
     this.anchor = [pos[0], pos[1], pos[2]];
     this.mech = {
       id: nextId++,
       ownerId: this.ownerId,
       pos: [pos[0], pos[1] + MECH.dropHeight, pos[2]],
       yaw,
-      hp: MECH.maxHealth,
-      maxHp: MECH.maxHealth,
+      hp: chassis.hp,
+      maxHp: chassis.hp,
+      chassis: chassis.id,
+      color: opts.color ?? MECH_COSMETIC.primary,
+      trim: opts.trim ?? MECH_COSMETIC.secondary,
+      material: opts.material || 'matte',
       state: 'dropping',
       dropStart: nowMs,
       now: nowMs,

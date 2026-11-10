@@ -2,11 +2,12 @@
 //   node tests/mech.test.mjs
 import assert from 'node:assert/strict';
 import { Game } from '../server/game.js';
-import { MECH, CORE, WEAPONS } from '../shared/constants.js';
+import { MECH, CORE, WEAPONS, PLAYER, MECH_COSMETIC } from '../shared/constants.js';
 import {
   addCore, coreReady, isCombo, pruneTraversal, stepShield, raiseShield,
   shieldFraction, shieldUp, mechDamage, canDamageMech, canDamagePlayer, isImmune,
   ejectionProgress, hasEjected, explosionDamage, explosionFalloff, lockAcquired,
+  damageFrom, chassisById,
 } from '../shared/mech.js';
 
 let passed = 0;
@@ -380,6 +381,134 @@ test('the snapshot carries the mechs', () => {
   assert.equal(sent.mechs[0].maxHp, 1000);
   assert.equal(sent.players.find((p) => p.id === a.id).mechId, m.id);
   assert.equal(typeof sent.players.find((p) => p.id === a.id).core, 'number');
+});
+
+// ---------------------------------------------------------- the mech's guns
+
+// Fire one round straight at the other player, from wherever the shooter is
+// standing (or from the cockpit, if they are aboard).
+function shootAt(game, shooter, target, weaponId = 'rifle') {
+  shooter.weapon = WEAPONS.findIndex((w) => w.id === weaponId);
+  shooter.lastShot = WEAPONS.map(() => 0);
+  shooter.ammo = WEAPONS.map((w) => (Number.isFinite(w.magSize) ? w.magSize : -1));
+  const eye = shooter.mechId ? MECH.eyeHeight : PLAYER.eye;
+  const from = [shooter.pos[0], shooter.pos[1] + eye, shooter.pos[2]];
+  const to = [target.pos[0], target.pos[1] + PLAYER.height * 0.5, target.pos[2]];
+  const d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+  const L = Math.hypot(d[0], d[1], d[2]);
+  game.onFire(shooter, { dir: [d[0] / L, d[1] / L, d[2] / L] });
+}
+
+test("a mech's guns hit a player twice as hard", () => {
+  const onFoot = (() => {
+    const { game, a, b } = makeGame();
+    const before = b.hp;
+    shootAt(game, a, b);
+    return before - b.hp;
+  })();
+  assert.ok(onFoot > 0, `the shot landed (${onFoot})`);
+
+  const { game, a, b } = makeGame();
+  deployNow(game, a);
+  const before = b.hp;
+  shootAt(game, a, b);
+  const fromMech = before - b.hp;
+  assert.equal(fromMech, onFoot * MECH.gunDamageMult, `${onFoot} on foot, ${fromMech} from a cockpit`);
+});
+
+test('the same guns do the ordinary damage to another mech', () => {
+  const { game, a, b } = makeGame();
+  const mine = deployNow(game, a);
+  const theirs = deployNow(game, b);
+  const before = theirs.hp;
+  shootAt(game, a, b);
+  const dealt = before - theirs.hp;
+  assert.equal(dealt, WEAPONS.find((w) => w.id === 'rifle').damage, 'not doubled against armour');
+  assert.ok(mine.hp === mine.maxHp, 'and nothing bounced back');
+});
+
+test('the punch is left out of the doubling — it already kills', () => {
+  assert.equal(damageFrom('knife', { fromMech: true }), MECH.punch.damage);
+  assert.equal(damageFrom('knife', { fromMech: true, vsMech: true }), 0, 'and armour ignores it');
+});
+
+test('headshots scale with the doubled damage', () => {
+  const foot = damageFrom('sniper', { fromMech: false });
+  const cockpit = damageFrom('sniper', { fromMech: true });
+  assert.equal(cockpit, foot * MECH.gunDamageMult);
+});
+
+// --------------------------------------------------------------------- chassis
+
+test('each chassis carries its own health', () => {
+  for (const c of MECH.chassis) {
+    const { game, a } = makeGame();
+    a.mechCosmetic = { ...MECH_COSMETIC.default, chassis: c.id };
+    deployNow(game, a);
+    const m = game.mechs.get(a.mechId);
+    assert.equal(m.maxHp, c.hp, `${c.name} has ${c.hp}`);
+    assert.equal(m.chassis, c.id);
+  }
+});
+
+test('the three hulls differ in health and in pace, and nothing else', () => {
+  const [light, medium, heavy] = ['light', 'medium', 'heavy'].map(chassisById);
+  assert.ok(light.hp < medium.hp && medium.hp < heavy.hp, 'health ordered');
+  assert.ok(light.speed > medium.speed && medium.speed > heavy.speed, 'pace ordered the other way');
+  for (const c of MECH.chassis) {
+    assert.equal(c.height, undefined, 'no chassis is a different height');
+  }
+});
+
+test('an unknown chassis falls back to the standard one', () => {
+  assert.equal(chassisById('nonsense').id, MECH.defaultChassis);
+  assert.equal(MECH_COSMETIC.normalise({ chassis: 'nonsense' }).chassis, MECH.defaultChassis);
+});
+
+// ------------------------------------------------------------ the mech's looks
+
+test('the mech inherits the paint its pilot chose', () => {
+  const game = new Game({ map: 'big' });
+  const a = game.addPlayer(fakeSocket(), 'ALPHA', false, {
+    primary: 0x112233, secondary: 0x445566, material: 'matte',
+    mech: { primary: 0xff0000, secondary: 0x00ff00, material: 'metal', chassis: 'heavy' },
+  });
+  assert.equal(a.mechCosmetic.primary, 0xff0000);
+  assert.equal(a.mechCosmetic.chassis, 'heavy');
+  deployNow(game, a);
+  const m = game.mechs.get(a.mechId);
+  assert.equal(m.color, 0xff0000, 'its hull is the colour they picked');
+  assert.equal(m.trim, 0x00ff00);
+  assert.equal(m.material, 'metal');
+  assert.equal(m.maxHp, 1500, 'and the heavy chassis health with it');
+});
+
+test('a crew finish is refused for everyone else, here as on a character', () => {
+  const plain = new Game({ map: 'big' }).addPlayer(fakeSocket(), 'ALPHA', false,
+    { mech: { material: 'neon' } });
+  assert.equal(plain.mechCosmetic.material, 'matte', 'silently falls back');
+  const crew = new Game({ map: 'big' }).addPlayer(fakeSocket(), 'BRAVO', true,
+    { mech: { material: 'neon' } });
+  assert.equal(crew.mechCosmetic.material, 'neon', 'crew get what they asked for');
+});
+
+test("a mech nobody painted flies its pilot's colour", () => {
+  const game = new Game({ map: 'big' });
+  const a = game.addPlayer(fakeSocket(), 'ALPHA');
+  assert.equal(a.mechCosmetic, null, 'nothing was chosen');
+  deployNow(game, a);
+  assert.equal(game.mechs.get(a.mechId).color, a.color, "so two of them are tellable apart");
+});
+
+test('the snapshot carries the chassis and the paint', () => {
+  const { game, a } = makeGame();
+  a.mechCosmetic = { ...MECH_COSMETIC.default, chassis: 'light', primary: 0xabcdef };
+  const m = deployNow(game, a);
+  const pub = game.pubMech(m);
+  assert.equal(pub.chassis, 'light');
+  assert.equal(pub.color, 0xabcdef);
+  assert.equal(pub.maxHp, 500);
+  assert.equal(typeof pub.material, 'string');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

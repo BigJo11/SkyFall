@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { solidAABBs } from '../shared/collision.js';
 import ARENA from '../shared/map.js';
 import { Body } from '../public/js/physics.js';
-import { PLAYER, MOVE } from '../shared/constants.js';
+import { PLAYER, MOVE, MECH } from '../shared/constants.js';
 
 const solids = solidAABBs(ARENA.boxes);
 const DT = 1 / 120;
@@ -291,6 +291,94 @@ console.log('\nwall running:');
 
 const WALL_X = 6;
 const wallRunWorld = () => flatWorld([{ minX: WALL_X, maxX: WALL_X + 1, minY: -5, maxY: 12, minZ: -60, maxZ: 60 }]);
+
+// ------------------------------------------------------------ piloting a mech
+// A mech is too heavy for the pilot's repertoire: no double jump, no wall run,
+// no slide. It keeps the one ordinary jump, and it moves at whatever pace its
+// chassis was built for.
+
+// settle on the floor, leave the ground, then try for a second jump
+function tryDoubleJump(b) {
+  sim(b, 0.3, idle);                     // touch down first
+  assert.ok(b.onGround, 'standing still before the jump');
+  b.wantJump = true;
+  b.update(DT, idle, 0);                 // the first jump
+  b.wantJump = true;
+  b.update(DT, idle, 0);                 // and the attempt at a second
+}
+
+test('a mech cannot double jump', () => {
+  const b = player(flatWorld());
+  b.piloting = true;
+  tryDoubleJump(b);
+  assert.ok(!b.onGround, 'it did leave the ground');
+  assert.equal(b.events.doubleJumped, undefined, 'but there is no second jump');
+  assert.equal(b.airJumps, 1, 'and the air jump was never spent');
+});
+
+test('the same pilot on foot still can', () => {
+  const b = player(flatWorld());
+  tryDoubleJump(b);
+  assert.equal(b.events.doubleJumped, true, 'on foot it works, as it always has');
+});
+
+test('a mech cannot wall run', () => {
+  const b = player(wallRunWorld(), WALL_X - 0.45, 6, -10);
+  b.piloting = true;
+  b.vz = 11; b.vy = 0;
+  let ran = false;
+  for (let i = 0; i < 200; i++) {
+    b.update(DT, fwd(true), Math.PI);
+    if (b.wallRun) ran = true;
+  }
+  assert.equal(ran, false, 'nine tonnes does not run up walls');
+});
+
+test('...where the pilot beside it can', () => {
+  const b = player(wallRunWorld(), WALL_X - 0.45, 6, -10);
+  b.vz = 11; b.vy = 0;
+  let ran = false;
+  for (let i = 0; i < 200; i++) {
+    b.update(DT, fwd(true), Math.PI);
+    if (b.wallRun) ran = true;
+  }
+  assert.equal(ran, true, 'the wall run still works on foot');
+});
+
+test('a mech cannot slide', () => {
+  const b = player(flatWorld());
+  b.piloting = true;
+  sim(b, 1.2, fwd(true));                // up to sprint speed
+  b.wantSlide = true;
+  b.update(DT, fwd(true), Math.PI);
+  assert.equal(b.sliding, false, 'it does not have knees for it');
+  assert.equal(b.events.slideStarted, undefined);
+});
+
+test('a mech keeps its one ordinary jump', () => {
+  const b = player(flatWorld());
+  b.piloting = true;
+  sim(b, 0.3, idle);
+  b.wantJump = true;
+  b.update(DT, idle, 0);
+  assert.equal(b.events.jumped, true, 'it can still hop');
+  assert.equal(b.events.doubleJumped, undefined, 'just the one');
+  assert.ok(b.vy > 0);
+});
+
+test('the chassis sets the pace it moves at', () => {
+  const pace = (scale) => {
+    const b = player(flatWorld());
+    b.speedScale = scale;
+    sim(b, 2.5, fwd(true));
+    return speedOf(b);
+  };
+  const standard = pace(1);
+  const heavy = pace(MECH.chassis.find((c) => c.id === 'heavy').speed);
+  const light = pace(MECH.chassis.find((c) => c.id === 'light').speed);
+  assert.ok(heavy < standard * 0.85, `the big one is slower (${heavy.toFixed(1)} < ${standard.toFixed(1)})`);
+  assert.ok(light > standard * 1.15, `the small one is quicker (${light.toFixed(1)} > ${standard.toFixed(1)})`);
+});
 
 test('wall running keeps your speed and slows the fall', () => {
   const b = player(wallRunWorld(), WALL_X - 0.45, 6, -10);

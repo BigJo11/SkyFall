@@ -52,6 +52,13 @@ export class Body {
     this.eyeOffset = 0;
     this.airTime = 0;
     this.events = {};
+
+    // ---- piloting a mech
+    // A mech is too heavy for the pilot's repertoire: no wall runs, no double
+    // jumps, no slides. It keeps the ordinary jump, and it moves at whatever
+    // pace its chassis was built for. Both are set by main.js every frame.
+    this.piloting = false;
+    this.speedScale = 1;
   }
 
   reset() {
@@ -241,6 +248,7 @@ export class Body {
   }
 
   tryStartWallRun(wishX, wishZ, moveSpeed, yaw = 0) {
+    if (this.piloting) return false;      // nine tonnes does not run up walls
     if (this.onGround || this.wallRun) return false;
     if (this.wallRunCooldown > 0) return false;
     // a wall run latches the moment you touch the wall, even on the way up —
@@ -302,6 +310,7 @@ export class Body {
 
   // ------------------------------------------------------------- sliding
   startSlide() {
+    if (this.piloting) return false;      // it does not have knees for it
     if (this.slideCooldown > 0) return false;
     const speed = this.horizontalSpeed;
     // mid-slide press tops the timer back up instead of being ignored
@@ -433,7 +442,9 @@ export class Body {
         // ground more often than not, and a press made in one of those frames
         // used to vanish — which read as "jump does nothing while I run".
         const toFloor = this.vy <= 0 ? this.timeToFloor() : Infinity;
-        if (this.airJumps > 0 && toFloor > MOVE.landJumpWindow) {
+        // A mech gets one jump and no second attempt: it is not light enough
+        // to kick off its own exhaust.
+        if (this.airJumps > 0 && !this.piloting && toFloor > MOVE.landJumpWindow) {
           this.airJumps -= 1;
           this.vy = Math.max(this.vy * 0.3, 0) + MOVE.doubleJumpSpeed;
           // a double jump costs you SOME speed, not all of it
@@ -482,7 +493,7 @@ export class Body {
         // ground movement: accelerate toward the walk/sprint target. Faster
         // arrival means carried speed bleeds off quickly too (that is the
         // "you lost your momentum on landing" feel) unless you are sliding.
-        const targetSpeed = wish.sprint ? PLAYER.sprintSpeed : PLAYER.walkSpeed;
+        const targetSpeed = (wish.sprint ? PLAYER.sprintSpeed : PLAYER.walkSpeed) * this.speedScale;
         const tx = wx * targetSpeed;
         const tz = wz * targetSpeed;
         if (hasWish) {

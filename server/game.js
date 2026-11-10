@@ -1,5 +1,5 @@
-import { PLAYER, WEAPONS, PLAYER_COLORS, NET, MAX_LEGIT_SPEED, RESERVED, CREW_GLOW, COSMETIC, isHeadHit, headshotDamage, MECH, CORE } from '../shared/constants.js';
-import { addCore, isCombo, pruneTraversal, stepShield, raiseShield, explosionDamage, mechDamage, lockAcquired, hasEjected } from '../shared/mech.js';
+import { PLAYER, WEAPONS, PLAYER_COLORS, NET, MAX_LEGIT_SPEED, RESERVED, CREW_GLOW, COSMETIC, MECH_COSMETIC, isHeadHit, headshotDamage, MECH, CORE } from '../shared/constants.js';
+import { addCore, isCombo, pruneTraversal, stepShield, raiseShield, explosionDamage, mechDamage, damageFrom, chassisById, lockAcquired, hasEjected } from '../shared/mech.js';
 import ARENA, { MAPS, mapById, DEFAULT_MAP } from '../shared/map.js';
 import { solidAABBs, raycastAABBs, rayCapsule } from '../shared/collision.js';
 import { Leaderboard } from './leaderboard.js';
@@ -69,6 +69,10 @@ export class Game {
     // falls back unless this connection actually passed the crew check
     const hasCosmetic = !!cosmetic && typeof cosmetic === 'object';
     const look = COSMETIC.normalise(cosmetic, { crew });
+    // the mech's appearance rides along inside the same payload, and is
+    // validated here just as firmly: a crew finish is crew-only
+    const hasMechCos = hasCosmetic && !!cosmetic.mech && typeof cosmetic.mech === 'object';
+    const mechLook = MECH_COSMETIC.normalise(cosmetic?.mech, { crew });
 
     const spawn = this.pickSpawn();
     const player = {
@@ -76,6 +80,7 @@ export class Game {
       name,
       socket,
       cosmetic: hasCosmetic ? look : null,
+      mechCosmetic: hasMechCos ? mechLook : null,
       color: hasCosmetic
         ? look.primary
         : (crew ? CREW_GLOW : PLAYER_COLORS[(id - 1) % PLAYER_COLORS.length]),
@@ -327,6 +332,10 @@ export class Game {
       hp: Math.max(0, Math.round(m.hp)),
       maxHp: m.maxHp,
       state: m.state,
+      chassis: m.chassis || MECH.defaultChassis,
+      color: m.color ?? MECH_COSMETIC.primary,
+      trim: m.trim ?? MECH_COSMETIC.secondary,
+      material: m.material || 'matte',
       shield: { charge: round3(m.shield.charge), time: round2(m.shield.time) },
       coreFailureEnd: m.coreFailureEnd ? Math.max(0, m.coreFailureEnd - now()) : 0,
       ejectPresses: m.ejectPresses,
@@ -338,13 +347,22 @@ export class Game {
     if (!this.mechsAllowed) { this.send(p, { t: 'core', core: p.core, reason: 'nomech' }); return; }
     if ((p.core || 0) < CORE.max) return;
 
+    // The chassis decides how much it can take. A mech nobody painted flies
+    // its pilot's colour, so two of them on the field are still tellable apart.
+    const cos = p.mechCosmetic || null;
+    const chassis = chassisById(cos ? cos.chassis : MECH.defaultChassis);
     const m = {
       id: this.nextMechId++,
       ownerId: p.id,
       pos: [p.pos[0], p.pos[1] + MECH.dropHeight, p.pos[2]],
       yaw: p.yaw,
-      hp: MECH.maxHealth,
-      maxHp: MECH.maxHealth,
+      hp: chassis.hp,
+      maxHp: chassis.hp,
+      chassis: chassis.id,
+      // the client already knows how to fall back if these are missing
+      color: cos ? cos.primary : p.color,
+      trim: cos ? cos.secondary : MECH_COSMETIC.secondary,
+      material: cos ? cos.material : 'matte',
       state: 'dropping',
       dropStart: now(),
       shield: { charge: 1, time: 0 },
@@ -610,7 +628,11 @@ export class Game {
     // Armour has no head to crit.
     const hitY = origin[1] + dir[1] * endT;
     const head = !!victim && !victimMech && !weapon.melee && isHeadHit(hitY - (victimFeet || victim.pos)[1]);
-    const dmg = head ? headshotDamage(weapon, true) : weapon.damage;
+    // Firing from a cockpit doubles what a gun does to a *person*. Armour
+    // takes the ordinary number, and keeps its immunities.
+    const fromMech = !!mine;
+    const base = damageFrom(w.id, { fromMech, vsMech: !!victimMech });
+    const dmg = headshotDamage({ damage: base, headshot: weapon.headshot }, head);
 
     this.broadcast({
       t: 'shot',
@@ -626,8 +648,7 @@ export class Game {
 
     // everything that hits a pilot hits the armour instead
     if (victimMech) {
-      const md = mechDamage(w.id);
-      if (md > 0) this.damageMech(victimMech, md, p, w.id);
+      if (base > 0) this.damageMech(victimMech, base, p, w.id);
       else if (p !== victim) {
         this.send(p, { t: 'hitmark', dmg: 0, kill: false, id: victim.id, head: false, immune: true });
       }
