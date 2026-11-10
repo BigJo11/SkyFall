@@ -219,18 +219,29 @@ await test('the changelog opens from the title screen and shows every entry', as
 
   // newest update selected, with its content rendered
   const tabs = () => [...$id('changelogTabs').children];
-  assert.equal(tabs().length, 3, 'three milestones listed');
+  assert.equal(tabs().length, 4, 'four milestones listed');
   assert.equal(tabs().filter((t) => t.classList.contains('active')).length, 1, 'one active tab');
-  // the newest entry opens first, and it is the patch
-  assert.match(tabs()[0].textContent, /V\.2\.5/);
-  assert.match(tabs().find((t) => t.classList.contains('active')).textContent, /V\.2\.5/);
+  // the newest entry opens first, and it is the mech update
+  assert.match(tabs()[0].textContent, /V\.3/);
+  assert.match(tabs().find((t) => t.classList.contains('active')).textContent, /V\.3/);
   const patch = $id('changelogBody').textContent;
-  assert.match(patch, /PINE HOLLOW/, 'the second map is announced');
-  assert.match(patch, /live player counts/i, 'the picker is explained');
-  assert.match(patch, /patch/i, 'labelled a patch');
+  assert.match(patch, /1000 HP/, 'the mech is announced');
+  assert.match(patch, /RPG/, 'and the weapon built for it');
+  assert.match(patch, /core failure/i, 'and the way out of a dying one');
+  assert.doesNotMatch(patch, /1013/, 'no access code on screen');
   assert.doesNotMatch(patch, /1013/, 'no access code on screen');
   assert.doesNotMatch(patch, /titanfall/i, 'no other game named');
   assert.ok($id('changelogBody').querySelector('ul'), 'formatted content, not a wall of text');
+
+  // one tab back: the patch that added the second map
+  tabs().find((t) => t.dataset.entry === 'v25')
+    .dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  pump(2);
+  const v25 = $id('changelogBody').textContent;
+  assert.match(v25, /PINE HOLLOW/, 'the second map is announced');
+  assert.match(v25, /live player counts/i, 'the picker is explained');
+  assert.match(v25, /patch/i, 'labelled a patch');
+  assert.doesNotMatch(v25, /1013|titanfall/i, 'that entry is clean too');
 
   // the V.2 entry is still there, one tab back
   tabs().find((t) => t.dataset.entry === 'v2')

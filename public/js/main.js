@@ -182,7 +182,7 @@ let session = null;
 // Build stamp: makes it obvious which version the browser actually loaded, and
 // catches the classic "new page, old cached scripts" situation where every
 // button appears dead.
-const BUILD = 'forest v20';
+const BUILD = 'forest v21';
 
 function detectStaleBuild() {
   try {

@@ -22,7 +22,7 @@ const textOf = (entry) => entry.blocks
 console.log('\nchangelog:\n');
 
 test('there is a launch entry, a V.2 entry and a V.2.5 patch', () => {
-  assert.deepEqual(ids, ['launch', 'v2', 'v25']);
+  assert.deepEqual(ids, ['launch', 'v2', 'v25', 'v3']);
   assert.equal(byId('launch').version, 'Game Launch!');
   assert.equal(byId('v2').version, 'V.2');
   assert.equal(byId('v25').version, 'V.2.5', 'the patch matches the house style');
@@ -157,17 +157,18 @@ test('inline markdown is escaped and only allows bold + code', () => {
 });
 
 test('the panel renders every entry, newest first by default', () => {
-  assert.equal(DEFAULT_ENTRY, 'v25', 'opens on the newest update');
-  assert.equal(LATEST_VERSION, 'V.2.5', 'the menu button can label itself');
+  assert.equal(DEFAULT_ENTRY, 'v3', 'opens on the newest update');
+  assert.equal(LATEST_VERSION, 'V.3', 'the menu button can label itself');
   const tabs = renderTabs(DEFAULT_ENTRY);
   assert.match(tabs, /data-entry="launch"/);
   assert.match(tabs, /data-entry="v2"/);
   assert.match(tabs, /data-entry="v25"/);
-  assert.ok(tabs.indexOf('data-entry="v25"') < tabs.indexOf('data-entry="v2"'),
+  assert.match(tabs, /data-entry="v3"/);
+  assert.ok(tabs.indexOf('data-entry="v3"') < tabs.indexOf('data-entry="v25"'),
     'newest tab first');
   assert.ok(tabs.indexOf('data-entry="v2"') < tabs.indexOf('data-entry="launch"'),
     'V.2 before launch');
-  assert.match(tabs, /class="cl-tab active"[^>]*data-entry="v25"/, 'active tab marked');
+  assert.match(tabs, /class="cl-tab active"[^>]*data-entry="v3"/, 'active tab marked');
 
   const launch = renderEntry('launch');
   assert.match(launch, /Game Launch|^/, 'renders');
