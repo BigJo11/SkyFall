@@ -142,3 +142,47 @@ Online, a shot that clearly connected sometimes did nothing, and players on a sl
 ## Fixes worth knowing about
 
 - **Jumping while sprinting forward could be swallowed.** Sprinting leaves you off the ground a good share of the time, and a jump pressed during one of those moments was dropped. It now registers the instant you touch down, at full sprint speed.
+
+---
+
+# V.3
+
+_The Core, and what a full one calls down._
+
+The biggest thing to land since the forest plateau. Still a browser LAN deathmatch, still four weapons — but playing well now charges something, and a full charge changes the fight completely.
+
+## The Core
+
+A meter in the corner of the HUD, filled by playing:
+
+| You | Charge |
+| --- | --- |
+| A kill | **+10%** |
+| A movement combo | **+3%** |
+
+A combo is two *different* traversal moves inside a couple of seconds — a wallrun into a wall jump, a double jump into a slide landing. Doing the same move twice is just moving, and there is a short pause between awards so it cannot be farmed by hopping on the spot.
+
+**The Core survives death.** A mech you earned is a mech you keep, however badly the life went.
+
+## Mechs
+
+At 100%, press **V** and one drops out of the sky onto you — roughly ten metres of armour, and you pilot it.
+
+- **1000 HP, ten times a player.** Every shot that would hit you hits the armour instead; while the mech lasts, your body is untouchable.
+- **The same three guns, bigger.** The knife is gone — that slot is a **punch**, one shot on anyone, with a reach to match the arms it comes on.
+- **An energy shield** on **G**: five seconds from full, four to refill, and it can be raised early for proportionally less time. While it is up it absorbs hits whole.
+- **A knife does nothing to a mech.** Neither does a punch. Armour takes the real thing.
+
+## The RPG
+
+A fifth weapon, always in your loadout, built for exactly one job. **It locks onto mechs and cannot be used on players at all** — pointed at a person it will not fire. Against a mech it does 200, so five rockets bring a fresh one down.
+
+## Going out with a bang
+
+A mech at zero does not quietly vanish. It enters **core failure** for five seconds, and the pilot has to press **V three times** to punch out.
+
+- **Three presses and you are clear** — thrown out and alive.
+- **Miss the window and you go up with it.**
+- Either way it ends the same way: **the mech detonates.** Anything within a couple of tiles is killed outright. Further back than that, you walk away.
+
+Mechs are **big map only**. PINE HOLLOW has no room for one, and the Core cannot be spent there.
