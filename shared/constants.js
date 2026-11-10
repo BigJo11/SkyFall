@@ -210,6 +210,12 @@ export const CORE = {
   comboWindowMs: 2600,     // two different moves this close together is a combo
   comboCooldownMs: 4000,   // ...and at most one award this often, so it cannot
                            // be farmed by hopping on the spot
+
+  // Offline it fills far faster. A match is where you earn one; the practice
+  // range and the tutorial are where you learn to fly it, and nobody wants to
+  // grind ten dummies to reach the interesting part.
+  practicePerKill: 50,     // two kills and it is full
+  practicePerCombo: 20,
 };
 
 // ----------------------------------------------------------------- the mech
@@ -224,7 +230,14 @@ export const MECH = {
   dropTimeMs: 1700,
 
   // No knife aboard. The punch is the knife, with a far bigger hitbox.
-  punch: { damage: 100, interval: 500, range: 4.6, radius: 1.5 },
+  //
+  // Both numbers are set by the geometry, not by taste. The swing leaves the
+  // cockpit at `eyeHeight`, so its reach has to clear the drop to the ground
+  // before it has any horizontal range at all: reach minus this.radius must
+  // exceed eyeHeight - (PLAYER.height + radius). Shorter than that and a punch
+  // swings harmlessly over everyone's head, which is useless in a mech meant
+  // for fighting people on foot.
+  punch: { damage: 100, interval: 500, range: 8, radius: 1.5 },
 
   // Energy shield: five seconds from full, four to refill, and it can be
   // raised early for proportionally less time.

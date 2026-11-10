@@ -176,6 +176,12 @@ Either way it ends the same way: the mech detonates. Anything within a couple of
 
 **Mechs are big-map only.** PINE HOLLOW has no room for one, and the Core cannot be spent there.
 
+### Mechs offline
+
+Practice and the tutorial have no server, so the range runs the mech itself — same rules, same numbers, same key. Kills and combos charge the Core there too, just **five times faster**: two dummies fill it, because the point out there is to get into a mech and learn it, not to grind ten bots first.
+
+Dummies shoot the armour rather than the pilot, and they hit it harder than they hit you, so a practice mech will eventually go critical and give you a core failure to escape from. The tutorial uses the same machinery to teach the deploy → punch → shield → eject loop at the end of the lesson.
+
 ## Maps
 
 Two arenas, picked when you hit DEPLOY. The drop-zone screen lists both with
@@ -276,13 +282,21 @@ Both run **offline in the browser** — no server, no sign-in, no other players.
   **roam around their posts and shoot back — badly**: a 1.9 s telegraphed aim,
   ~17° of scatter, 3 damage a hit. If you hold still in the open they land about
   one shot in four; if you move they mostly miss, and going down just puts you
-  back on the firing line.
-* **Tutorial** — 15 objectives that teach the whole game in order: move, look,
+  back on the firing line. Get a Core full and you can call a mech down right
+  there in the range — the dummies shoot at the armour, and it is the only
+  place to learn the ejection before it matters.
+* **Tutorial** — 19 objectives that teach the whole game in order: move, look,
   jump, sprint, sprint jump, double jump, wall run, wall kick, slide,
-  carry speed (land in a slide or on a timed jump), then rifle → sniper → knife → reload. Each step advances the moment you
-  actually do the thing (the wall-run step teleports you to a wall and tells you
-  where to run), and `N` skips a step if you get stuck. Finishing offers
-  "keep practising" or back to the title.
+  carry speed (land in a slide or on a timed jump), rifle → sniper → knife →
+  reload, and then the mech: **call one down, punch with it, raise the shield,
+  and eject from a core failure.** Each step advances the moment you actually do
+  the thing (the wall-run step teleports you to a wall and tells you where to
+  run), and `N` skips a step if you get stuck. A mech card you cannot satisfy
+  — because the mech is already gone, say — reads for a moment and moves on
+  rather than leaving you stuck. Finishing offers "keep practising" or back to
+  the title.
+
+Mechs work in both offline modes. See [Mechs offline](#mechs-offline).
 
 ## Appearance
 
@@ -476,7 +490,7 @@ nothing"). The build id is also shown in the bottom-right of the title screen an
 sent as an `X-Skyfall-Build` header, and the client flags a mismatch on screen if
 it ever sees one.
 
-If a menu button ever seems dead, check the tag: `build <id> · forest v21`
+If a menu button ever seems dead, check the tag: `build <id> · forest v22`
 means the current code is running. Press `Ctrl/Cmd + Shift + R` to force a fresh
 load.
 

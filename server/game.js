@@ -592,7 +592,10 @@ export class Game {
         // the RPG does not see people at all
         if (w.lockOn && !theirs) continue;
         const height = theirs ? MECH.height : PLAYER.height;
-        const radius = (theirs ? MECH.radius : PLAYER.radius) + pad;
+        // A punch swings a fist the size of a person, and that is the only
+        // reason a swing from seven metres up can reach the ground at all.
+        let radius = (theirs ? MECH.radius : PLAYER.radius) + pad;
+        if (punch && !theirs) radius = MECH.punch.radius;
         const past = this.positionAt(other.id, rewound);
         for (const feet of past ? [other.pos, past] : [other.pos]) {
           const ht = rayCapsule(origin[0], origin[1], origin[2], dir[0], dir[1], dir[2], feet, height, radius, endT);

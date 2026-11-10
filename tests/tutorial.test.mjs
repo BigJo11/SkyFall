@@ -2,6 +2,7 @@
 //   node tests/tutorial.test.mjs
 import assert from 'node:assert/strict';
 import { PracticeMode, Tutorial, TUTORIAL_STEPS } from '../public/js/practice.js';
+import { CORE, MECH } from '../shared/constants.js';
 import { WEAPONS } from '../shared/constants.js';
 
 let passed = 0;
@@ -34,7 +35,11 @@ function makeCtx() {
     reset() {},
     events: {},
   };
-  const state = { name: 'TESTER', yaw: 0, pitch: 0, camY: 1.6, hp: 100, alive: true, ammo: WEAPONS.map((w) => w.magSize), weapon: 0 };
+  const state = {
+    name: 'TESTER', yaw: 0, pitch: 0, camY: 1.6, hp: 100, alive: true,
+    ammo: WEAPONS.map((w) => w.magSize), weapon: 0,
+    core: 0, mech: null, mechAllowed: true, coreFailEndsAt: 0,
+  };
   const ctx = {
     state, body, hud, log,
     sfx: new Proxy({}, { get: () => () => {} }),
@@ -305,6 +310,17 @@ test('the whole tutorial can be finished with client-style events only', () => {
       if (live) t.onLocalHit(live, weapon(id));
     }
     else if (id === 'reload') t.onEvent('reload');
+    else if (id === 'core') t.onMechCommand('deploy');
+    else if (id === 'mechpunch') {
+      // aboard a mech the knife slot swings a punch, so this counts as one
+      const live = t.dummies.find((d) => d.alive);
+      if (live) t.onLocalHit(live, weapon('knife'));
+    } else if (id === 'mechshield') {
+      // the shield only raises once the mech has finished falling
+      if (t.mechSim?.state === 'active') t.onMechCommand('shield');
+    } else if (id === 'mecheject') {
+      t.onMechCommand('eject');
+    }
     else if (id !== 'done') break;    // the last card just needs time to read
     t.update(1 / 60, 1000 + guard * 16, ctx.body);
   }
@@ -374,17 +390,67 @@ test('shooting steps equip the right weapon and place a dummy in front', () => {
   assert.equal(ctx.state.ammo[0], 2, 'rifle left with a low magazine to reload');
 });
 
-test('reloading and reading the last card completes the tutorial', () => {
+test('reloading hands over to the mech cards, and the last one finishes it', () => {
   const { ctx, t } = tutorialAt('reload');
   t.onEvent('reload');
   t.update(1 / 60, 6000, ctx.body);
-  assert.equal(TUTORIAL_STEPS[t.step].id, 'done');
-  // the final card needs a moment on screen
+  assert.equal(TUTORIAL_STEPS[t.step].id, 'core', 'reload leads into the Core');
+
+  // ---- call one down
+  assert.equal(ctx.state.core, CORE.max, 'the range filled the Core for you');
+  t.onMechCommand('deploy');
   t.update(1 / 60, 6000, ctx.body);
+  assert.equal(TUTORIAL_STEPS[t.step].id, 'mechpunch');
+  assert.equal(ctx.state.core, 0, 'spent the moment it was called');
+
+  // ---- punch something
+  const live = t.dummies.find((d) => d.alive);
+  if (live) t.onLocalHit(live, weapon('knife'));   // a punch, aboard a mech
+  t.update(1 / 60, 6100, ctx.body);
+  assert.equal(TUTORIAL_STEPS[t.step].id, 'mechshield');
+  assert.equal(t.kills.punch, 1, 'counted as a punch, not a knife kill');
+
+  // ---- the shield only raises once it has finished falling
+  for (let i = 0; i < 220 && t.mechSim.state !== 'active'; i++) {
+    t.update(1 / 60, 6200 + i * 16, ctx.body);
+  }
+  assert.equal(t.mechSim.state, 'active', 'the mech landed');
+  t.onMechCommand('shield');
+  t.update(1 / 60, 9800, ctx.body);
+  assert.equal(TUTORIAL_STEPS[t.step].id, 'mecheject');
+  assert.equal(t.mechSim.state, 'core-failure', 'the drill put it into failure');
+
+  // ---- three presses and you are out
+  for (let i = 0; i < 3; i++) t.onMechCommand('eject');
+  t.update(1 / 60, 9900, ctx.body);
+  assert.equal(TUTORIAL_STEPS[t.step].id, 'done');
+  assert.equal(ctx.state.mech, null, 'the mech is gone');
+
+  // the final card needs a moment on screen
+  t.update(1 / 60, 9900, ctx.body);
   assert.equal(t.completed, false);
-  for (let i = 0; i < 200; i++) t.update(1 / 60, 6100 + i * 16, ctx.body);
+  for (let i = 0; i < 200; i++) t.update(1 / 60, 10000 + i * 16, ctx.body);
   assert.equal(t.completed, true);
   assert.equal(ctx.hud.objectiveDone, true, 'completion overlay shown');
+});
+
+test('a mech card the player cannot satisfy still moves on', () => {
+  // No mech was ever called down, so there is nothing to punch with. The card
+  // reads for a moment and moves on rather than hanging the tutorial.
+  const { ctx, t } = tutorialAt('mechpunch');
+  assert.equal(ctx.state.mech, null, 'nothing boarded');
+  for (let i = 0; i < 200; i++) t.update(1 / 60, 6000 + i * 16, ctx.body);
+  assert.notEqual(TUTORIAL_STEPS[t.step]?.id, 'mechpunch', 'the card did not hang');
+});
+
+test('running out of time in a core failure does not hang the card', () => {
+  const { ctx, t } = tutorialAt('mecheject');
+  // never press V: the five seconds run out and the pilot goes up with it
+  for (let i = 0; i < 500 && TUTORIAL_STEPS[t.step]?.id === 'mecheject'; i++) {
+    t.update(1 / 60, 6000 + i * 16, ctx.body);
+  }
+  assert.notEqual(TUTORIAL_STEPS[t.step]?.id, 'mecheject', 'the card advanced');
+  assert.equal(t.completed || TUTORIAL_STEPS[t.step].id === 'done', true);
 });
 
 test('skipping walks straight through every step', () => {

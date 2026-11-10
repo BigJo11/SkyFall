@@ -968,6 +968,62 @@ await test('practice mode runs the movement mechanics end to end', async () => {
   pump(2);
 });
 
+await test('a mech can be called down, flown and ejected from in the practice range', async () => {
+  const sk = window.SKYFALL;
+  assert.equal(sk.state.mode, 'practice', 'still in the range');
+  assert.equal(sk.state.mechAllowed, true, 'the big plateau has room for one');
+  assert.equal(sk.state.mech, null, 'nothing boarded yet');
+
+  // ---- two dummies charge the Core out here, where it fills fast
+  for (const d of sk.session.dummies.slice(0, 2)) sk.session.killDummy(d, 'rifle');
+  pump(2);
+  assert.equal(sk.state.core, 100, 'full after two kills, not ten');
+
+  // ---- the deploy key must reach the range, not the (absent) server
+  const press = (action) => {
+    for (const code of sk.input.codes(action)) {
+      window.dispatchEvent(new window.KeyboardEvent('keydown', { code }));
+    }
+    pump(2);
+    for (const code of sk.input.codes(action)) {
+      window.dispatchEvent(new window.KeyboardEvent('keyup', { code }));
+    }
+    pump(1);
+  };
+
+  press('deploy');
+  assert.ok(sk.state.mech, 'a mech exists');
+  assert.equal(sk.state.mech.state, 'dropping', 'it comes in from above');
+  assert.equal(sk.state.core, 0, 'spent the moment it was called');
+  assert.equal(document.getElementById('coreReady').classList.contains('hidden'), true, 'and no longer ready');
+
+  // ---- let it fall, then check the pilot is up in the cockpit
+  for (let i = 0; i < 140; i++) pump(1);
+  assert.equal(sk.state.mech.state, 'active', 'landed');
+  assert.equal(document.getElementById('mechHud').classList.contains('hidden'), false, 'cockpit HUD shown');
+  assert.ok(sk.camera.position.y > 6, `up in the cockpit (y=${sk.camera.position.y.toFixed(1)})`);
+
+  // ---- the shield key
+  press('shield');
+  assert.ok(sk.state.mech.shield.time > 0, 'the shield came up');
+
+  // ---- drive it into core failure and punch out: three presses of V
+  assert.equal(sk.session.drillCoreFailure(), true);
+  pump(2);
+  assert.equal(sk.state.mech.state, 'core-failure');
+  assert.equal(document.getElementById('coreFail').classList.contains('hidden'), false, 'the countdown is on screen');
+
+  press('deploy');
+  press('deploy');
+  assert.equal(sk.state.mech?.state, 'core-failure', 'still aboard after two');
+  press('deploy');
+  assert.equal(sk.state.mech, null, 'out, and the mech is gone');
+  assert.equal(sk.state.alive, true, 'and alive');
+  assert.equal(document.getElementById('coreFail').classList.contains('hidden'), true, 'countdown cleared');
+  for (let i = 0; i < 40; i++) pump(1);
+  assert.ok(sk.camera.position.y < 6, `back down at eye level (y=${sk.camera.position.y.toFixed(1)})`);
+});
+
 await test('speed HUD and speed preservation work in the live client', async () => {
   const sk = window.SKYFALL;
   // stand on a known-clear runway: x = 40, looking down +z
