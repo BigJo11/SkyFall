@@ -159,10 +159,24 @@ Press **V** with a full Core and a mech drops out of the sky onto you — roughl
 
 In the cockpit:
 
-* **1000 HP, ten times a player.** Everything that hits you hits the armour instead; your body is untouchable while it lasts.
-* **The same three guns**, bigger. The knife is gone — slot 4 is a **punch**: one-shot on anyone, with a far bigger reach.
+* **Five to fifteen times a player's health**, depending on the hull you pick. Everything that hits you hits the armour instead; your body is untouchable while it lasts.
+* **The guns hit twice as hard.** A rifle that does 25 on foot does **50** from a cockpit. Against another mech they do the ordinary number — mech duels are a war of attrition, not a damage race. The punch is left out of the doubling, since it already kills in one swing.
+* **The knife is gone** — slot 4 is a **punch**: one-shot on anyone, with a far bigger reach.
 * **An energy shield** on **G**: five seconds from full, four seconds to refill, and it can be raised early for proportionally less time — a half-charged shield gives two and a half seconds. While it is up it absorbs hits whole.
 * **A knife does nothing to a mech.** Neither does a punch. Armour needs the real thing.
+* **It cannot wall run, double jump or slide.** Nine tonnes does not run up walls, and it does not have knees for a slide. It keeps the one ordinary jump, and that is the whole of its repertoire.
+
+### Chassis
+
+Three hulls. **All the same height and all carrying the same guns** — what differs is how much they can take and how fast they carry it.
+
+| Hull | Health | Pace | |
+| --- | --- | --- | --- |
+| **KESTREL** | 500 | quicker | fast, and it folds |
+| **ELK** | 1000 | standard | the standard pattern |
+| **BISON** | 1500 | slower | slow, and stubborn |
+
+At 200 a rocket, three drop a Kestrel, five an Elk, and eight a Bison.
 
 ### The RPG
 
@@ -318,6 +332,17 @@ person.
 **Neon and scanline are locked behind the `1013` access code**, alongside the
 reserved callsigns. The server re-checks this on every join rather than trusting
 the client: a player without the code who asks for neon silently gets matte.
+
+### Your mech
+
+The **YOUR MECH** panel underneath picks the machine you drop in: a **chassis**
+(see above), a **hull** colour, a **trim** colour and a **finish**, from the same
+palette and the same five finishes. It is saved locally and sent with the join, so
+what you painted is what everyone else sees coming over the ridge.
+
+A mech nobody has painted flies its pilot's own colour, so two of them on the
+field are still tellable apart. Crew-only finishes are crew-only here too, and
+the server re-checks that on join exactly as it does for your character.
 
 ## Leaderboard
 
@@ -490,7 +515,7 @@ nothing"). The build id is also shown in the bottom-right of the title screen an
 sent as an `X-Skyfall-Build` header, and the client flags a mismatch on screen if
 it ever sees one.
 
-If a menu button ever seems dead, check the tag: `build <id> · forest v22`
+If a menu button ever seems dead, check the tag: `build <id> · forest v23`
 means the current code is running. Press `Ctrl/Cmd + Shift + R` to force a fresh
 load.
 

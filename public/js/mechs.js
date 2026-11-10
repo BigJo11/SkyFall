@@ -3,12 +3,92 @@
 //
 // Your own mech is not drawn — you are inside it, looking out of the cockpit.
 import * as THREE from 'three';
-import { MECH } from '../../shared/constants.js';
+import { MECH, MECH_COSMETIC } from '../../shared/constants.js';
+import { carbonTexture, scanlineTexture } from './textures.js';
 
 const HULL = 0x4a5364;
 const HULL_DARK = 0x2b3240;
 const HULL_LIGHT = 0x6b7789;
 const GLASS = 0x8fd8ff;
+
+// Hull finishes, mirroring the ones a character can wear. By the time a mech
+// is built the server has already refused the crew-only finishes for anyone
+// without the code, so whatever arrives here is allowed to look like this.
+//
+// `primary` is the hull and every lit accent; `secondary` is the trim.
+function buildHullMaterials(primary, secondary, materialId) {
+  const body = new THREE.Color(primary);
+  const trim = new THREE.Color(secondary);
+  const pale = (c, amount) => c.clone().lerp(new THREE.Color(0xffffff), amount);
+  const textures = [];
+  let animate = null;
+  let glow = false;
+
+  const flat = (color, extra) => new THREE.MeshLambertMaterial({ color, ...extra });
+  const set = {
+    hull: flat(body, {}),
+    dark: flat(trim, {}),
+    light: flat(pale(body, 0.22), {}),
+    accent: flat(body, { emissive: body.clone().multiplyScalar(0.45) }),
+  };
+
+  switch (materialId) {
+    case 'metal': {
+      const spec = 0xdfefff;
+      set.hull = new THREE.MeshPhongMaterial({ color: body, specular: spec, shininess: 110 });
+      set.dark = new THREE.MeshPhongMaterial({ color: trim, specular: spec, shininess: 130 });
+      set.light = new THREE.MeshPhongMaterial({ color: pale(body, 0.22), specular: spec, shininess: 90 });
+      set.accent = new THREE.MeshPhongMaterial({
+        color: body, specular: 0xffffff, shininess: 60,
+        emissive: body.clone().multiplyScalar(0.3),
+      });
+      break;
+    }
+    case 'carbon': {
+      const tex = new THREE.CanvasTexture(carbonTexture(128, '#161c28'));
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(3, 3);
+      textures.push(tex);
+      set.hull = new THREE.MeshLambertMaterial({ map: tex, color: body });
+      set.dark = new THREE.MeshLambertMaterial({ map: tex, color: trim });
+      set.light = new THREE.MeshLambertMaterial({ map: tex, color: pale(body, 0.18) });
+      set.accent = new THREE.MeshLambertMaterial({
+        color: body, emissive: body.clone().multiplyScalar(0.45), emissiveIntensity: 0.8,
+      });
+      break;
+    }
+    case 'neon': {
+      set.hull = new THREE.MeshBasicMaterial({ color: body });
+      set.dark = new THREE.MeshBasicMaterial({ color: trim });
+      set.light = new THREE.MeshBasicMaterial({ color: pale(body, 0.45) });
+      set.accent = new THREE.MeshBasicMaterial({ color: pale(body, 0.55) });
+      glow = true;
+      break;
+    }
+    case 'scanline': {
+      const tex = new THREE.CanvasTexture(scanlineTexture(128, 'rgba(150,245,255,.6)'));
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(3, 2);
+      textures.push(tex);
+      set.hull = new THREE.MeshLambertMaterial({
+        map: tex, color: body, emissive: body.clone().multiplyScalar(0.5),
+      });
+      set.dark = new THREE.MeshLambertMaterial({
+        map: tex, color: trim, emissive: trim.clone().multiplyScalar(0.3),
+      });
+      set.light = new THREE.MeshLambertMaterial({ map: tex, color: pale(body, 0.3) });
+      set.accent = new THREE.MeshBasicMaterial({ color: pale(body, 0.4) });
+      glow = true;
+      // the lines crawl up the armour
+      animate = (dt) => { tex.offset.y = (tex.offset.y + dt * 0.55) % 1; };
+      break;
+    }
+    default:
+      break;
+  }
+
+  return { ...set, textures, animate, glow };
+}
 
 // The same interpolation the remote players use, so a mech never stutters.
 const DELAY_MS = 70;
@@ -17,7 +97,10 @@ export class MechView {
   constructor(scene, m) {
     this.id = m.id;
     this.ownerId = m.ownerId;
-    this.color = m.color ?? 0xffb45e;
+    this.color = m.color ?? MECH_COSMETIC.primary;
+    this.trim = m.trim ?? MECH_COSMETIC.secondary;
+    this.materialId = m.material || 'matte';
+    this.chassis = m.chassis || MECH.defaultChassis;
     this.samples = [];
     this.pos = new THREE.Vector3(m.pos[0], m.pos[1], m.pos[2]);
     this.targetPos = this.pos.clone();
@@ -38,7 +121,11 @@ export class MechView {
   }
 
   mat(color, opts = {}) {
-    const material = new THREE.MeshLambertMaterial({ color, ...opts });
+    return this.own(new THREE.MeshLambertMaterial({ color, ...opts }));
+  }
+
+  // Every material this mech owns, whatever built it, so disposal is one loop.
+  own(material) {
     this.materials.push(material);
     return material;
   }
@@ -50,10 +137,14 @@ export class MechView {
   }
 
   build() {
-    const hull = this.mat(HULL);
-    const dark = this.mat(HULL_DARK);
-    const light = this.mat(HULL_LIGHT);
-    const accent = this.mat(this.color, { emissive: new THREE.Color(this.color).multiplyScalar(0.45) });
+    const finish = buildHullMaterials(this.color, this.trim, this.materialId);
+    const hull = this.own(finish.hull);
+    const dark = this.own(finish.dark);
+    const light = this.own(finish.light);
+    const accent = this.own(finish.accent);
+    this.textures = finish.textures;
+    this.animate = finish.animate;
+    this.glow = finish.glow;
     const glass = this.mat(GLASS, { transparent: true, opacity: 0.55 });
 
     const box = this.geo(1, 1, 1);
@@ -165,6 +256,7 @@ export class MechView {
   }
 
   update(dt, time) {
+    if (this.animate) this.animate(dt);      // a scanline finish crawls
     const t = performance.now();
     this.sampleAt(t - DELAY_MS, this.pos);
 
@@ -219,8 +311,10 @@ export class MechView {
     scene.remove(this.root);
     for (const g of this.geometries) g.dispose();
     for (const m of this.materials) m.dispose();
+    for (const t of this.textures || []) t.dispose();
     this.geometries.length = 0;
     this.materials.length = 0;
+    this.textures = [];
   }
 }
 

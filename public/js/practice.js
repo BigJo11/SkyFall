@@ -4,7 +4,7 @@
 import { PLAYER, MOVE, MECH, CORE, headshotDamage } from '../../shared/constants.js';
 import ARENA, { PRACTICE } from '../../shared/map.js';
 import { solidAABBs, raycastAABBs } from '../../shared/collision.js';
-import { addCore, pruneTraversal, isCombo, explosionDamage } from '../../shared/mech.js';
+import { addCore, pruneTraversal, isCombo, explosionDamage, damageFrom } from '../../shared/mech.js';
 import { LocalMech } from './localmech.js';
 
 // Practice dummies are deliberately bad shots: slow reaction, huge spread,
@@ -261,7 +261,14 @@ export class PracticeMode {
       hud.toast?.(`CORE ${Math.floor(state.core || 0)}% — ${CORE.max} TO DEPLOY`, 1400);
       return;
     }
-    this.mechSim.deploy([body.x, body.y, body.z], state.yaw, this.now);
+    // the pilot's own chassis and paint, same as they would get online
+    const look = state.mechCosmetic || null;
+    this.mechSim.deploy([body.x, body.y, body.z], state.yaw, this.now, {
+      chassis: look?.chassis,
+      color: look?.primary,
+      trim: look?.secondary,
+      material: look?.material,
+    });
     state.core = 0;                 // spent the moment it is called
     state.mech = this.mechSim.snapshot();
     hud.centerMessage('MECH INBOUND', 1600);
@@ -499,7 +506,10 @@ export class PracticeMode {
     if (!d || !d.alive) return false;
 
     const head = !!opts.head;
-    const dmg = headshotDamage(weapon, head);
+    // Aboard a mech the guns hit twice as hard: dummies stand in for people.
+    const fromMech = !!this.ctx.state.mech && !weapon.melee;
+    const dmg = headshotDamage(
+      { damage: damageFrom(weapon.id, { fromMech }), headshot: weapon.headshot }, head);
     d.hp -= dmg;
     const killed = d.hp <= 0;
     if (killed) this.killDummy(d, weapon.id, head);

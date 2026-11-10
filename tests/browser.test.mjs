@@ -362,6 +362,66 @@ await test('cosmetics: pick colours and a material, locked ones need the code', 
   pump(2);
 });
 
+await test('the mech panel: a chassis, a paint, and a finish', async () => {
+  const sk = window.SKYFALL;
+  const $id = (id) => document.getElementById(id);
+  const chassis = () => [...$id('mechChassisList').children];
+  const mats = () => [...$id('mechMaterialList').children];
+  const matBtn = (id) => mats().find((b) => b.dataset.material === id);
+
+  assert.equal(chassis().length, 3, 'three hulls to pick from');
+  assert.equal($id('mechPrimarySwatches').children.length, 12, 'palette rendered');
+  assert.equal(mats().length, 5, 'the same five finishes');
+
+  // the hulls carry their numbers, and they differ only in health and pace
+  const stats = chassis().map((b) => b.textContent);
+  assert.match(stats[0], /500 HP/, 'the light one is 500');
+  assert.match(stats[1], /1000 HP/, 'the medium one is the standard 1000');
+  assert.match(stats[2], /1500 HP/, 'the heavy one is 1500');
+  assert.match(stats[0], /QUICKER/);
+  assert.match(stats[2], /SLOWER/);
+
+  // ---- pick the heavy hull, a colour and a finish
+  chassis()[2].click();
+  $id('mechPrimarySwatches').children[3].click();
+  matBtn('carbon').click();
+  pump(2);
+  assert.equal(sk.state.mechCosmetic.chassis, 'heavy', 'the hull was chosen');
+  assert.equal(sk.state.mechCosmetic.material, 'carbon', 'and the finish');
+  assert.equal($id('mechPreview').dataset.material, 'carbon', 'the preview shows it');
+  assert.match($id('mechCosSub').textContent, /bison/, 'named on the panel');
+  assert.match(window.localStorage.getItem('skyfall.mechCosmetic') || '', /heavy/, 'persisted');
+
+  // ---- a locked finish is still locked here
+  assert.equal(matBtn('neon').disabled, true, 'neon is crew-only on a mech too');
+  matBtn('neon').click();
+  pump(2);
+  assert.equal(sk.state.mechCosmetic.material, 'carbon', 'and clicking it changes nothing');
+
+  // ---- the choice reaches a mech called down in the range
+  sk.startLocalMode('practice');
+  pump(4);
+  sk.state.mechAllowed = true;
+  sk.state.core = 100;
+  sk.session.onMechCommand('deploy');
+  pump(2);
+  assert.ok(sk.state.mech, 'a mech exists');
+  assert.equal(sk.state.mech.chassis, 'heavy', 'it is the hull that was picked');
+  assert.equal(sk.state.mech.maxHp, 1500, 'with the health that hull carries');
+  assert.equal(sk.state.mech.color, sk.state.mechCosmetic.primary, 'and the paint');
+  assert.equal(sk.state.mech.material, 'carbon');
+
+  // ---- and the pace flag follows the chassis
+  sk.body.speedScale = 1;   // whatever it was standing still
+  for (let i = 0; i < 140; i++) pump(1);
+  assert.equal(sk.state.mech.state, 'active', 'landed');
+  assert.ok(sk.body.piloting, 'the body knows it is being piloted');
+  assert.equal(sk.body.speedScale, 0.75, 'and it lumbers at the heavy pace');
+
+  sk.leaveToTitle();
+  pump(3);
+});
+
 await test('options open from the main menu: aim assist levels and live rebinding', async () => {
   const sk = window.SKYFALL;
   const $id = (id) => document.getElementById(id);

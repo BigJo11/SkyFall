@@ -1013,6 +1013,91 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
   font-family: var(--mono); font-size: 9px; letter-spacing: .14em;
   color: rgba(155, 161, 137, .62); text-transform: uppercase;
 }
+
+/* ---- the mech's own appearance panel */
+.mech-panel .cos-head h3 { color: #d8c58a; }
+.mech-preview { flex: 0 0 108px; }
+.mechfig { position: relative; width: 78px; height: 126px; margin-bottom: 6px; transition: filter .15s ease; }
+.mechfig > div { position: absolute; }
+.mechfig-leg {
+  top: 74px; width: 13px; height: 44px;
+  background: var(--cos-secondary, #4a4438);
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, .3);
+}
+.mechfig-leg.l { left: 16px; }
+.mechfig-leg.r { left: 49px; }
+.mechfig-torso {
+  left: 14px; top: 30px; width: 50px; height: 46px;
+  background: var(--cos-primary, #bfae95);
+  box-shadow: inset 0 0 0 4px rgba(0, 0, 0, .26);
+}
+.mechfig-stripe {
+  left: 22px; top: 40px; width: 34px; height: 6px;
+  background: var(--cos-secondary, #4a4438);
+}
+.mechfig-arm {
+  top: 34px; width: 13px; height: 40px;
+  background: var(--cos-primary, #bfae95);
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, .26);
+}
+.mechfig-arm.l { left: 0; }
+.mechfig-cannon {
+  left: 65px; top: 38px; width: 13px; height: 30px;
+  background: var(--cos-primary, #bfae95);
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, .26);
+}
+.mechfig-head {
+  left: 27px; top: 6px; width: 24px; height: 22px;
+  background: var(--cos-primary, #bfae95);
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .3);
+}
+.mechfig-eye {
+  left: 31px; top: 13px; width: 16px; height: 5px;
+  background: var(--cos-secondary, #4a4438);
+}
+
+/* the same finishes, on the mech silhouette */
+.mech-preview[data-material="metal"] .mechfig > div {
+  background-image: linear-gradient(105deg, rgba(255, 255, 255, .5) 0 18%, transparent 42%, rgba(255, 255, 255, .26) 68%, transparent 86%);
+}
+.mech-preview[data-material="metal"] .mechfig { filter: contrast(1.15) saturate(.85); }
+.mech-preview[data-material="carbon"] .mechfig > div {
+  background-image:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, .07) 0 3px, transparent 3px 6px),
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, .22) 0 3px, transparent 3px 6px);
+  filter: brightness(.8);
+}
+.mech-preview[data-material="neon"] .mechfig { filter: drop-shadow(0 0 9px var(--cos-primary, #bfae95)); }
+.mech-preview[data-material="neon"] .mechfig > div { box-shadow: 0 0 15px var(--cos-primary, #bfae95), inset 0 0 7px rgba(255, 255, 255, .45); }
+.mech-preview[data-material="scanline"] .mechfig { filter: drop-shadow(0 0 7px var(--cos-primary, #bfae95)); }
+.mech-preview[data-material="scanline"] .mechfig::after {
+  content: ""; position: absolute; inset: 0;
+  background: repeating-linear-gradient(0deg, rgba(180, 250, 255, .5) 0 1px, transparent 1px 4px);
+  mix-blend-mode: screen;
+  animation: cosScan 2.4s linear infinite;
+}
+
+/* chassis picks: bigger than a material chip, because they carry numbers */
+.chassis { display: flex; flex-wrap: wrap; gap: 5px; }
+.chassis-btn {
+  display: grid; gap: 2px; justify-items: start;
+  padding: 5px 9px; cursor: pointer;
+  color: #cfc9b4;
+  background: rgba(196, 168, 96, .06);
+  border: 1px solid rgba(196, 168, 96, .3);
+  text-align: left;
+}
+.chassis-btn:hover { background: rgba(196, 168, 96, .16); }
+.chassis-btn[aria-pressed="true"] {
+  color: #0d100d; background: #d8c58a; border-color: #f0e2b0;
+}
+.chassis-name {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .16em;
+}
+.chassis-stats {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: .08em;
+  opacity: .72;
+}
 body.crew .cos-hint { color: rgba(216, 197, 138, .9); }
 
 @media (max-width: 720px) {

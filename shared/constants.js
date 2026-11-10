@@ -106,6 +106,52 @@ export const COSMETIC = {
     return '#' + (Number(color) >>> 0).toString(16).padStart(6, '0');
   },
 };
+// The mech has its own appearance, picked in the same panel: a hull colour, a
+// finish, and the chassis it is built on. Crew-only finishes are crew-only
+// here too, and the server re-checks that on join exactly as it does for the
+// character.
+export const MECH_COSMETIC = {
+  primary: 0xbfae95,
+  secondary: 0x4a4438,
+
+  palette: COSMETIC.palette,
+  materials: COSMETIC.materials,
+
+  get default() {
+    return { primary: this.primary, secondary: this.secondary, material: 'matte', chassis: MECH.defaultChassis };
+  },
+
+  materialById(id) {
+    return this.materials.find((m) => m.id === id) || null;
+  },
+
+  chassisById(id) {
+    return MECH.chassis.find((c) => c.id === id) || null;
+  },
+
+  normalise(input, { crew = false } = {}) {
+    const src = input && typeof input === 'object' ? input : {};
+    const colour = (v, fallback) => {
+      const n = Math.round(Number(v));
+      if (!Number.isFinite(n) || n < 0 || n > 0xffffff) return fallback;
+      return n;
+    };
+    const pick = this.materialById(String(src.material || ''));
+    const material = pick && (!pick.locked || crew) ? pick.id : 'matte';
+    const chassis = this.chassisById(String(src.chassis || ''));
+    return {
+      primary: colour(src.primary, this.primary),
+      secondary: colour(src.secondary, this.secondary),
+      material,
+      chassis: chassis ? chassis.id : MECH.defaultChassis,
+    };
+  },
+
+  hex(color) {
+    return '#' + (Number(color) >>> 0).toString(16).padStart(6, '0');
+  },
+};
+
 export const CREW_GLOW_ALT = 0x8b5cf6;
 
 export const PLAYER = {
@@ -256,6 +302,20 @@ export const MECH = {
   // The RPG's lock: it acquires mechs and nothing else.
   lockRange: 220,
   lockConeDeg: 22,
+
+  // A mech's guns hit a person twice as hard as the same gun on foot. Armour
+  // takes the ordinary number: mech duels are a war of attrition, not a
+  // damage race. The punch is left alone — it already kills in one swing.
+  gunDamageMult: 2,
+
+  // Three hulls. Same height, same guns: what differs is how much they can
+  // take and how fast they carry it.
+  chassis: [
+    { id: 'light', name: 'KESTREL', hp: 500, speed: 1.25, blurb: 'quick, and it folds' },
+    { id: 'medium', name: 'ELK', hp: 1000, speed: 1, blurb: 'the standard pattern' },
+    { id: 'heavy', name: 'BISON', hp: 1500, speed: 0.75, blurb: 'slow, and stubborn' },
+  ],
+  defaultChassis: 'medium',
 
   bigMapOnly: true,
 };

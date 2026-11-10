@@ -5,7 +5,8 @@
 import assert from 'node:assert/strict';
 import { PracticeMode } from '../public/js/practice.js';
 import { LocalMech } from '../public/js/localmech.js';
-import { PLAYER, MECH, CORE, WEAPONS } from '../shared/constants.js';
+import { PLAYER, MECH, CORE, WEAPONS, MECH_COSMETIC } from '../shared/constants.js';
+import { chassisHealth } from '../shared/mech.js';
 import { rayCapsule } from '../shared/collision.js';
 
 let passed = 0;
@@ -451,6 +452,112 @@ test('the drill puts a healthy mech straight into core failure', () => {
   assert.equal(m.forceCoreFailure(), true);
   assert.equal(m.state, 'core-failure');
   assert.equal(m.hp, 0);
+});
+
+// ------------------------------------------------------------------- chassis
+
+console.log('\nchassis:');
+
+test('the range builds the chassis you picked, at its own health', () => {
+  for (const c of MECH.chassis) {
+    const ctx = makeCtx();
+    ctx.state.mechCosmetic = { ...MECH_COSMETIC.default, chassis: c.id };
+    const p = new PracticeMode(ctx);
+    p.start();
+    ctx.state.core = CORE.max;
+    p.onMechCommand('deploy');
+    assert.equal(p.mechSim.state, 'dropping');
+    assert.equal(p.mechSim.hp, c.hp, `${c.name} comes in with ${c.hp}`);
+    assert.equal(ctx.state.mech.maxHp, c.hp);
+    assert.equal(ctx.state.mech.chassis, c.id);
+  }
+});
+
+test('an unknown chassis is the standard one', () => {
+  const ctx = makeCtx();
+  ctx.state.mechCosmetic = { ...MECH_COSMETIC.default, chassis: 'nonsense' };
+  const p = new PracticeMode(ctx);
+  p.start();
+  ctx.state.core = CORE.max;
+  p.onMechCommand('deploy');
+  assert.equal(ctx.state.mech.chassis, MECH.defaultChassis);
+  assert.equal(p.mechSim.hp, chassisHealth(MECH.defaultChassis));
+});
+
+test('the cockpit HUD shows the health the chassis actually has', () => {
+  const ctx = makeCtx();
+  ctx.state.mechCosmetic = { ...MECH_COSMETIC.default, chassis: 'light' };
+  const p = new PracticeMode(ctx);
+  p.start();
+  ctx.state.core = CORE.max;
+  p.onMechCommand('deploy');
+  run(p, ctx, Math.ceil(MECH.dropTimeMs / 16) + 4);
+  assert.equal(ctx.state.mech.maxHp, 500, 'a Kestrel is a 500 HP mech');
+});
+
+// ------------------------------------------------------------ the mech's guns
+
+console.log('\nthe guns:');
+
+test('a mech rifle hits a dummy twice as hard', () => {
+  const ctx = makeCtx();
+  const p = new PracticeMode(ctx);
+  p.start();
+  const d = p.dummies[0];
+  const before = d.hp;
+  p.onLocalHit({ id: d.id }, weapon('rifle'));
+  const onFoot = before - d.hp;
+
+  // now the same rifle from a cockpit
+  const ctx2 = makeCtx();
+  const q = new PracticeMode(ctx2);
+  q.start();
+  ctx2.state.core = CORE.max;
+  q.onMechCommand('deploy');
+  run(q, ctx2, Math.ceil(MECH.dropTimeMs / 16) + 4);
+  const d2 = q.dummies[0];
+  const before2 = d2.hp;
+  q.onLocalHit({ id: d2.id }, weapon('rifle'));
+  const fromMech = before2 - d2.hp;
+
+  assert.ok(onFoot > 0, 'the shot landed on foot');
+  assert.equal(fromMech, onFoot * MECH.gunDamageMult, `${onFoot} -> ${fromMech}`);
+});
+
+test('a punch is not doubled: it already kills in one swing', () => {
+  const ctx = makeCtx();
+  const p = new PracticeMode(ctx);
+  p.start();
+  ctx.state.core = CORE.max;
+  p.onMechCommand('deploy');
+  run(p, ctx, Math.ceil(MECH.dropTimeMs / 16) + 4);
+  const d = p.dummies.find((x) => x.alive);
+  const punch = { ...weapon('knife'), ...MECH.punch };
+  const before = d.hp;
+  p.onLocalHit({ id: d.id }, punch);
+  assert.equal(before - d.hp, MECH.punch.damage, 'still one swing, one kill');
+  assert.equal(d.alive, false);
+});
+
+test('a mech kills a dummy in half the rounds it takes on foot', () => {
+  const shots = (fromMech) => {
+    const ctx = makeCtx();
+    const p = new PracticeMode(ctx);
+    p.start();
+    if (fromMech) {
+      ctx.state.core = CORE.max;
+      p.onMechCommand('deploy');
+      run(p, ctx, Math.ceil(MECH.dropTimeMs / 16) + 4);
+    }
+    const d = p.dummies.find((x) => x.alive);
+    let n = 0;
+    while (d.alive && n < 40) { p.onLocalHit({ id: d.id }, weapon('rifle')); n++; }
+    return n;
+  };
+  const onFoot = shots(false);
+  const fromMech = shots(true);
+  assert.equal(fromMech, Math.ceil(onFoot / MECH.gunDamageMult),
+    `${onFoot} rounds on foot, ${fromMech} from a cockpit`);
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

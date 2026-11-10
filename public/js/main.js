@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WEAPONS, PLAYER, NET, MOVE, RESERVED, CREW_GLOW, COSMETIC, isHeadHit, headshotDamage, AIM_ASSIST, AIM_ASSIST_LEVELS, AIM_ASSIST_DEFAULT, aimAssistConfig, MECH, CORE } from '../../shared/constants.js';
+import { WEAPONS, PLAYER, NET, MOVE, RESERVED, CREW_GLOW, COSMETIC, MECH_COSMETIC, isHeadHit, headshotDamage, AIM_ASSIST, AIM_ASSIST_LEVELS, AIM_ASSIST_DEFAULT, aimAssistConfig, MECH, CORE } from '../../shared/constants.js';
 import { aimAssist, weaponHasAssist } from '../../shared/aimassist.js';
 import { raycastAABBs, rayCapsule } from '../../shared/collision.js';
 import { buildWorld } from './world.js';
@@ -16,7 +16,7 @@ import { renderEntry, renderTabs, DEFAULT_ENTRY, LATEST_VERSION } from './update
 import { ACTIONS, DEFAULT_BINDS, keyLabel, assign, normalise, reserved, ownerOf } from './keybinds.js';
 import { MAP_LIST, DEFAULT_MAP, mapById } from '../../shared/map.js';
 import { Mechs } from './mechs.js';
-import { lockAcquired, shieldFraction, ejectionProgress } from '../../shared/mech.js';
+import { lockAcquired, shieldFraction, ejectionProgress, chassisSpeed } from '../../shared/mech.js';
 import { Minimap } from './minimap.js';
 
 const $ = (id) => document.getElementById(id);
@@ -167,6 +167,7 @@ const state = {
   shownLeaderboard: false,
   updatesEntry: null,          // which changelog tab the panel is showing
   cosmetic: { ...COSMETIC.default },
+  mechCosmetic: { ...MECH_COSMETIC.default },
   leaderboard: [],
   mapList: [],                 // [{id,name,blurb,players}] from the server
   map: DEFAULT_MAP,
@@ -182,7 +183,7 @@ let session = null;
 // Build stamp: makes it obvious which version the browser actually loaded, and
 // catches the classic "new page, old cached scripts" situation where every
 // button appears dead.
-const BUILD = 'forest v22';
+const BUILD = 'forest v23';
 
 function detectStaleBuild() {
   try {
@@ -460,6 +461,15 @@ function fireOnce(now) {
 }
 
 // ---------------------------------------------------------------- the mech
+// A mech is too heavy for the pilot's repertoire, and it moves at the pace its
+// chassis was built for. Both are plain flags on the body; refresh them before
+// every step so boarding and ejecting take effect on the same frame.
+function applyMechMovement() {
+  const m = state.mech;
+  body.piloting = !!m;
+  body.speedScale = m ? chassisSpeed(m.chassis) : 1;
+}
+
 // Drives every mech-facing part of the HUD from whatever the server last said.
 function syncMechHud() {
   const m = state.mech;
@@ -643,6 +653,7 @@ function handleGameplayInput(now, dt) {
   if (input.actionPressed('jump') && canAct) body.wantJump = true;
   if (input.actionPressed('slide') && canAct) body.wantSlide = true;
 
+  applyMechMovement();
   if (!state.paused) body.update(dt, wish, state.yaw);
 
   if (body.justLanded) {
@@ -820,7 +831,9 @@ function connect(name, code = '', cosmetic = null, map = DEFAULT_MAP) {
     if (state.phase === 'loading') leaveToTitle('The server did not respond — is it running?');
   }, 9000);
 
-  net.connect(name, code, cosmetic || state.cosmetic, map)
+  // the mech's appearance rides along inside the same payload
+  const look = cosmetic || state.cosmetic;
+  net.connect(name, code, { ...look, mech: state.mechCosmetic }, map)
     .then(() => {
       // wait for welcome (handled below)
     })
@@ -1332,6 +1345,129 @@ function buildCosmeticUI() {
   }
   state.cosmetic = loadCosmetic();
   renderCosmetic();
+}
+
+// ----------------------------------------------------------- the mech's looks
+// The same idea as the character panel, one section down: a hull colour, a trim
+// colour, a finish, and the chassis it is built on. Saved locally and sent with
+// the join, so everyone sees your mech the way you painted it. Crew-only
+// finishes are crew-only here too, and the server re-checks that on join.
+const MECH_COS_STORE = 'skyfall.mechCosmetic';
+
+function loadMechCosmetic() {
+  let saved = null;
+  try { saved = JSON.parse(store.get(MECH_COS_STORE, 'null')); } catch { saved = null; }
+  return MECH_COSMETIC.normalise(saved, { crew: crewUnlocked() });
+}
+
+function saveMechCosmetic() {
+  store.set(MECH_COS_STORE, JSON.stringify(state.mechCosmetic));
+}
+
+function applyMechCosmetic(next, { persist = true } = {}) {
+  const look = MECH_COSMETIC.normalise(next, { crew: crewUnlocked() });
+  state.mechCosmetic = look;
+  if (persist) saveMechCosmetic();
+  renderMechCosmetic();
+  return look;
+}
+
+function renderMechCosmetic() {
+  const { primary, secondary, material, chassis } = state.mechCosmetic;
+  const hex = MECH_COSMETIC.hex;
+  const preview = $('mechPreview');
+  if (preview) {
+    preview.style.setProperty('--cos-primary', hex(primary));
+    preview.style.setProperty('--cos-secondary', hex(secondary));
+    preview.dataset.material = material;
+  }
+  for (const [listId, key] of [['mechPrimarySwatches', 'primary'], ['mechSecondarySwatches', 'secondary']]) {
+    const list = $(listId);
+    if (!list) continue;
+    for (const btn of list.children) {
+      btn.setAttribute('aria-pressed', String(Number(btn.dataset.color) === state.mechCosmetic[key]));
+    }
+  }
+
+  const chassisList = $('mechChassisList');
+  if (chassisList) {
+    for (const btn of chassisList.children) {
+      btn.setAttribute('aria-pressed', String(btn.dataset.chassis === chassis));
+    }
+  }
+
+  const list = $('mechMaterialList');
+  if (list) {
+    for (const btn of list.children) {
+      const id = btn.dataset.material;
+      const meta = MECH_COSMETIC.materialById(id);
+      const locked = !!meta?.locked && !crewUnlocked();
+      btn.setAttribute('aria-pressed', String(id === material));
+      btn.disabled = locked;
+      btn.title = locked ? `${meta.name} — crew access code required` : (meta?.blurb || '');
+    }
+  }
+
+  const sub = $('mechCosSub');
+  if (sub) {
+    const c = MECH_COSMETIC.chassisById(chassis);
+    const meta = MECH_COSMETIC.materialById(material);
+    sub.textContent = `${(c ? c.name : chassis).toLowerCase()} · ${meta ? meta.name.toLowerCase() : material}`;
+  }
+}
+
+function buildMechCosmeticUI() {
+  for (const [listId, key] of [['mechPrimarySwatches', 'primary'], ['mechSecondarySwatches', 'secondary']]) {
+    const list = $(listId);
+    if (!list || list.children.length) continue;
+    for (const sw of MECH_COSMETIC.palette) {
+      const b = document.createElement('button');
+      b.className = 'swatch';
+      b.type = 'button';
+      b.dataset.color = String(sw.color);
+      b.style.setProperty('--sw', MECH_COSMETIC.hex(sw.color));
+      b.setAttribute('aria-label', `mech ${key} ${sw.id}`);
+      b.addEventListener('click', () => applyMechCosmetic({ ...state.mechCosmetic, [key]: sw.color }));
+      list.appendChild(b);
+    }
+  }
+
+  const chassis = $('mechChassisList');
+  if (chassis && !chassis.children.length) {
+    for (const c of MECH.chassis) {
+      const b = document.createElement('button');
+      b.className = 'chassis-btn';
+      b.type = 'button';
+      b.dataset.chassis = c.id;
+      b.innerHTML = `<span class="chassis-name">${c.name}</span>`
+        + `<span class="chassis-stats">${c.hp} HP · ${c.speed === 1 ? 'STANDARD PACE' : (c.speed > 1 ? 'QUICKER' : 'SLOWER')}</span>`;
+      b.title = c.blurb;
+      b.addEventListener('click', () => applyMechCosmetic({ ...state.mechCosmetic, chassis: c.id }));
+      chassis.appendChild(b);
+    }
+  }
+
+  const materials = $('mechMaterialList');
+  if (materials && !materials.children.length) {
+    for (const m of MECH_COSMETIC.materials) {
+      const b = document.createElement('button');
+      b.className = 'mat';
+      b.type = 'button';
+      b.dataset.material = m.id;
+      b.innerHTML = m.locked ? `${m.name}<span class="lock">◆</span>` : m.name;
+      b.addEventListener('click', () => {
+        if (m.locked && !crewUnlocked()) {
+          titleNotice(`${m.name} IS CREW ONLY — ENTER THE ACCESS CODE`);
+          return;
+        }
+        applyMechCosmetic({ ...state.mechCosmetic, material: m.id });
+      });
+      materials.appendChild(b);
+    }
+  }
+
+  state.mechCosmetic = loadMechCosmetic();
+  renderMechCosmetic();
 }
 
 // DEPLOY asks which arena first. The picks carry live player counts, so you can
@@ -1882,6 +2018,7 @@ const escape = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': 
 
 $('nameInput').value = store.get('skyfall.name', '');
 buildCosmeticUI();
+buildMechCosmeticUI();
 refreshLobby();
 refreshLeaderboard();
 setInterval(() => { if (state.phase === 'title') refreshLobby(); }, 3000);
@@ -1919,6 +2056,7 @@ function frame(now) {
     input.takeLook();
     if (state.alive) {
       const axes = { forward: 0, right: 0, sprint: false };
+      applyMechMovement();
       body.update(dt, axes, state.yaw);
     }
   }

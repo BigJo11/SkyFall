@@ -41,6 +41,36 @@ export function isCombo(log, atMs) {
   return comboKinds(log, atMs).size >= 2;
 }
 
+// ----------------------------------------------------------------- chassis
+// Three hulls, all the same height and all carrying the same guns. Pick by
+// whether you would rather take the hit or get out of the way.
+export function chassisById(id) {
+  return MECH.chassis.find((c) => c.id === id)
+    || MECH.chassis.find((c) => c.id === MECH.defaultChassis)
+    || MECH.chassis[0];
+}
+
+export function chassisHealth(id) {
+  return chassisById(id).hp;
+}
+
+export function chassisSpeed(id) {
+  return chassisById(id).speed;
+}
+
+// ------------------------------------------------------------ the mech's guns
+// Firing from a cockpit doubles the damage a gun does to a *person*. Against
+// another mech it is the ordinary number, and armour keeps its immunities
+// there too. The punch is a melee swing that already kills in one hit, so it
+// is left out of the doubling rather than given a pointless second hundred.
+export function damageFrom(weaponId, { fromMech = false, vsMech = false } = {}) {
+  if (vsMech) return mechDamage(weaponId);
+  if (!canDamagePlayer(weaponId)) return 0;
+  const w = weaponById(weaponId);
+  if (!w || w.melee) return w ? w.damage : 0;
+  return w.damage * (fromMech ? MECH.gunDamageMult : 1);
+}
+
 // ---------------------------------------------------------------- the shield
 // `charge` is how full the shield is (0..1). `time` is how long it has left
 // once raised, in seconds.
