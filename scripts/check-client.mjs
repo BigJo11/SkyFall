@@ -19,6 +19,7 @@ sources.set('shared/map.js', fs.readFileSync(path.join(ROOT, 'shared/map.js'), '
 sources.set('shared/collision.js', fs.readFileSync(path.join(ROOT, 'shared/collision.js'), 'utf8'));
 sources.set('shared/aimassist.js', fs.readFileSync(path.join(ROOT, 'shared/aimassist.js'), 'utf8'));
 sources.set('shared/changelog.js', fs.readFileSync(path.join(ROOT, 'shared/changelog.js'), 'utf8'));
+sources.set('shared/mech.js', fs.readFileSync(path.join(ROOT, 'shared/mech.js'), 'utf8'));
 
 function parse(src, name) {
   try {

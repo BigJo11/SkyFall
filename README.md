@@ -61,6 +61,7 @@ Change the port with `PORT=8080 npm start`.
 | **SNIPER** | 100 | 100 | 0.7 s bolt cycle | one shot kill | 3 round mag, right-click to scope |
 | **SMG** | 8 | **16** | 15 shots/sec (66.7 ms) | 13 body / **7 head** | 45 round mag, wide spread |
 | **KNIFE** | 100 | 100 | 0.5 s swing cooldown | one shot kill | 2.7 m reach, never crits |
+| **RPG** | **200** | 200 | 1 per 1.8 s | 5 vs a mech | 1 rocket, 2.8 s reload — **locks mechs only, does nothing to players** |
 
 Fire rate is enforced **per weapon** on the server, so swapping guns can never
 cheat a cooldown.
@@ -140,6 +141,40 @@ it is a storey or more above you, below it and they are underneath; the dead
 fade instead of vanishing, so you can still read where a fight just happened.
 The ground underneath is the arena's own layout, pre-rendered once per map, so
 switching arenas switches the radar too.
+
+## Mechs
+
+A full **Core** calls one down. The Core is a meter you charge by playing:
+
+| | |
+| --- | --- |
+| A kill | **+10%** |
+| A movement combo | **+3%** |
+
+A combo is two *different* traversal moves inside a couple of seconds — a wallrun into a wall jump, a double jump into a slide landing. Doing the same move twice is just moving, and there is a short cooldown between awards so it cannot be farmed.
+
+**The charge survives death.** A bad life does not throw away a mech you earned.
+
+Press **V** with a full Core and a mech drops out of the sky onto you — roughly ten metres of armour, and you pilot it.
+
+In the cockpit:
+
+* **1000 HP, ten times a player.** Everything that hits you hits the armour instead; your body is untouchable while it lasts.
+* **The same three guns**, bigger. The knife is gone — slot 4 is a **punch**: one-shot on anyone, with a far bigger reach.
+* **An energy shield** on **G**: five seconds from full, four seconds to refill, and it can be raised early for proportionally less time — a half-charged shield gives two and a half seconds. While it is up it absorbs hits whole.
+* **A knife does nothing to a mech.** Neither does a punch. Armour needs the real thing.
+
+### The RPG
+
+The fifth weapon, always in your loadout, and it exists for exactly this: **it locks onto mechs and cannot be used on players at all.** Aimed at a person it will not fire. Against a mech it does **200**, so five rockets drop a fresh one.
+
+### Core failure
+
+A mech at 0 HP does not simply vanish — it enters **core failure** for five seconds, and the pilot has to press **V three times** to eject. Get all three in and you are thrown clear and live. Miss the window and you go up with it.
+
+Either way it ends the same way: the mech detonates. Anything within a couple of tiles is killed outright; further back than that, you walk away.
+
+**Mechs are big-map only.** PINE HOLLOW has no room for one, and the Core cannot be spent there.
 
 ## Maps
 
@@ -300,9 +335,11 @@ enforces before anything reaches the board.
 | `Space` | jump · double jump · wall kick |
 | `Left mouse` / `F` | fire (hold for automatic) |
 | `Right mouse` | scope (sniper) |
-| `1` `2` `3` `4` / mouse wheel | switch weapon |
+| `1` `2` `3` `4` `5` / mouse wheel | switch weapon (`5` is the RPG) |
 | `Q` | previous weapon |
 | `C` / `Ctrl` | slide (while sprinting) |
+| `V` | deploy a mech · eject from a dying one (3×) |
+| `G` | mech energy shield |
 | `R` | reload |
 | `Tab` | scoreboard |
 | `L` | all-time leaderboard |
@@ -439,7 +476,7 @@ nothing"). The build id is also shown in the bottom-right of the title screen an
 sent as an `X-Skyfall-Build` header, and the client flags a mismatch on screen if
 it ever sees one.
 
-If a menu button ever seems dead, check the tag: `build <id> · forest v19`
+If a menu button ever seems dead, check the tag: `build <id> · forest v20`
 means the current code is running. Press `Ctrl/Cmd + Shift + R` to force a fresh
 load.
 

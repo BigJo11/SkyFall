@@ -294,6 +294,31 @@
       <div id="dmgNumbers"></div>
     </div>
 
+    <!-- the Core: kills and movement charge it, a full one calls a mech -->
+    <div id="coreMeter">
+      <div class="core-head"><span>CORE</span><span id="corePct">0%</span></div>
+      <div class="core-bar"><div id="coreFill"></div></div>
+      <div id="coreReady" class="hidden">MECH READY · <b>V</b></div>
+    </div>
+
+    <!-- piloting: armour and shield -->
+    <div id="mechHud" class="hidden">
+      <div class="mech-hp"><div id="mechHpFill"></div></div>
+      <div class="mech-shield"><div id="shieldFill"></div></div>
+      <div id="mechHint">PUNCH <b>4</b> · SHIELD <b>G</b></div>
+    </div>
+
+    <!-- core failure: three presses and you are out -->
+    <div id="coreFail" class="hidden">
+      <div class="cf-title">CORE FAILURE</div>
+      <div class="cf-sub">EJECT · <b>V</b></div>
+      <div class="cf-pips"><i></i><i></i><i></i></div>
+      <div class="cf-bar"><div id="coreFailFill"></div></div>
+    </div>
+
+    <!-- the RPG only locks a mech -->
+    <div id="lockBox" class="hidden"><span id="lockText">NO LOCK</span></div>
+
     <div id="killfeed"></div>
     <div id="centerMsg"></div>
 
