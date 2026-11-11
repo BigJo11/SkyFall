@@ -308,6 +308,13 @@ export const MECH = {
   // damage race. The punch is left alone — it already kills in one swing.
   gunDamageMult: 2,
 
+  // Going the other way, an infantry rifle is a nuisance to nine tonnes of
+  // armour: a soldier on foot does a quarter of his ordinary damage to a mech.
+  // The RPG is built for exactly this job, so it is the one weapon left at
+  // full strength. Only shots *at* a mech are scaled — against another person
+  // nothing changes.
+  footDamageMult: 0.25,
+
   // Three hulls. Same height, same guns: what differs is how much they can
   // take and how fast they carry it.
   chassis: [

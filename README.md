@@ -161,6 +161,7 @@ In the cockpit:
 
 * **Five to fifteen times a player's health**, depending on the hull you pick. Everything that hits you hits the armour instead; your body is untouchable while it lasts.
 * **The guns hit twice as hard.** A rifle that does 25 on foot does **50** from a cockpit. Against another mech they do the ordinary number — mech duels are a war of attrition, not a damage race. The punch is left out of the doubling, since it already kills in one swing.
+* **Infantry weapons barely scratch it.** Going the other way, a soldier on foot does a **quarter** of his ordinary damage to a hull: the same rifle that does 25 to a person does **6.25** to a mech. The RPG is the one weapon built for the job, so it is the one gun left at full strength. Shots at other *people* are untouched — 25 is still 25.
 * **The knife is gone** — slot 4 is a **punch**: one-shot on anyone, with a far bigger reach.
 * **An energy shield** on **G**: five seconds from full, four seconds to refill, and it can be raised early for proportionally less time — a half-charged shield gives two and a half seconds. While it is up it absorbs hits whole.
 * **A knife does nothing to a mech.** Neither does a punch. Armour needs the real thing.
@@ -177,6 +178,19 @@ Three hulls. **All the same height and all carrying the same guns** — what dif
 | **BISON** | 1500 | slower | wide, slab-sided, plated over the shoulders and spine |
 
 At 200 a rocket, three drop a Kestrel, five an Elk, and eight a Bison.
+
+What everything does, per shot:
+
+| | to a **player** | to a **mech** |
+| --- | --- | --- |
+| Rifle | 25 | 6.25 |
+| Sniper | 100 | 25 |
+| SMG | 8 | 2 |
+| RPG | will not fire | 200 |
+| Knife / punch | 100 | 0 — immune |
+| Rifle, **from** a cockpit | 50 | 25 |
+| Sniper, **from** a cockpit | 200 | 100 |
+| SMG, **from** a cockpit | 16 | 8 |
 
 ### The machine
 
@@ -197,7 +211,7 @@ is you can tell by the width before you are close enough to read anything else.
 
 ### The RPG
 
-The fifth weapon, always in your loadout, and it exists for exactly this: **it locks onto mechs and cannot be used on players at all.** Aimed at a person it will not fire. Against a mech it does **200**, so five rockets drop a fresh one.
+The fifth weapon, always in your loadout, and it exists for exactly this: **it locks onto mechs and cannot be used on players at all.** Aimed at a person it will not fire. Against a mech it does **200**, so five rockets drop a fresh one — and because infantry guns are scaled down against armour, it is now the only thing a soldier on foot carries that really hurts one.
 
 ### Core failure
 
