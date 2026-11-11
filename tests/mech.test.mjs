@@ -152,11 +152,34 @@ test('the RPG cannot be used on people at all', () => {
   assert.equal(rpg.lockOn, true, 'and it only fires on a lock');
 });
 
-test('ordinary weapons still hurt a mech', () => {
-  assert.equal(mechDamage('rifle'), 25);
-  assert.equal(mechDamage('sniper'), 100);
-  assert.equal(mechDamage('smg'), 8);
+test('ordinary weapons still hurt a mech — a quarter as much, on foot', () => {
+  for (const id of ['rifle', 'sniper', 'smg']) {
+    const w = WEAPONS.find((x) => x.id === id);
+    assert.equal(mechDamage(id), w.damage * MECH.footDamageMult,
+      `${id} does ${w.damage} to a person and a quarter of that to armour`);
+  }
   assert.equal(mechDamage('nonsense'), 0);
+});
+
+test('the RPG is the weapon built for this, so it is left at full strength', () => {
+  assert.equal(mechDamage('rpg'), 200);
+  assert.equal(mechDamage('rpg', { fromMech: true }), 200, 'from a cockpit too');
+  assert.equal(Math.ceil(MECH.maxHealth / mechDamage('rpg')), 5, 'still five rockets to drop one');
+});
+
+test('from a cockpit the guns do their ordinary number to armour', () => {
+  for (const id of ['rifle', 'sniper', 'smg']) {
+    const w = WEAPONS.find((x) => x.id === id);
+    assert.equal(mechDamage(id, { fromMech: true }), w.damage, `${id} hits armour for ${w.damage}`);
+  }
+});
+
+test('scaling shots at a mech leaves shots at a person alone', () => {
+  for (const id of ['rifle', 'sniper', 'smg']) {
+    const w = WEAPONS.find((x) => x.id === id);
+    assert.equal(damageFrom(id, { fromMech: false }), w.damage, `${id} on foot vs a person`);
+    assert.equal(damageFrom(id, { fromMech: true }), w.damage * MECH.gunDamageMult, `${id} from a cockpit vs a person`);
+  }
 });
 
 // ------------------------------------------------------------- core failure
@@ -425,6 +448,18 @@ test('the same guns do the ordinary damage to another mech', () => {
   const dealt = before - theirs.hp;
   assert.equal(dealt, WEAPONS.find((w) => w.id === 'rifle').damage, 'not doubled against armour');
   assert.ok(mine.hp === mine.maxHp, 'and nothing bounced back');
+});
+
+test('a soldier on foot barely scratches a mech — a quarter, live', () => {
+  for (const [id, want] of [['rifle', 25], ['sniper', 100], ['smg', 8]]) {
+    const { game, a, b } = makeGame();
+    const theirs = deployNow(game, b);
+    const before = theirs.hp;
+    shootAt(game, a, b, id);
+    const dealt = before - theirs.hp;
+    assert.equal(dealt, want * MECH.footDamageMult,
+      `${id} does ${dealt} to armour instead of ${want}`);
+  }
 });
 
 test('the punch is left out of the doubling — it already kills', () => {

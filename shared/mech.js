@@ -64,7 +64,7 @@ export function chassisSpeed(id) {
 // there too. The punch is a melee swing that already kills in one hit, so it
 // is left out of the doubling rather than given a pointless second hundred.
 export function damageFrom(weaponId, { fromMech = false, vsMech = false } = {}) {
-  if (vsMech) return mechDamage(weaponId);
+  if (vsMech) return mechDamage(weaponId, { fromMech });
   if (!canDamagePlayer(weaponId)) return 0;
   const w = weaponById(weaponId);
   if (!w || w.melee) return w ? w.damage : 0;
@@ -114,9 +114,16 @@ export function canDamageMech(weaponId) {
 }
 
 // The mech has no head to crit.
-export function mechDamage(weaponId) {
+//
+// A weapon that cannot be used on a person at all is by definition the one
+// built for armour, so the RPG keeps its full 200. Everything else a soldier
+// carries is a quarter against a hull: from a cockpit the guns hit for their
+// ordinary number, on foot they barely scratch it.
+export function mechDamage(weaponId, { fromMech = false } = {}) {
   if (!canDamageMech(weaponId)) return 0;
-  return weaponById(weaponId).damage;
+  const w = weaponById(weaponId);
+  if (fromMech || w.antiPersonnel === false) return w.damage;
+  return w.damage * MECH.footDamageMult;
 }
 
 // The RPG is built for this and nothing else: it will not acquire a person.
