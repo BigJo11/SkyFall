@@ -5,3 +5,6 @@ tmp/
 .uitest/
 data/
 .uitest-probe/
+
+# generated, for eyeballing a model without a browser
+mech-silhouette.txt
