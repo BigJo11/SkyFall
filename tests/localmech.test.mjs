@@ -308,6 +308,42 @@ test('three presses punch you out and the mech goes up', () => {
   assert.equal(ctx.state.hp, PLAYER.maxHealth, 'and alive');
 });
 
+test('V gets you out of a healthy mech, and it goes up', () => {
+  const ctx = makeCtx();
+  const p = new PracticeMode(ctx);
+  p.start();
+  ctx.state.core = CORE.max;
+  p.onMechCommand('deploy');
+  run(p, ctx, Math.ceil(MECH.dropTimeMs / 16) + 4);
+  assert.equal(p.mechSim.state, 'active', 'a perfectly healthy mech');
+  assert.equal(ctx.state.mech.hp, ctx.state.mech.maxHp);
+
+  // park a dummy right on top of it, so the blast has something to prove
+  p.dummies[0].pos = [ctx.body.x + 1, 0, ctx.body.z];
+
+  p.onMechCommand('eject');
+  p.onMechCommand('eject');
+  assert.equal(p.mechSim.state, 'active', 'still aboard after two');
+  p.onMechCommand('eject');
+
+  assert.equal(ctx.state.mech, null, 'out on the third');
+  assert.equal(p.dummies[0].alive, false, 'and it blew up on the way out');
+  assert.equal(ctx.state.hp, PLAYER.maxHealth, 'the pilot is alive');
+});
+
+test("ejecting leaves the pilot where the mech's feet were", () => {
+  const ctx = makeCtx();
+  const p = new PracticeMode(ctx);
+  p.start();
+  ctx.state.core = CORE.max;
+  p.onMechCommand('deploy');
+  run(p, ctx, Math.ceil(MECH.dropTimeMs / 16) + 4);
+  const before = ctx.body.y;
+  for (let i = 0; i < 3; i++) p.onMechCommand('eject');
+  assert.ok(Math.abs(ctx.body.y - before) < 0.001, 'not thrown upward');
+  assert.ok(ctx.body.y + PLAYER.height < MECH.eyeHeight, 'under the cockpit');
+});
+
 test('missing the window takes the pilot with it', () => {
   const ctx = makeCtx();
   const p = new PracticeMode(ctx);

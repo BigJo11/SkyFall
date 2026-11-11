@@ -46,7 +46,7 @@ const { buildWorld } = await import('../public/js/world.js');
 const { Effects } = await import('../public/js/effects.js');
 const { ViewModel } = await import('../public/js/viewmodel.js');
 const { Avatar, Avatars } = await import('../public/js/avatars.js');
-const { MechView } = await import('../public/js/mechs.js');
+const { MechView, MechPreview } = await import('../public/js/mechs.js');
 const { nameTexture, softCircleTexture, cloudTexture, carbonTexture, scanlineTexture } = await import('../public/js/textures.js');
 const { WEAPONS, PLAYER, COSMETIC, MECH } = await import('../shared/constants.js');
 const ARENA = (await import('../shared/map.js')).default;
@@ -406,6 +406,114 @@ test('disposing a mech leaves nothing behind', () => {
   assert.equal(mechScene.children.length, before - 1, 'removed from the scene');
   assert.equal(v.materials.length, 0, 'every material released');
   assert.equal(v.geometries.length, 0, 'every geometry released');
+});
+
+// ---------------------------------------------------------- the mech preview
+// The title screen panel draws the real MechView on its own little canvas, so
+// nothing about it can drift from the game. These check the things you would
+// otherwise only catch by opening the menu: that the whole machine is in shot,
+// that it turns, and that changing the paint rebuilds it.
+
+const PANEL = { clientWidth: 108, clientHeight: 148 };
+const previewRenderer = {
+  frames: 0,
+  shadowMap: {},
+  setPixelRatio() {},
+  setClearColor() {},
+  setSize(w, h) { this.w = w; this.h = h; },
+  render() { this.frames++; },
+  dispose() {},
+};
+
+function buildPreview(look) {
+  const p = new MechPreview(PANEL, previewRenderer);
+  p.set(look);
+  p.resize();
+  return p;
+}
+const someLook = (over = {}) => ({
+  primary: 0xbfae95, secondary: 0x4a4438, material: 'matte', chassis: 'medium', ...over,
+});
+
+test('the preview builds every chassis in every finish', () => {
+  for (const c of MECH.chassis) {
+    for (const m of ['matte', 'metal', 'carbon', 'neon', 'scanline']) {
+      const v = buildPreview(someLook({ chassis: c.id, material: m }));
+      assert.ok(v.ok, `${c.name} in ${m} stood up`);
+      assert.ok(v.view, 'and there is a machine on it');
+      v.dispose();
+    }
+  }
+});
+
+test('the whole machine is in shot, whichever hull it is', () => {
+  const v = buildPreview(someLook());
+  for (const c of MECH.chassis) {
+    v.set(someLook({ chassis: c.id }));
+    v.resize();
+    v.update(0.016);
+    v.camera.updateMatrixWorld(true);
+    // every corner of the hull has to land inside the frame
+    const box = new THREE.Box3();
+    const p = new THREE.Vector3();
+    v.view.root.traverse((o) => {
+      if (!o.isMesh || o === v.view.bubble) return;
+      o.updateWorldMatrix(true, false);
+      o.getWorldPosition(p);
+      const half = new THREE.Vector3(o.scale.x / 2, o.scale.y / 2, o.scale.z / 2);
+      box.expandByPoint(p.clone().sub(half));
+      box.expandByPoint(p.clone().add(half));
+    });
+    let worst = 0;
+    for (const x of [box.min.x, box.max.x]) {
+      for (const y of [box.min.y, box.max.y]) {
+        for (const z of [box.min.z, box.max.z]) {
+          const ndc = new THREE.Vector3(x, y, z).project(v.camera);
+          worst = Math.max(worst, Math.abs(ndc.x), Math.abs(ndc.y));
+        }
+      }
+    }
+    assert.ok(worst <= 1, `${c.name} fits in frame (worst corner at ${worst.toFixed(2)} of 1)`);
+    assert.ok(worst > 0.35, `and fills it, rather than sitting in the middle doing nothing (${worst.toFixed(2)})`);
+  }
+  v.dispose();
+});
+
+test('it turns, and it redraws', () => {
+  const v = buildPreview(someLook());
+  previewRenderer.frames = 0;
+  const first = v.camera.position.clone();
+  v.update(0.5);
+  v.update(0.5);
+  assert.equal(previewRenderer.frames, 2, 'drew both frames');
+  assert.ok(v.camera.position.distanceTo(first) > 0.5, 'and the camera orbited');
+  v.dispose();
+});
+
+test('changing the paint or the hull rebuilds it; leaving it alone does not', () => {
+  const v = buildPreview(someLook());
+  const first = v.view;
+  v.set(someLook());
+  assert.equal(v.view, first, 'the same look is not rebuilt');
+
+  v.set(someLook({ chassis: 'heavy' }));
+  assert.notEqual(v.view, first, 'a different hull is');
+  const heavy = v.view;
+  assert.equal(heavy.chassis, 'heavy', 'and it built the right one');
+
+  v.set(someLook({ chassis: 'heavy', primary: 0xff0000 }));
+  assert.notEqual(v.view, heavy, 'so is a different colour');
+  assert.equal(v.view.color, 0xff0000, 'and it is painted the new one');
+  v.dispose();
+});
+
+test('disposing the preview leaves nothing behind', () => {
+  const v = buildPreview(someLook());
+  const view = v.view;
+  v.dispose();
+  assert.equal(v.view, null, 'no machine');
+  assert.equal(view.materials.length, 0, 'every material released');
+  assert.equal(view.geometries.length, 0, 'every geometry released');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

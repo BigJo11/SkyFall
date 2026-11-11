@@ -292,6 +292,13 @@ export const MECH = {
   // Core failure: the pilot has five seconds to punch out.
   coreFailure: { durationMs: 5000, presses: 3 },
 
+  // V gets you out from under the machine any time you are aboard, not only
+  // once it is dying — same three presses, same explosion. Presses have to
+  // come close enough together to count as one attempt, so a stray tap does
+  // not leave a third of an ejection sitting on the HUD for the rest of the
+  // life of the mech.
+  ejectPressWindowMs: 2500,
+
   // ...and then it goes up, killing anything right on top of it.
   explosion: { radius: 8, damage: 1000 },
 

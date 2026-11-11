@@ -213,11 +213,21 @@ is you can tell by the width before you are close enough to read anything else.
 
 The fifth weapon, always in your loadout, and it exists for exactly this: **it locks onto mechs and cannot be used on players at all.** Aimed at a person it will not fire. Against a mech it does **200**, so five rockets drop a fresh one — and because infantry guns are scaled down against armour, it is now the only thing a soldier on foot carries that really hurts one.
 
+**It will not fire without a lock**, and a lock is a live mech, inside 220 m, inside a 22° cone of where you are pointing. No lock, a mech that is still dropping or already dying, one that is too far away, or one that is simply not in front of you: the tube stays cold and the rocket stays in it. The server decides this, not your client — firing without a lock gets you nothing back.
+
 ### Core failure
 
-A mech at 0 HP does not simply vanish — it enters **core failure** for five seconds, and the pilot has to press **V three times** to eject. Get all three in and you are thrown clear and live. Miss the window and you go up with it.
+### Getting out
 
-Either way it ends the same way: the mech detonates. Anything within a couple of tiles is killed outright; further back than that, you walk away.
+**V gets you out any time you are aboard**, not only once it is dying. Three presses and you drop out from underneath the machine — the pilot rides at the mech's feet, so ejecting leaves you below the hull — and it detonates above you. Nothing to be thrown through.
+
+Presses have to come close enough together to count as one attempt, so a stray tap does not leave a third of an ejection sitting on your HUD for the rest of the mech's life.
+
+### Core failure
+
+A mech at 0 HP does not simply vanish — it enters **core failure** for five seconds, and the same three presses get you out, only now against the clock. Miss the window and you go up with it.
+
+Either way it ends the same way: the mech detonates. Anything within a couple of tiles is killed outright; further back than that, you walk away. The pilot who ejected is never caught by their own blast.
 
 **Mechs are big-map only.** PINE HOLLOW has no room for one, and the Core cannot be spent there.
 
@@ -370,6 +380,11 @@ The **YOUR MECH** panel underneath picks the machine you drop in: a **chassis**
 (see above), a **hull** colour, a **trim** colour and a **finish**, from the same
 palette and the same five finishes. It is saved locally and sent with the join, so
 what you painted is what everyone else sees coming over the ridge.
+
+The panel shows **the real machine**, not a picture of one: the same model the
+game draws, turning slowly on its own canvas, in the chassis and paint you have
+picked. Change the hull or the colour and it rebuilds in front of you, so you
+can see exactly what you are about to call down before you spend a Core on it.
 
 A mech nobody has painted flies its pilot's own colour, so two of them on the
 field are still tellable apart. Crew-only finishes are crew-only here too, and

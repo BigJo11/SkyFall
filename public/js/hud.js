@@ -62,6 +62,8 @@ export class Hud {
       coreFail: $('coreFail'),
       coreFailPips: document.querySelectorAll('#coreFail .cf-pips i'),
       coreFailFill: $('coreFailFill'),
+      coreFailBar: $('coreFailBar'),
+      coreFailTitle: $('coreFailTitle'),
       lockBox: $('lockBox'),
       lockText: $('lockText'),
     };
@@ -374,8 +376,9 @@ export class Hud {
     this.el.mechHud.classList.toggle('shield-up', !!up);
   }
 
-  // Core failure: three presses, a countdown, then it goes up. `info` of null
-  // hides the whole prompt.
+  // Three presses and you are out. During a core failure there is a countdown
+  // racing you; punching out of a healthy mech has no clock, so the bar is
+  // dropped and only the pips show. `info` of null hides the whole prompt.
   showCoreFailure(info) {
     if (!info) {
       this.el.coreFail.classList.add('hidden');
@@ -384,10 +387,11 @@ export class Hud {
     this.el.coreFail.classList.remove('hidden');
     const pips = this.el.coreFailPips;
     for (let i = 0; i < pips.length; i++) pips[i].classList.toggle('on', i < info.presses);
-    const left = info.durationMs > 0
-      ? Math.max(0, Math.min(1, info.msLeft / info.durationMs))
-      : 0;
+    const timed = info.durationMs > 0;
+    const left = timed ? Math.max(0, Math.min(1, info.msLeft / info.durationMs)) : 0;
     this.el.coreFailFill.style.width = (left * 100).toFixed(1) + '%';
+    this.el.coreFailBar.style.display = timed ? '' : 'none';
+    this.el.coreFailTitle.textContent = info.label || 'CORE FAILURE';
   }
 
   // The RPG locks a mech and nothing else.
