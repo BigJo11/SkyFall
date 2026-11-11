@@ -368,6 +368,7 @@ export class Game {
       shield: { charge: 1, time: 0 },
       coreFailureEnd: 0,
       ejectPresses: 0,
+      ejectPressAt: 0,
     };
     this.mechs.set(m.id, m);
     p.mechId = m.id;
@@ -388,17 +389,29 @@ export class Game {
     this.broadcast({ t: 'mechShield', id: m.id, time: round2(raised.time) });
   }
 
+  // V works the whole time you are aboard, not just once the mech is dying:
+  // three presses and you drop out from under it, and it goes up. During a
+  // core failure it is the same three presses, only now against the clock.
   onEject(p) {
     const m = p.mechId ? this.mechs.get(p.mechId) : null;
-    if (!m || m.state !== 'core-failure') return;
+    if (!m || (m.state !== 'active' && m.state !== 'core-failure')) return;
+
+    // presses have to come close together to count as one attempt
+    const t = now();
+    if (t - (m.ejectPressAt || 0) > MECH.ejectPressWindowMs) m.ejectPresses = 0;
+    m.ejectPressAt = t;
     m.ejectPresses += 1;
+
     if (!hasEjected(m.ejectPresses)) {
       this.send(p, { t: 'mechEject', id: m.id, presses: m.ejectPresses });
       return;
     }
-    // out, and thrown clear before it goes
+    // Out through the bottom. The pilot rides at the mech's feet, so they are
+    // already underneath the hull and simply drop clear as it detonates above
+    // them — no being thrown up through the blast.
+    // (the pilot's own position is wherever the mech's feet were, which is
+    // already underneath it — nothing to move)
     this.exitMech(p);
-    p.pos[1] += 6;
     this.send(p, { t: 'mechEject', id: m.id, presses: m.ejectPresses, out: true });
     this.explodeMech(m, p.id);
   }

@@ -65,6 +65,7 @@ export class LocalMech {
       shield: { charge: m.shield.charge, time: m.shield.time },
       coreFailureEnd: m.coreFailureEnd ? Math.max(0, m.coreFailureEnd - m.now) : 0,
       ejectPresses: m.ejectPresses,
+      ejectPressAt: m.ejectPressAt || 0,
     };
   }
 
@@ -93,6 +94,7 @@ export class LocalMech {
       shield: { charge: 1, time: 0 },
       coreFailureEnd: 0,
       ejectPresses: 0,
+      ejectPressAt: 0,
     };
     return this.snapshot();
   }
@@ -167,11 +169,15 @@ export class LocalMech {
 
   // ------------------------------------------------------------------ eject
 
-  // Three presses and the pilot is thrown clear. Fewer than that and the
-  // counter just climbs.
+  // Three presses and the pilot drops out from under it — any time they are
+  // aboard, not only once it is dying. Presses have to come close enough
+  // together to count as one attempt.
   pressEject() {
     const m = this.mech;
-    if (!m || m.state !== 'core-failure') return { presses: 0, out: false };
+    if (!m || (m.state !== 'active' && m.state !== 'core-failure')) return { presses: 0, out: false };
+    const t = m.now || 0;
+    if (t - (m.ejectPressAt || 0) > MECH.ejectPressWindowMs) m.ejectPresses = 0;
+    m.ejectPressAt = t;
     m.ejectPresses += 1;
     return { presses: m.ejectPresses, out: hasEjected(m.ejectPresses) };
   }
@@ -187,6 +193,7 @@ export class LocalMech {
     m.state = 'core-failure';
     m.coreFailureEnd = m.now + MECH.coreFailure.durationMs;
     m.ejectPresses = 0;
+    m.ejectPressAt = 0;
     return true;
   }
 

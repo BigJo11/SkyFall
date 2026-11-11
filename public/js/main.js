@@ -15,7 +15,7 @@ import { PracticeMode, Tutorial, PRACTICE_SPAWN } from './practice.js';
 import { renderEntry, renderTabs, DEFAULT_ENTRY, LATEST_VERSION } from './updates.js';
 import { ACTIONS, DEFAULT_BINDS, keyLabel, assign, normalise, reserved, ownerOf } from './keybinds.js';
 import { MAP_LIST, DEFAULT_MAP, mapById } from '../../shared/map.js';
-import { Mechs } from './mechs.js';
+import { Mechs, MechPreview } from './mechs.js';
 import { lockAcquired, shieldFraction, ejectionProgress, chassisSpeed } from '../../shared/mech.js';
 import { Minimap } from './minimap.js';
 
@@ -87,6 +87,9 @@ const minimap = new Minimap($('minimap'));
 minimap.setMap(world.mapId);
 const avatars = new Avatars(scene);
 const mechs = new Mechs(scene);
+// The title screen's turntable: the real mech model on its own little canvas.
+// Built once the panel exists; null until then.
+let mechPreview = null;
 const viewmodel = new ViewModel(renderer);
 const effects = new Effects(scene);
 
@@ -183,7 +186,7 @@ let session = null;
 // Build stamp: makes it obvious which version the browser actually loaded, and
 // catches the classic "new page, old cached scripts" situation where every
 // button appears dead.
-const BUILD = 'forest v25';
+const BUILD = 'forest v26';
 
 function detectStaleBuild() {
   try {
@@ -484,13 +487,15 @@ function syncMechHud() {
     hud.setShield(shieldFraction(sh), (sh.time || 0) > 0);
   }
 
-  // core failure: the countdown to get out
-  if (m && m.state === 'core-failure') {
-    const dur = state.coreFailDur || MECH.coreFailure.durationMs;
+  // ejecting: three presses, whether the mech is dying or you are simply
+  // punching out of a healthy one. Only the dying case is against the clock.
+  const dying = m && m.state === 'core-failure';
+  if (m && (dying || (m.ejectPresses || 0) > 0)) {
     hud.showCoreFailure({
       presses: m.ejectPresses || 0,
-      msLeft: Math.max(0, (state.coreFailEndsAt || 0) - performance.now()),
-      durationMs: dur,
+      msLeft: dying ? Math.max(0, (state.coreFailEndsAt || 0) - performance.now()) : 0,
+      durationMs: dying ? (state.coreFailDur || MECH.coreFailure.durationMs) : 0,
+      label: dying ? null : 'EJECT',
     });
     hud.showLock(false);
     return;
@@ -601,17 +606,18 @@ function handleGameplayInput(now, dt) {
   }
   if (input.actionPressed('reload')) startReload();
 
-  // The mech key does three jobs: call one down, and once it is dying, punch
-  // out of it. Three presses gets you clear. Offline the range answers instead
-  // of the server — same key, same rules.
+  // The mech key does two jobs: call one down when you are on foot, and punch
+  // out from under it when you are aboard. Punching out is three presses and
+  // works the whole time you are in it, not only once it is dying — the mech
+  // goes up either way. Offline the range answers instead of the server —
+  // same key, same rules.
   if (input.actionPressed('deploy')) {
-    const ejecting = state.mech && state.mech.state === 'core-failure';
-    if (session) {
-      if (ejecting) session.onMechCommand?.('eject');
-      else if (!state.mech) session.onMechCommand?.('deploy');
-    } else if (ejecting) {
-      net.send({ t: 'eject' });
-    } else if (!state.mech) {
+    if (state.mech) {
+      if (session) session.onMechCommand?.('eject');
+      else net.send({ t: 'eject' });
+    } else if (session) {
+      session.onMechCommand?.('deploy');
+    } else {
       net.send({ t: 'deploy' });
     }
   }
@@ -1381,6 +1387,9 @@ function renderMechCosmetic() {
     preview.style.setProperty('--cos-secondary', hex(secondary));
     preview.dataset.material = material;
   }
+  mechPreview?.set(state.mechCosmetic);
+  const fallback = $('mechFigFallback');
+  if (fallback) fallback.hidden = mechPreview ? !!mechPreview.ok : false;
   for (const [listId, key] of [['mechPrimarySwatches', 'primary'], ['mechSecondarySwatches', 'secondary']]) {
     const list = $(listId);
     if (!list) continue;
@@ -1417,6 +1426,16 @@ function renderMechCosmetic() {
 }
 
 function buildMechCosmeticUI() {
+  // Stand the turntable up first, so the first paint has somewhere to land.
+  if (!mechPreview) {
+    const canvas = $('mechFigCanvas');
+    if (canvas) {
+      mechPreview = new MechPreview(canvas);
+      mechPreview.set(state.mechCosmetic);
+      mechPreview.resize();
+    }
+  }
+
   for (const [listId, key] of [['mechPrimarySwatches', 'primary'], ['mechSecondarySwatches', 'secondary']]) {
     const list = $(listId);
     if (!list || list.children.length) continue;
@@ -2036,6 +2055,7 @@ function frame(now) {
   if (state.phase === 'title' || state.phase === 'loading') {
     // idle camera orbit over the arena for the title backdrop
     const t = now / 1000;
+    mechPreview?.update(dt);
     camera.position.set(Math.cos(t * 0.12) * 46, 16 + Math.sin(t * 0.2) * 3, Math.sin(t * 0.12) * 46);
     camera.lookAt(0, 2, 0);
     world.update(dt, camera.position);

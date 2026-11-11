@@ -240,14 +240,16 @@ export class PracticeMode {
       return;
     }
     if (kind === 'eject') {
-      if (this.mechSim.state !== 'core-failure') return;
+      // V works the whole time you are aboard, not only once it is dying
+      if (!this.mechSim.piloting) return;
       const r = this.mechSim.pressEject();
       if (!r.out) {
         sfx.objective?.();
+        hud.toast?.(`EJECT ${r.presses}/${MECH.coreFailure.presses}`, 900);
         this.onEvent('ejectPress');
         return;
       }
-      // out, and thrown clear before it goes
+      // out through the bottom, and it goes up above you
       hud.centerMessage('EJECTED', 1400);
       hud.flash?.(0.6);
       this.onEvent('ejected');

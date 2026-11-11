@@ -215,6 +215,79 @@ test('the lock acquires a mech and nothing else', () => {
 
 // --------------------------------------------------------------- the server
 
+// Aim the RPG at `at` (a world point) and report what the server made of it.
+function fireRpg(game, shooter, { lock = 0, at }) {
+  shooter.weapon = WEAPONS.findIndex((w) => w.id === 'rpg');
+  shooter.lastShot = WEAPONS.map(() => 0);
+  shooter.ammo = WEAPONS.map((w) => (Number.isFinite(w.magSize) ? w.magSize : -1));
+  const eye = shooter.pos[1] + PLAYER.eye;
+  const d = [at[0] - shooter.pos[0], at[1] - eye, at[2] - shooter.pos[2]];
+  const L = Math.hypot(...d);
+  game.onFire(shooter, { dir: [d[0] / L, d[1] / L, d[2] / L], lock });
+}
+
+test('the RPG will not fire without a lock', () => {
+  const { game, a, b, sa } = makeGame();
+  const m = deployNow(game, b);
+  m.pos = [a.pos[0], a.pos[1], a.pos[2] - 10];
+  const centre = [m.pos[0], m.pos[1] + MECH.height / 2, m.pos[2]];
+
+  sa.sent.length = 0;
+  fireRpg(game, a, { lock: 0, at: centre });
+  assert.ok(sa.sent.some((x) => x.t === 'nolock'), `no lock, no shot (${sa.sent.map((x) => x.t)})`);
+  assert.equal(m.hp, m.maxHp, 'and the mech is untouched');
+  assert.equal(a.ammo[WEAPONS.findIndex((w) => w.id === 'rpg')], 1, 'the rocket is still in the tube');
+});
+
+test('a lock on anything that is not a live mech is no lock at all', () => {
+  for (const state of ['dropping', 'core-failure']) {
+    const { game, a, b, sa } = makeGame();
+    const m = deployNow(game, b);
+    m.pos = [a.pos[0], a.pos[1], a.pos[2] - 10];
+    m.state = state;
+    sa.sent.length = 0;
+    fireRpg(game, a, { lock: m.id, at: [m.pos[0], m.pos[1] + MECH.height / 2, m.pos[2]] });
+    assert.ok(sa.sent.some((x) => x.t === 'nolock'), `a ${state} mech is not a target`);
+  }
+  // and a lock on an id nothing owns
+  const { game, a, b, sa } = makeGame();
+  const m = deployNow(game, b);
+  m.pos = [a.pos[0], a.pos[1], a.pos[2] - 10];
+  sa.sent.length = 0;
+  fireRpg(game, a, { lock: 9999, at: [m.pos[0], m.pos[1] + MECH.height / 2, m.pos[2]] });
+  assert.ok(sa.sent.some((x) => x.t === 'nolock'), 'a bogus id is not a target');
+});
+
+test('a lock only counts inside the cone and inside the range', () => {
+  const { game, a, b, sa } = makeGame();
+  const m = deployNow(game, b);
+  m.pos = [a.pos[0], a.pos[1], a.pos[2] - 10];
+
+  // pointed clean away from it
+  sa.sent.length = 0;
+  fireRpg(game, a, { lock: m.id, at: [a.pos[0] - 200, a.pos[1], a.pos[2]] });
+  assert.ok(sa.sent.some((x) => x.t === 'nolock'), 'looking the wrong way');
+
+  // a mech beyond the lock range
+  const { game: g2, a: a2, b: b2, sa: sa2 } = makeGame();
+  const m2 = deployNow(g2, b2);
+  m2.pos = [a2.pos[0] + MECH.lockRange + 60, a2.pos[1], a2.pos[2]];
+  sa2.sent.length = 0;
+  fireRpg(g2, a2, { lock: m2.id, at: [m2.pos[0], m2.pos[1] + MECH.height / 2, m2.pos[2]] });
+  assert.ok(sa2.sent.some((x) => x.t === 'nolock'), 'too far away to lock');
+});
+
+test('with a lock, the RPG fires and does its 200', () => {
+  // left where makeGame put it: the one stretch of this map with a clear line
+  const { game, a, b, sa } = makeGame();
+  const m = deployNow(game, b);
+  m.hp = 1e6; m.maxHp = 1e6;                 // room, so nothing clips at zero
+  sa.sent.length = 0;
+  fireRpg(game, a, { lock: m.id, at: [m.pos[0], m.pos[1] + MECH.height / 2, m.pos[2]] });
+  assert.ok(!sa.sent.some((x) => x.t === 'nolock'), 'it fired');
+  assert.equal(1e6 - m.hp, 200, 'and did its 200');
+});
+
 test('a mech needs a full Core, and spending it empties the Core', () => {
   const { game, a } = makeGame();
   a.core = CORE.max - 1;
@@ -324,6 +397,59 @@ test('three presses gets the pilot out alive', () => {
   assert.equal(a.alive, true, 'out, and alive');
   assert.equal(a.mechId, 0);
   assert.equal(game.mechs.size, 0, 'the mech is gone');
+});
+
+test('V works the whole time you are aboard, not just while it is dying', () => {
+  const { game, a } = makeGame();
+  const m = deployNow(game, a);
+  assert.equal(m.state, 'active', 'a perfectly healthy mech');
+  assert.equal(m.hp, m.maxHp);
+
+  game.onEject(a);
+  game.onEject(a);
+  assert.equal(m.ejectPresses, 2);
+  assert.equal(a.mechId, m.id, 'still aboard after two');
+
+  game.onEject(a);
+  assert.equal(a.mechId, 0, 'out on the third');
+  assert.equal(game.mechs.size, 0, 'and the mech is gone');
+  assert.equal(a.alive, true, 'and alive');
+});
+
+test('punching out of a healthy mech blows it up', () => {
+  const { game, a, b } = makeGame();
+  const m = deployNow(game, a);
+  // b is standing right next to it
+  b.pos = [m.pos[0] + 2, m.pos[1], m.pos[2]];
+  for (let i = 0; i < 3; i++) game.onEject(a);
+  assert.equal(b.alive, false, 'caught in the blast');
+  assert.equal(a.alive, true, 'the pilot got out');
+});
+
+test('you drop out from under it, not up through the blast', () => {
+  const { game, a } = makeGame();
+  const m = deployNow(game, a);
+  const feetBefore = a.pos[1];
+  const mechFeet = m.pos[1];
+  for (let i = 0; i < 3; i++) game.onEject(a);
+  assert.equal(a.pos[1], feetBefore, 'the pilot is not thrown upward');
+  // the mech's feet were at the pilot's feet, so they end up underneath where
+  // the hull was rather than inside it
+  assert.ok(Math.abs(a.pos[1] - mechFeet) < 0.001, 'left where the feet were');
+  assert.ok(a.pos[1] + PLAYER.height < MECH.eyeHeight, 'well below the cockpit');
+});
+
+test('presses have to come close together to count as one attempt', () => {
+  const { game, a } = makeGame();
+  const m = deployNow(game, a);
+  game.onEject(a);
+  game.onEject(a);
+  assert.equal(m.ejectPresses, 2);
+  // wander off for a while, then press again: it starts over
+  m.ejectPressAt = Date.now() - MECH.ejectPressWindowMs - 1;
+  game.onEject(a);
+  assert.equal(m.ejectPresses, 1, 'back to the first press');
+  assert.equal(a.mechId, m.id, 'and still aboard');
 });
 
 test('the explosion kills anyone on top of it and spares everyone else', () => {

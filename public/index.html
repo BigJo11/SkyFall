@@ -171,16 +171,9 @@
           </div>
           <div class="cos-body">
             <div class="cos-preview mech-preview" id="mechPreview" aria-hidden="true">
-              <div class="mechfig">
-                <div class="mechfig-leg l"></div>
-                <div class="mechfig-leg r"></div>
-                <div class="mechfig-torso"></div>
-                <div class="mechfig-stripe"></div>
-                <div class="mechfig-arm l"></div>
-                <div class="mechfig-cannon"></div>
-                <div class="mechfig-head"></div>
-                <div class="mechfig-eye"></div>
-              </div>
+              <!-- the real machine, turned slowly, painted as you have it -->
+              <canvas class="mechfig" id="mechFigCanvas"></canvas>
+              <div class="mechfig-fallback" id="mechFigFallback" hidden></div>
             </div>
             <div class="cos-controls">
               <div class="cos-row">
@@ -350,10 +343,10 @@
 
     <!-- core failure: three presses and you are out -->
     <div id="coreFail" class="hidden">
-      <div class="cf-title">CORE FAILURE</div>
+      <div class="cf-title" id="coreFailTitle">CORE FAILURE</div>
       <div class="cf-sub">EJECT · <b>V</b></div>
       <div class="cf-pips"><i></i><i></i><i></i></div>
-      <div class="cf-bar"><div id="coreFailFill"></div></div>
+      <div class="cf-bar" id="coreFailBar"><div id="coreFailFill"></div></div>
     </div>
 
     <!-- the RPG only locks a mech -->

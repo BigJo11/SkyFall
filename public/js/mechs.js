@@ -420,3 +420,141 @@ export class Mechs {
     this.map.clear();
   }
 }
+
+// ------------------------------------------------------------------ turntable
+// The title screen shows the machine you are about to call down, painted the
+// way you painted it. It is the same MechView the game draws on its own little
+// canvas, so the preview cannot drift away from the real thing — rebuild the
+// model and the panel is already showing the new one.
+export class MechPreview {
+  // `renderer` is a seam for tests: the real thing needs a WebGL context, so
+  // the renderer tests hand in their own and check what gets drawn.
+  constructor(canvas, renderer = null) {
+    this.canvas = canvas || null;
+    this.view = null;
+    this.look = null;
+    this.spin = -0.7;
+    this.t = 0;
+    this.dist = 24;
+    this.target = new THREE.Vector3(0, MECH.height * 0.5, 0);
+    this.ok = false;
+    if (!canvas && !renderer) return;
+
+    if (renderer) {
+      this.renderer = renderer;
+    } else {
+      try {
+        this.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+      } catch {
+        return;                     // no WebGL here: the panel simply stays empty
+      }
+    }
+    this.renderer.setPixelRatio(Math.min(2, globalThis.devicePixelRatio || 1));
+    // transparent, so the panel's own backdrop shows through behind the mech
+    this.renderer.setClearColor(0x000000, 0);
+
+    this.scene = new THREE.Scene();
+    this.camera = new THREE.PerspectiveCamera(30, 0.73, 0.5, 400);
+
+    // The hull finishes are Lambert and Phong, so they need light to read at
+    // all — a warm key from the front-left and a cool rim from behind.
+    this.scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x2c2a24, 0.9));
+    const key = new THREE.DirectionalLight(0xfff2dd, 1.45);
+    key.position.set(-6, 12, 9);
+    this.scene.add(key);
+    const rim = new THREE.DirectionalLight(0x8fb6ff, 0.55);
+    rim.position.set(8, 4, -10);
+    this.scene.add(rim);
+    this.ok = true;
+  }
+
+  // Rebuilds only when something that changes the model itself changes.
+  set(look) {
+    if (!this.ok || !look) return;
+    const key = `${look.chassis}|${look.primary}|${look.secondary}|${look.material}`;
+    if (key === this.look) return;
+    this.look = key;
+    if (this.view) { this.view.dispose(this.scene); this.view = null; }
+    this.view = new MechView(this.scene, {
+      id: -1,
+      ownerId: -1,
+      pos: [0, 0, 0],
+      yaw: 0,
+      hp: MECH.maxHealth,
+      maxHp: MECH.maxHealth,
+      state: 'active',
+      chassis: look.chassis,
+      color: look.primary,
+      trim: look.secondary,
+      material: look.material,
+      shield: { charge: 1, time: 0 },
+    });
+    this.frame();
+  }
+
+  // Pull back far enough to fit whichever hull this is: they are all the same
+  // height but the Bison is nearly twice the Kestrel's width.
+  frame() {
+    const box = new THREE.Box3();
+    const p = new THREE.Vector3();
+    const half = new THREE.Vector3();
+    this.view.root.traverse((o) => {
+      if (!o.isMesh || o === this.view.bubble) return;
+      o.updateWorldMatrix(true, false);
+      o.getWorldPosition(p);
+      half.set(o.scale.x / 2, o.scale.y / 2, o.scale.z / 2);
+      box.expandByPoint(p.clone().sub(half));
+      box.expandByPoint(p.clone().add(half));
+    });
+    if (box.isEmpty()) return;
+    const size = box.getSize(new THREE.Vector3());
+    this.target.copy(box.getCenter(new THREE.Vector3()));
+
+    const vHalf = (this.camera.fov * Math.PI) / 360;
+    const aspect = Math.max(0.2, this.camera.aspect || 0.73);
+    const hHalf = Math.atan(Math.tan(vHalf) * aspect);
+    const forHeight = (size.y / 2) / Math.sin(vHalf);
+    const forWidth = (Math.max(size.x, size.z) / 2) / Math.sin(Math.max(0.08, hHalf));
+    this.dist = Math.max(forHeight, forWidth) * 1.1 + 1.5;
+  }
+
+  resize() {
+    if (!this.ok || !this.canvas) return;
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    if (!w || !h) return;
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    if (this.view) this.frame();
+  }
+
+  update(dt) {
+    if (!this.ok || !this.view || !this.canvas) return;
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    if (!w || !h) return;                     // the panel is not on screen
+    if (this.lastW !== w || this.lastH !== h) {
+      this.lastW = w;
+      this.lastH = h;
+      this.resize();
+    }
+    this.t += dt;
+    this.spin += dt * 0.35;
+    this.camera.position.set(
+      Math.sin(this.spin) * this.dist,
+      this.target.y + 1.1,
+      Math.cos(this.spin) * this.dist,
+    );
+    this.camera.lookAt(this.target.x, this.target.y, this.target.z);
+    this.view.update(dt, this.t);
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  dispose() {
+    if (this.view) { this.view.dispose(this.scene); this.view = null; }
+    if (this.renderer) { this.renderer.dispose(); this.renderer = null; }
+    this.look = null;
+    this.ok = false;
+  }
+}
