@@ -168,15 +168,32 @@ In the cockpit:
 
 ### Chassis
 
-Three hulls. **All the same height and all carrying the same guns** — what differs is how much they can take and how fast they carry it.
+Three hulls. **All the same height and all carrying the same guns** — what differs is how much they can take, how fast they carry it, and how it is built.
 
-| Hull | Health | Pace | |
+| Hull | Health | Pace | Build |
 | --- | --- | --- | --- |
-| **KESTREL** | 500 | quicker | fast, and it folds |
-| **ELK** | 1000 | standard | the standard pattern |
-| **BISON** | 1500 | slower | slow, and stubborn |
+| **KESTREL** | 500 | quicker | lean and stripped back — bare frame, no plating |
+| **ELK** | 1000 | standard | the standard pattern, armoured but not heavy |
+| **BISON** | 1500 | slower | wide, slab-sided, plated over the shoulders and spine |
 
 At 200 a rocket, three drop a Kestrel, five an Elk, and eight a Bison.
+
+### The machine
+
+It is not a person in a suit, and it does not walk like one. It is a **reverse-jointed
+biped**: the knees point forward and the ankles kick out behind it, so the leg folds
+backwards under the hips and the long foot reaches forward again from there. Nothing
+about the gait reads as human.
+
+The torso is **hunched over its own hips**, a low chest out front under a spine that
+climbs to a hump over the shoulders. **There is no head.** The top of the hull is
+armour; the sensors ride a thin mast above the shoulders with a lit eye and a whisker
+aerial, and the cockpit is a slit of glass on the front face at eye height, looking
+out under a brow. A cannon makes up the right arm and a fist the left.
+
+So the silhouette, coming over a ridge, is a low-slung hunched body on two
+backwards-bending legs with a mast where you would expect a head — and which hull it
+is you can tell by the width before you are close enough to read anything else.
 
 ### The RPG
 

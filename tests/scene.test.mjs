@@ -46,8 +46,9 @@ const { buildWorld } = await import('../public/js/world.js');
 const { Effects } = await import('../public/js/effects.js');
 const { ViewModel } = await import('../public/js/viewmodel.js');
 const { Avatar, Avatars } = await import('../public/js/avatars.js');
+const { MechView } = await import('../public/js/mechs.js');
 const { nameTexture, softCircleTexture, cloudTexture, carbonTexture, scanlineTexture } = await import('../public/js/textures.js');
-const { WEAPONS, PLAYER, COSMETIC } = await import('../shared/constants.js');
+const { WEAPONS, PLAYER, COSMETIC, MECH } = await import('../shared/constants.js');
 const ARENA = (await import('../shared/map.js')).default;
 
 let passed = 0;
@@ -236,6 +237,175 @@ test('the sniper fires in bursts: three quick shots, then the long reload', () =
   assert.ok(burst < sniper.reloadTime, 'emptying the mag is quicker than one reload');
   assert.ok(burst < 3500, 'three shots land faster than one used to');
   assert.ok(sniper.reloadTime > sniper.interval * 4, 'the reload is the real pause');
+});
+
+// ------------------------------------------------------------------- mechs
+// The mech is built from primitives and nobody can see it in a test, so these
+// pin the things that would otherwise only be caught by eye: that it is a
+// reverse-jointed walker rather than a person in a suit, that all three hulls
+// stand the same height, and that each one is still tellable apart.
+
+const mechScene = new THREE.Scene();
+
+function buildMech(chassis = 'medium', material = 'matte') {
+  return new MechView(mechScene, {
+    id: 1, ownerId: 2, pos: [0, 0, 0], yaw: 0,
+    hp: 1000, maxHp: 1000, state: 'active',
+    chassis, color: 0xbfae95, trim: 0x4a4438, material,
+    shield: { charge: 1, time: 0 },
+  });
+}
+
+// Measured without the shield bubble: it is a fixed 10m sphere around every
+// mech, so including it would hide exactly the differences these tests are for.
+function measure(view) {
+  view.root.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  const p = new THREE.Vector3();
+  view.root.traverse((o) => {
+    if (!o.isMesh || o === view.bubble) return;
+    o.getWorldPosition(p);
+    const half = new THREE.Vector3(o.scale.x / 2, o.scale.y / 2, o.scale.z / 2);
+    box.expandByPoint(p.clone().sub(half));
+    box.expandByPoint(p.clone().add(half));
+  });
+  return { box, size: box.getSize(new THREE.Vector3()) };
+}
+
+test('every chassis builds, in every finish, without throwing', () => {
+  for (const c of MECH.chassis) {
+    for (const m of ['matte', 'metal', 'carbon', 'neon', 'scanline']) {
+      const v = buildMech(c.id, m);
+      let meshes = 0;
+      v.root.traverse((o) => { if (o.isMesh) meshes++; });
+      assert.ok(meshes > 25, `${c.name} in ${m} is a whole machine (${meshes} parts)`);
+      v.dispose(mechScene);
+    }
+  }
+});
+
+test('all three hulls stand the same height, as specified', () => {
+  const heights = MECH.chassis.map((c) => {
+    const v = buildMech(c.id);
+    const { size } = measure(v);
+    const h = size.y;
+    v.dispose(mechScene);
+    return h;
+  });
+  const tallest = Math.max(...heights);
+  const shortest = Math.min(...heights);
+  assert.ok(tallest - shortest < 0.35,
+    `within a third of a metre of each other (${heights.map((h) => h.toFixed(2)).join(', ')})`);
+  for (const h of heights) {
+    assert.ok(Math.abs(h - MECH.height) < 0.8, `${h.toFixed(2)} is about the ${MECH.height}m the game thinks it is`);
+  }
+});
+
+test('...but each hull is a visibly different build', () => {
+  const widths = MECH.chassis.map((c) => {
+    const v = buildMech(c.id);
+    const { size } = measure(v);
+    const w = size.x;
+    v.dispose(mechScene);
+    return w;
+  });
+  const [light, medium, heavy] = widths;
+  assert.ok(light < medium - 0.3, `the Kestrel is stripped back (${light.toFixed(2)} < ${medium.toFixed(2)})`);
+  assert.ok(heavy > medium + 0.3, `the Bison is plated out (${heavy.toFixed(2)} > ${medium.toFixed(2)})`);
+});
+
+test('it stands on its feet rather than floating or sinking', () => {
+  const v = buildMech();
+  const { box } = measure(v);
+  assert.ok(box.min.y > -0.6 && box.min.y < 0.6, `feet at ${box.min.y.toFixed(2)}m`);
+  v.dispose(mechScene);
+});
+
+test("the cockpit sits where the pilot's eye is", () => {
+  const v = buildMech();
+  // the canopy is the only glass in the model
+  const canopy = [];
+  v.root.traverse((o) => { if (o.material && o.material.transparent && o.material.opacity < 1) canopy.push(o); });
+  assert.ok(canopy.length, 'there is a canopy');
+  const p = new THREE.Vector3();
+  canopy[0].getWorldPosition(p);
+  assert.ok(Math.abs(p.y - MECH.eyeHeight) < 0.5,
+    `the canopy is at ${p.y.toFixed(2)}m and the camera sits at ${MECH.eyeHeight}m`);
+  assert.ok(p.z < 0, 'and it faces forward');
+  v.dispose(mechScene);
+});
+
+test('the legs bend backwards: the ankle is behind the knee', () => {
+  const v = buildMech();
+  v.root.updateMatrixWorld(true);
+  const knee = v.legL.getObjectByName('knee').getWorldPosition(new THREE.Vector3());
+  const ankle = v.legL.getObjectByName('ankle').getWorldPosition(new THREE.Vector3());
+  const foot = v.legL.getObjectByName('foot').getWorldPosition(new THREE.Vector3());
+  assert.ok(ankle.z > knee.z + 0.5,
+    `the ankle (z=${ankle.z.toFixed(2)}) kicks out behind the knee (z=${knee.z.toFixed(2)})`);
+  assert.ok(foot.z < ankle.z - 0.5,
+    `...and the foot (z=${foot.z.toFixed(2)}) reaches forward again from there`);
+  v.dispose(mechScene);
+});
+
+test('the knee counter-flexes against the hip while it walks', () => {
+  // The mech reads its own speed off the time between snapshots, so the clock
+  // has to actually move for this one.
+  const realPerformance = globalThis.performance;
+  let clock = 1000;
+  globalThis.performance = { now: () => clock };
+  const v = buildMech();
+  const snap = (z) => ({
+    id: 1, pos: [0, 0, z], yaw: 0, hp: 1000, maxHp: 1000, state: 'active',
+    shield: { charge: 1, time: 0 },
+  });
+  let swing = 0;
+  let flex = 0;
+  try {
+    // walk it forward for a few frames and catch the hip and knee mid-stride
+    for (let i = 1; i <= 40; i++) {
+      clock += 16;
+      v.setSnapshot(snap(-i * 0.35));
+      v.update(0.016, clock / 1000);
+      if (Math.abs(v.legL.rotation.x) > Math.abs(swing)) {
+        swing = v.legL.rotation.x;
+        flex = v.shinL.rotation.x;
+      }
+    }
+  } finally {
+    globalThis.performance = realPerformance;
+  }
+  assert.ok(Math.abs(swing) > 0.01, `the hip is swinging (${swing.toFixed(3)})`);
+  assert.ok(Math.abs(flex) > 0.005, `the knee is flexing (${flex.toFixed(3)})`);
+  assert.ok(Math.sign(flex) === -Math.sign(swing),
+    'and it flexes against the hip, not with it');
+  v.dispose(mechScene);
+});
+
+test('there is no head: the highest point is a narrow mast, not a skull', () => {
+  const v = buildMech();
+  v.root.updateMatrixWorld(true);
+  let top = null;
+  let widestAtTop = 0;
+  const p = new THREE.Vector3();
+  v.root.traverse((o) => {
+    if (!o.isMesh) return;
+    o.getWorldPosition(p);
+    const worldTop = p.y + (o.scale.y / 2);
+    if (!top || worldTop > top) { top = worldTop; widestAtTop = Math.max(o.scale.x, o.scale.z); }
+  });
+  assert.ok(widestAtTop < 0.7,
+    `the crown of it is ${widestAtTop.toFixed(2)}m across — a mast, not a head`);
+  v.dispose(mechScene);
+});
+
+test('disposing a mech leaves nothing behind', () => {
+  const v = buildMech();
+  const before = mechScene.children.length;
+  v.dispose(mechScene);
+  assert.equal(mechScene.children.length, before - 1, 'removed from the scene');
+  assert.equal(v.materials.length, 0, 'every material released');
+  assert.equal(v.geometries.length, 0, 'every geometry released');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

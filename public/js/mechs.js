@@ -1,15 +1,27 @@
-// Mechs on screen: a walking weapons platform built from primitives, with a
+// Mechs on screen: a reverse-jointed walker built from primitives, with a
 // shield bubble and a core-failure strobe.
+//
+// Nothing about it is shaped like a person. The legs bend backwards — a high
+// knee forward, an ankle kicked out behind, then a long foot reaching forward
+// again — the torso hunches over its hips, and there is no head: the sensors
+// ride a mast above the shoulders and the pilot looks out of a slit of glass
+// in the chest.
 //
 // Your own mech is not drawn — you are inside it, looking out of the cockpit.
 import * as THREE from 'three';
 import { MECH, MECH_COSMETIC } from '../../shared/constants.js';
 import { carbonTexture, scanlineTexture } from './textures.js';
 
-const HULL = 0x4a5364;
-const HULL_DARK = 0x2b3240;
-const HULL_LIGHT = 0x6b7789;
 const GLASS = 0x8fd8ff;
+
+// How much hull each chassis hangs on the same frame. `girth` widens it,
+// `plating` hangs extra armour on it — neither changes the height or the
+// stance, so a Kestrel and a Bison are the same target to shoot at.
+const CHASSIS_BUILD = {
+  light: { girth: 0.76, plating: 0.34 },
+  medium: { girth: 1.0, plating: 1.0 },
+  heavy: { girth: 1.22, plating: 1.7 },
+};
 
 // Hull finishes, mirroring the ones a character can wear. By the time a mech
 // is built the server has already refused the crew-only finishes for anyone
@@ -142,10 +154,17 @@ export class MechView {
     const dark = this.own(finish.dark);
     const light = this.own(finish.light);
     const accent = this.own(finish.accent);
+    const glass = this.mat(GLASS, { transparent: true, opacity: 0.55 });
     this.textures = finish.textures;
     this.animate = finish.animate;
     this.glow = finish.glow;
-    const glass = this.mat(GLASS, { transparent: true, opacity: 0.55 });
+
+    // How this hull is built. All three stand the same height and carry the
+    // same guns — only the width and the amount of plating change, so you can
+    // tell which one is coming at you before you can read the name.
+    const b = CHASSIS_BUILD[this.chassis] || CHASSIS_BUILD[MECH.defaultChassis];
+    const g = b.girth;
+    const plate = b.plating;
 
     const box = this.geo(1, 1, 1);
     const add = (m, x, y, z, sx, sy, sz, parent = this.root) => {
@@ -158,55 +177,100 @@ export class MechView {
       return mesh;
     };
 
-    // ---- legs: two heavy pistons with wide feet
+    // Forward is -z, the same way the pilot is looking.
+
+    // ---- reverse-joint legs: high knee forward, ankle kicked out behind,
+    // ---- then a long foot reaching forward again. Nothing about this walks
+    // ---- like a person.
     this.legL = new THREE.Group();
     this.legR = new THREE.Group();
-    this.legL.position.set(-1.15, 4.4, 0);
-    this.legR.position.set(1.15, 4.4, 0);
+    this.legL.position.set(-1.0 * g, 4.9, 0);
+    this.legR.position.set(1.0 * g, 4.9, 0);
     for (const [leg, side] of [[this.legL, -1], [this.legR, 1]]) {
-      add(light, 0, -1.4, 0, 0.75, 2.8, 0.8, leg);          // thigh
-      add(dark, 0, -3.2, 0, 0.62, 1.4, 0.66, leg);          // knee
-      add(hull, 0, -4.0, 0.08, 0.72, 1.7, 0.78, leg);       // shin
-      add(dark, 0, -4.75, 0.18, 1.05, 0.5, 1.5, leg);       // foot
-      add(accent, side * 0.4, -1.6, -0.42, 0.1, 0.9, 0.06, leg);
+      add(light, 0, -0.8, -0.28, 0.50 * g, 1.9, 0.55 * g, leg).name = 'femur';
+      add(hull, 0, -1.6, -0.50, 0.46 * g, 0.52, 0.50 * g, leg).name = 'knee';   // knee, forward
+      // Everything below the knee hangs off it and counter-flexes as it walks:
+      // the lower leg folds further back as the hip swings forward, which is
+      // what reads as a backwards joint rather than a forwards one.
+      const shin = new THREE.Group();
+      shin.position.set(0, -1.6, 0);
+      leg.add(shin);
+      add(light, 0, -0.90, 0.10, 0.38 * g, 2.3, 0.45 * g, shin).name = 'shin';   // raked back
+      add(dark, 0, -1.80, 0.62, 0.42 * g, 0.50, 0.50 * g, shin).name = 'ankle';  // kicked out
+      add(hull, 0, -2.45, 0.10, 0.34 * g, 1.9, 0.42 * g, shin).name = 'tarsus';
+      add(dark, 0, -3.08, -0.45, 0.50 * g, 0.28, 1.15 * g, shin).name = 'foot';
+      add(accent, side * 0.28 * g, -1.6, -0.72, 0.08, 0.7, 0.06, leg);
       this.root.add(leg);
+      if (side < 0) this.shinL = shin; else this.shinR = shin;
     }
 
-    // ---- hips and torso
-    add(dark, 0, 4.6, 0, 2.9, 0.9, 1.7);
-    add(hull, 0, 6.0, 0, 3.6, 2.0, 2.0);
-    add(light, 0, 6.9, -0.9, 2.6, 0.7, 0.3);                // chest plate
-    add(accent, 0, 6.35, -1.05, 1.5, 0.22, 0.08);           // chest strip
+    // ---- hips: wide and low, carrying the whole thing forward
+    add(dark, 0, 4.9, 0.05, 2.3 * g, 0.9, 1.5 * g);
+    if (plate > 0.6) add(hull, 0, 4.35, 0.55, 2.4 * g * plate, 1.0, 0.42 * plate);
 
-    // ---- cockpit, sitting under the head
-    add(dark, 0, 7.3, -0.5, 1.7, 0.9, 1.0);
-    add(glass, 0, 7.35, -1.0, 1.35, 0.6, 0.12);
+    // ---- torso, hunched over its own hips. No head: the top of the hull is
+    // ---- armour, and the sensors ride a mast above the shoulders.
+    const torso = new THREE.Group();
+    torso.position.set(0, 5.25, 0);
+    torso.rotation.x = -0.1;                       // leaning into the walk
+    this.root.add(torso);
+    const tAdd = (m, x, y, z, sx, sy, sz) => add(m, x, y, z, sx, sy, sz, torso);
 
-    // ---- head and sensor
-    add(hull, 0, 8.1, -0.2, 1.15, 0.75, 1.05);
-    add(accent, 0, 8.15, -0.72, 0.7, 0.16, 0.06);           // eye slit
-    add(dark, 0.45, 8.5, 0, 0.14, 0.5, 0.14);               // antenna
+    // The profile is the whole read: a low chest out front, a spine that
+    // climbs to a hump over the shoulders, and a tucked belly between the
+    // hips. Built front-to-back so the back line slopes rather than stacking
+    // into a brick.
+    tAdd(light, 0, 1.20, -0.68, 3.0 * g, 1.7, 1.45 * g);              // chest, low and forward
+    tAdd(hull, 0, 0.45, 0.10, 2.5 * g, 1.4, 1.35 * g);                // belly, tucked under
+    tAdd(hull, 0, 1.95, 0.34, 2.4 * g, 1.7, 1.2 * g);                 // spine rising
+    tAdd(light, 0, 2.95, 0.78, 2.0 * g, 1.7, 1.15 * g);               // the hump, over the back
+    tAdd(dark, 0, 3.62, 0.46, 1.5 * g, 0.7, 0.95 * g);                // crown of the hump
+    tAdd(accent, 0, 1.45, -1.44, 1.5 * g, 0.26, 0.1);                 // chest vent
+    tAdd(dark, 0, 2.55, -1.55, 2.2 * g, 0.6, 0.2);                    // brow over the canopy
 
-    // ---- shoulders and arms
-    add(light, -2.1, 6.9, 0, 1.0, 1.0, 1.2);
-    add(light, 2.1, 6.9, 0, 1.0, 1.0, 1.2);
+    // ---- cockpit: a slit of glass on the front face, under the brow. The
+    // ---- camera rides at MECH.eyeHeight, so the slit is hung at that height —
+    // ---- the pilot looks out of the glass rather than over the hull.
+    tAdd(glass, 0, 2.05, -1.42, 1.45, 0.75, 0.14);
+    tAdd(dark, 0, 1.62, -1.48, 1.7, 0.40, 0.16);
+
+    // ---- sensor mast: a thin stalk off the shoulders, tipped with a glowing
+    // ---- eye. There is no head to shoot.
+    tAdd(light, 0, 3.55, 0.05, 0.15, 1.5, 0.15);
+    tAdd(dark, 0, 4.22, -0.10, 0.42, 0.3, 0.42);
+    tAdd(accent, 0, 4.24, -0.31, 0.34, 0.2, 0.08);                    // the eye, lit
+    tAdd(dark, 0.38, 4.12, -0.02, 0.5, 0.1, 0.1);                     // a whisker aerial
+
+    // ---- backpack and thrusters, behind the hump
+    tAdd(dark, 0, 1.60, 1.22, 2.1 * g, 1.5, 0.55);
+    tAdd(accent, -0.68 * g, 0.80, 1.34, 0.4 * g, 0.65, 0.35);
+    tAdd(accent, 0.68 * g, 0.80, 1.34, 0.4 * g, 0.65, 0.35);
+
+    // ---- shoulders. A heavy hull carries real pauldrons; a light one is
+    // ---- stripped back to almost nothing.
+    add(light, -1.75 * g, 7.55, 0.05, 0.95 * g, 0.95, 1.15 * g);
+    add(light, 1.75 * g, 7.55, 0.05, 0.95 * g, 0.95, 1.15 * g);
+    if (plate > 0.6) {
+      const wide = 1.1 * g * Math.min(1.2, plate);
+      add(hull, -1.95 * g, 7.95, 0.15, wide, 0.62 * plate, 1.35 * g);
+      add(hull, 1.95 * g, 7.95, 0.15, wide, 0.62 * plate, 1.35 * g);
+      add(dark, 0, 6.9, 0.95, 2.5 * g * Math.min(1.3, plate), 1.5 * plate, 0.4);
+    }
+
+    // ---- arms: a fist on the left, a cannon on the right
     this.armL = new THREE.Group();
     this.armR = new THREE.Group();
-    this.armL.position.set(-2.15, 6.6, 0);
-    this.armR.position.set(2.15, 6.6, 0);
-    add(hull, 0, -0.9, 0, 0.68, 1.9, 0.72, this.armL);
-    add(dark, 0, -2.1, 0, 0.8, 0.7, 0.8, this.armL);        // fist
-    add(hull, 0, -0.9, 0, 0.68, 1.9, 0.72, this.armR);
-    // the right arm ends in a cannon instead of a hand
-    add(dark, 0, -2.0, 0, 0.85, 0.85, 0.85, this.armR);
-    add(light, 0, -2.0, -0.75, 0.34, 0.34, 1.5, this.armR); // barrel
-    add(accent, 0, -2.0, -1.5, 0.42, 0.42, 0.16, this.armR);// muzzle
-    this.root.add(this.armL, this.armR);
+    this.armL.position.set(-1.9 * g, 7.35, 0);
+    this.armR.position.set(1.9 * g, 7.35, 0);
+    add(hull, 0, -0.75, 0, 0.55 * g, 1.6, 0.60 * g, this.armL);
+    add(light, 0, -1.85, -0.12, 0.48 * g, 1.5, 0.50 * g, this.armL);
+    add(dark, 0, -2.72, -0.20, 0.62 * g, 0.62, 0.66 * g, this.armL);   // fist
 
-    // ---- backpack and thrusters
-    add(dark, 0, 6.2, 1.15, 2.4, 1.6, 0.6);
-    add(accent, -0.7, 5.3, 1.3, 0.4, 0.7, 0.35);
-    add(accent, 0.7, 5.3, 1.3, 0.4, 0.7, 0.35);
+    add(hull, 0, -0.8, 0, 0.60 * g, 1.7, 0.65 * g, this.armR);
+    add(dark, 0, -1.95, -0.10, 0.82 * g, 0.85, 0.85 * g, this.armR);   // cannon block
+    add(light, 0, -1.95, -0.75, 0.32, 0.32, 1.45, this.armR);          // barrel
+    add(accent, 0, -1.95, -1.48, 0.42, 0.42, 0.16, this.armR);         // muzzle
+    this.root.add(this.armL, this.armR);
 
     // ---- shield bubble, hidden until it is raised
     this.bubble = new THREE.Mesh(
@@ -279,6 +343,9 @@ export class MechView {
     const swing = Math.sin(this.walkPhase) * Math.min(0.5, speed * 0.06);
     this.legL.rotation.x = swing;
     this.legR.rotation.x = -swing;
+    // and the knee against the hip, so the foot tracks under the machine
+    this.shinL.rotation.x = -swing * 0.55;
+    this.shinR.rotation.x = swing * 0.55;
     this.armL.rotation.x = -swing * 0.6;
     this.armR.rotation.x = swing * 0.35;
 
