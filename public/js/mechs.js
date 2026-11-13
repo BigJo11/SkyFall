@@ -14,13 +14,42 @@ import { carbonTexture, scanlineTexture } from './textures.js';
 
 const GLASS = 0x8fd8ff;
 
-// How much hull each chassis hangs on the same frame. `girth` widens it,
-// `plating` hangs extra armour on it — neither changes the height or the
-// stance, so a Kestrel and a Bison are the same target to shoot at.
+// Three different machines, not one machine in three sizes.
+//
+// Each hull gets its own leg proportions, its own sensor, its own back and its
+// own guns. What they share is the things that have to be shared: the height,
+// the stance, and the cockpit the pilot looks out of — so all three are the
+// same target to shoot at and the same thing to fly.
+//
+//   KESTREL  a scout. Leggy: a short femur puts the knee up high and the long
+//            shin rakes back hard to a kicked-out ankle, so most of the leg is
+//            below the joint. Bare back, no pauldrons, a tall thin mast and a
+//            long slim gun. Built to see and to run, and stripped of the rest.
+//   ELK      the standard pattern. Balanced legs, a backpack and thrusters,
+//            a mast with a sensor pod on each side, a single gun.
+//   BISON    a siege hull. Short thick lower legs under a low knee, planted on
+//            splayed feet with heel spurs, thigh armour, missile pods instead
+//            of a pack, slab pauldrons with boxes on top, a squat armoured
+//            sensor block with no mast at all, and a twin-barrelled gun.
 const CHASSIS_BUILD = {
-  light: { girth: 0.76, plating: 0.34 },
-  medium: { girth: 1.0, plating: 1.0 },
-  heavy: { girth: 1.22, plating: 1.7 },
+  light: {
+    girth: 0.78,
+    femur: 1.45, shin: 1.75, thick: 0.40, ankleBack: 0.88, footLen: 1.00,
+    spur: false, thighPlate: false, skirt: false,
+    mast: 'stalk', back: 'none', shoulder: 'bare', cannon: 'slim',
+  },
+  medium: {
+    girth: 1.0,
+    femur: 1.75, shin: 1.55, thick: 0.50, ankleBack: 0.62, footLen: 1.15,
+    spur: false, thighPlate: false, skirt: false,
+    mast: 'pods', back: 'pack', shoulder: 'pauldron', cannon: 'single',
+  },
+  heavy: {
+    girth: 1.20,
+    femur: 2.15, shin: 1.30, thick: 0.64, ankleBack: 0.44, footLen: 1.40,
+    spur: true, thighPlate: true, skirt: true,
+    mast: 'block', back: 'pods', shoulder: 'slab', cannon: 'twin',
+  },
 };
 
 // Hull finishes, mirroring the ones a character can wear. By the time a mech
@@ -159,12 +188,10 @@ export class MechView {
     this.animate = finish.animate;
     this.glow = finish.glow;
 
-    // How this hull is built. All three stand the same height and carry the
-    // same guns — only the width and the amount of plating change, so you can
-    // tell which one is coming at you before you can read the name.
+    // Which machine this is. Every difference between the three hangs off
+    // these numbers and these names.
     const b = CHASSIS_BUILD[this.chassis] || CHASSIS_BUILD[MECH.defaultChassis];
     const g = b.girth;
-    const plate = b.plating;
 
     const box = this.geo(1, 1, 1);
     const add = (m, x, y, z, sx, sy, sz, parent = this.root) => {
@@ -182,31 +209,51 @@ export class MechView {
     // ---- reverse-joint legs: high knee forward, ankle kicked out behind,
     // ---- then a long foot reaching forward again. Nothing about this walks
     // ---- like a person.
+    //
+    // ---- The joints are placed from segment lengths rather than fixed
+    // ---- offsets, so the three hulls can carry genuinely different leg
+    // ---- proportions and still put a foot on the ground in the same place.
+    const FOOT_Y = -4.68;                 // every hull stands on the ground
+    const kneeY = -b.femur;
+    const ankleY = -(b.femur + b.shin);
+    const footTop = FOOT_Y + 0.14;
+    const tarsusLen = footTop - ankleY;
+
     this.legL = new THREE.Group();
     this.legR = new THREE.Group();
     this.legL.position.set(-1.0 * g, 4.9, 0);
     this.legR.position.set(1.0 * g, 4.9, 0);
     for (const [leg, side] of [[this.legL, -1], [this.legR, 1]]) {
-      add(light, 0, -0.8, -0.28, 0.50 * g, 1.9, 0.55 * g, leg).name = 'femur';
-      add(hull, 0, -1.6, -0.50, 0.46 * g, 0.52, 0.50 * g, leg).name = 'knee';   // knee, forward
+      add(light, 0, kneeY / 2, -0.28, b.thick, b.femur, b.thick * 1.1, leg).name = 'femur';
+      add(hull, 0, kneeY, -0.50, b.thick * 0.92, 0.52, b.thick, leg).name = 'knee';   // knee, forward
       // Everything below the knee hangs off it and counter-flexes as it walks:
       // the lower leg folds further back as the hip swings forward, which is
       // what reads as a backwards joint rather than a forwards one.
       const shin = new THREE.Group();
-      shin.position.set(0, -1.6, 0);
+      shin.position.set(0, kneeY, 0);
       leg.add(shin);
-      add(light, 0, -0.90, 0.10, 0.38 * g, 2.3, 0.45 * g, shin).name = 'shin';   // raked back
-      add(dark, 0, -1.80, 0.62, 0.42 * g, 0.50, 0.50 * g, shin).name = 'ankle';  // kicked out
-      add(hull, 0, -2.45, 0.10, 0.34 * g, 1.9, 0.42 * g, shin).name = 'tarsus';
-      add(dark, 0, -3.08, -0.45, 0.50 * g, 0.28, 1.15 * g, shin).name = 'foot';
-      add(accent, side * 0.28 * g, -1.6, -0.72, 0.08, 0.7, 0.06, leg);
+      add(light, 0, -b.shin / 2, 0.10, b.thick * 0.76, b.shin, b.thick * 0.9, shin).name = 'shin';
+      add(dark, 0, -b.shin, b.ankleBack, b.thick * 0.84, 0.50, b.thick, shin).name = 'ankle';
+      add(hull, 0, (ankleY + footTop) / 2 - kneeY, 0.10, b.thick * 0.68, tarsusLen, b.thick * 0.84, shin).name = 'tarsus';
+      add(dark, 0, FOOT_Y - kneeY, -0.45, b.thick, 0.28, b.footLen, shin).name = 'foot';
+
+      // Only the Bison plants a heel spur behind the foot and hangs armour
+      // off the thigh; the Kestrel carries neither.
+      if (b.spur) add(dark, 0, FOOT_Y - kneeY + 0.14, b.footLen * 0.5, b.thick * 0.9, 0.36, 0.36, shin).name = 'spur';
+      if (b.thighPlate) add(hull, 0, kneeY * 0.5, 0.20, b.thick * 1.6, b.femur * 0.5, 0.24, leg).name = 'thighPlate';
+      add(accent, side * 0.28 * g, kneeY, -0.72, 0.08, 0.7, 0.06, leg);
       this.root.add(leg);
       if (side < 0) this.shinL = shin; else this.shinR = shin;
     }
 
-    // ---- hips: wide and low, carrying the whole thing forward
+    // ---- hips: wide and low, carrying the whole thing forward. The Bison
+    // ---- hangs armoured skirts over them as well.
     add(dark, 0, 4.9, 0.05, 2.3 * g, 0.9, 1.5 * g);
-    if (plate > 0.6) add(hull, 0, 4.35, 0.55, 2.4 * g * plate, 1.0, 0.42 * plate);
+    if (b.skirt) {
+      add(hull, 0, 4.35, 0.55, 2.4 * g, 1.0, 0.42);
+      add(hull, -1.16 * g, 4.5, 0.15, 0.28, 1.35, 1.45 * g).name = 'skirt';
+      add(hull, 1.16 * g, 4.5, 0.15, 0.28, 1.35, 1.45 * g).name = 'skirt';
+    }
 
     // ---- torso, hunched over its own hips. No head: the top of the hull is
     // ---- armour, and the sensors ride a mast above the shoulders.
@@ -234,27 +281,73 @@ export class MechView {
     tAdd(glass, 0, 2.05, -1.42, 1.45, 0.75, 0.14);
     tAdd(dark, 0, 1.62, -1.48, 1.7, 0.40, 0.16);
 
-    // ---- sensor mast: a thin stalk off the shoulders, tipped with a glowing
-    // ---- eye. There is no head to shoot.
-    tAdd(light, 0, 3.55, 0.05, 0.15, 1.5, 0.15);
-    tAdd(dark, 0, 4.22, -0.10, 0.42, 0.3, 0.42);
-    tAdd(accent, 0, 4.24, -0.31, 0.34, 0.2, 0.08);                    // the eye, lit
-    tAdd(dark, 0.38, 4.12, -0.02, 0.5, 0.1, 0.1);                     // a whisker aerial
+    // ---- sensors. There is no head to shoot, but the three find their way
+    // ---- about very differently, and each one reaches the same height so no
+    // ---- hull is easier to spot over a ridge than another.
+    const TOP = 4.37;                    // the crown, the same on every hull
+    if (b.mast === 'stalk') {
+      // KESTREL: a tall bare stalk, a small eye, and a long whisker
+      tAdd(light, 0, (3.05 + TOP - 0.30) / 2, 0.05, 0.13, TOP - 0.30 - 3.05, 0.13);
+      tAdd(dark, 0, TOP - 0.15, -0.10, 0.34, 0.30, 0.34);
+      tAdd(accent, 0, TOP - 0.13, -0.30, 0.28, 0.18, 0.08);            // the eye, lit
+      tAdd(dark, 0.30, TOP - 0.60, 0.02, 0.54, 0.08, 0.08);            // a long whisker
+    } else if (b.mast === 'pods') {
+      // ELK: a sturdier mast with a sensor pod on each side
+      tAdd(light, 0, (3.15 + TOP - 0.34) / 2, 0.05, 0.17, TOP - 0.34 - 3.15, 0.17);
+      tAdd(dark, 0, TOP - 0.17, -0.08, 0.42, 0.34, 0.42);
+      tAdd(accent, 0, TOP - 0.17, -0.31, 0.34, 0.20, 0.08);            // the eye, lit
+      tAdd(dark, -0.34, TOP - 0.32, 0.12, 0.26, 0.26, 0.26);           // side pods
+      tAdd(dark, 0.34, TOP - 0.32, 0.12, 0.26, 0.26, 0.26);
+      tAdd(dark, 0.36, TOP - 0.06, 0.10, 0.5, 0.08, 0.08);             // whisker
+    } else {
+      // BISON: no mast at all — a squat armoured housing and a stub aerial
+      tAdd(dark, 0, 3.32, 0.12, 0.64, 0.92, 0.62);
+      tAdd(light, 0, 3.88, 0.02, 0.50, 0.52, 0.50);
+      tAdd(accent, 0, 3.90, -0.24, 0.30, 0.18, 0.08);                  // the eye, slit low
+      tAdd(dark, 0, TOP - 0.18, 0.04, 0.16, 0.36, 0.16);               // stub aerial
+      tAdd(dark, -0.32, TOP - 0.32, 0.18, 0.20, 0.14, 0.36);           // armoured fins
+      tAdd(dark, 0.32, TOP - 0.32, 0.18, 0.20, 0.14, 0.36);
+    }
 
-    // ---- backpack and thrusters, behind the hump
-    tAdd(dark, 0, 1.60, 1.22, 2.1 * g, 1.5, 0.55);
-    tAdd(accent, -0.68 * g, 0.80, 1.34, 0.4 * g, 0.65, 0.35);
-    tAdd(accent, 0.68 * g, 0.80, 1.34, 0.4 * g, 0.65, 0.35);
+    // ---- what it carries behind the hump
+    if (b.back === 'none') {
+      // KESTREL: a bare spine and the two thrusters it needs to move
+      tAdd(dark, 0, 1.75, 1.02, 1.3 * g, 0.9, 0.32);
+      tAdd(accent, -0.48 * g, 1.18, 1.14, 0.26, 0.5, 0.26);
+      tAdd(accent, 0.48 * g, 1.18, 1.14, 0.26, 0.5, 0.26);
+    } else if (b.back === 'pack') {
+      // ELK: the standard backpack and thrusters
+      tAdd(dark, 0, 1.60, 1.22, 2.1 * g, 1.5, 0.55);
+      tAdd(accent, -0.68 * g, 0.80, 1.34, 0.4 * g, 0.65, 0.35);
+      tAdd(accent, 0.68 * g, 0.80, 1.34, 0.4 * g, 0.65, 0.35);
+    } else {
+      // BISON: missile pods. Stacked boxes, and no pretence of being light.
+      tAdd(dark, 0, 1.52, 1.18, 2.2 * g, 1.6, 0.60);
+      for (const sx of [-1, 1]) {
+        tAdd(hull, sx * 0.74 * g, 1.98, 1.42, 0.62 * g, 1.15, 0.56).name = 'pod';
+        tAdd(dark, sx * 0.74 * g, 2.60, 1.42, 0.52 * g, 0.22, 0.42);   // cap
+        tAdd(accent, sx * 0.74 * g, 1.32, 1.42, 0.48 * g, 0.46, 0.48); // exhaust
+      }
+    }
 
-    // ---- shoulders. A heavy hull carries real pauldrons; a light one is
-    // ---- stripped back to almost nothing.
-    add(light, -1.75 * g, 7.55, 0.05, 0.95 * g, 0.95, 1.15 * g);
-    add(light, 1.75 * g, 7.55, 0.05, 0.95 * g, 0.95, 1.15 * g);
-    if (plate > 0.6) {
-      const wide = 1.1 * g * Math.min(1.2, plate);
-      add(hull, -1.95 * g, 7.95, 0.15, wide, 0.62 * plate, 1.35 * g);
-      add(hull, 1.95 * g, 7.95, 0.15, wide, 0.62 * plate, 1.35 * g);
-      add(dark, 0, 6.9, 0.95, 2.5 * g * Math.min(1.3, plate), 1.5 * plate, 0.4);
+    // ---- shoulders: bare, pauldroned, or slab-sided with boxes on top
+    if (b.shoulder === 'bare') {
+      add(light, -1.62 * g, 7.48, 0.05, 0.70 * g, 0.78, 1.00 * g);
+      add(light, 1.62 * g, 7.48, 0.05, 0.70 * g, 0.78, 1.00 * g);
+    } else if (b.shoulder === 'pauldron') {
+      add(light, -1.75 * g, 7.55, 0.05, 0.95 * g, 0.95, 1.15 * g);
+      add(light, 1.75 * g, 7.55, 0.05, 0.95 * g, 0.95, 1.15 * g);
+      add(hull, -1.95 * g, 7.95, 0.15, 1.10 * g, 0.62, 1.35 * g);
+      add(hull, 1.95 * g, 7.95, 0.15, 1.10 * g, 0.62, 1.35 * g);
+      add(dark, 0, 6.9, 0.95, 2.5 * g, 1.5, 0.40);                     // back plating
+    } else {
+      add(light, -1.86 * g, 7.55, 0.05, 1.20 * g, 1.00, 1.30 * g);
+      add(light, 1.86 * g, 7.55, 0.05, 1.20 * g, 1.00, 1.30 * g);
+      add(hull, -1.96 * g, 8.06, 0.15, 1.50 * g, 0.80, 1.50 * g);
+      add(hull, 1.96 * g, 8.06, 0.15, 1.50 * g, 0.80, 1.50 * g);
+      add(dark, -1.96 * g, 8.56, 0.34, 1.00 * g, 0.46, 0.82 * g);      // shoulder boxes
+      add(dark, 1.96 * g, 8.56, 0.34, 1.00 * g, 0.46, 0.82 * g);
+      add(dark, 0, 6.9, 0.95, 2.6 * g, 1.7, 0.45);                     // back plating
     }
 
     // ---- arms: a fist on the left, a cannon on the right
@@ -267,9 +360,24 @@ export class MechView {
     add(dark, 0, -2.72, -0.20, 0.62 * g, 0.62, 0.66 * g, this.armL);   // fist
 
     add(hull, 0, -0.8, 0, 0.60 * g, 1.7, 0.65 * g, this.armR);
-    add(dark, 0, -1.95, -0.10, 0.82 * g, 0.85, 0.85 * g, this.armR);   // cannon block
-    add(light, 0, -1.95, -0.75, 0.32, 0.32, 1.45, this.armR);          // barrel
-    add(accent, 0, -1.95, -1.48, 0.42, 0.42, 0.16, this.armR);         // muzzle
+    if (b.cannon === 'slim') {
+      // KESTREL: one long thin barrel, as little gun as it can carry
+      add(dark, 0, -1.95, -0.10, 0.60 * g, 0.60, 0.70 * g, this.armR);
+      add(light, 0, -1.95, -0.80, 0.24, 0.24, 1.55, this.armR).name = 'barrel';
+      add(accent, 0, -1.95, -1.56, 0.32, 0.32, 0.14, this.armR);
+    } else if (b.cannon === 'single') {
+      // ELK: the standard cannon
+      add(dark, 0, -1.95, -0.10, 0.82 * g, 0.85, 0.85 * g, this.armR);
+      add(light, 0, -1.95, -0.75, 0.32, 0.32, 1.45, this.armR).name = 'barrel';
+      add(accent, 0, -1.95, -1.48, 0.42, 0.42, 0.16, this.armR);
+    } else {
+      // BISON: twin barrels, as wide as it is long
+      add(dark, 0, -1.95, -0.10, 1.00 * g, 0.90, 1.00 * g, this.armR);
+      add(light, -0.24, -1.95, -0.78, 0.30, 0.30, 1.50, this.armR).name = 'barrel';
+      add(light, 0.24, -1.95, -0.78, 0.30, 0.30, 1.50, this.armR).name = 'barrel';
+      add(accent, -0.24, -1.95, -1.52, 0.38, 0.38, 0.16, this.armR);
+      add(accent, 0.24, -1.95, -1.52, 0.38, 0.38, 0.16, this.armR);
+    }
     this.root.add(this.armL, this.armR);
 
     // ---- shield bubble, hidden until it is raised

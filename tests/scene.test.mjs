@@ -314,6 +314,76 @@ test('...but each hull is a visibly different build', () => {
   assert.ok(heavy > medium + 0.3, `the Bison is plated out (${heavy.toFixed(2)} > ${medium.toFixed(2)})`);
 });
 
+// Width alone would only prove the same machine had been scaled, so these pin
+// the parts that exist on one hull and not on another.
+const partCount = (view, name) => {
+  let n = 0;
+  view.root.traverse((o) => { if (o.name === name) n++; });
+  return n;
+};
+const partCounts = (chassis) => {
+  const v = buildMech(chassis);
+  const out = {
+    parts: 0, barrels: partCount(v, 'barrel'), spurs: partCount(v, 'spur'),
+    thigh: partCount(v, 'thighPlate'), skirt: partCount(v, 'skirt'),
+    pods: partCount(v, 'pod'), knee: v.legL.getObjectByName('knee').position.y,
+  };
+  v.root.traverse((o) => { if (o.isMesh) out.parts++; });
+  v.dispose(mechScene);
+  return out;
+};
+
+test('the three hulls are different machines, not one machine in three sizes', () => {
+  const [kestrel, elk, bison] = MECH.chassis.map((c) => partCounts(c.id));
+
+  // not the same number of parts, so not the same model scaled
+  assert.ok(kestrel.parts !== elk.parts && elk.parts !== bison.parts,
+    `three different builds (${kestrel.parts}, ${elk.parts}, ${bison.parts} parts)`);
+
+  // legs are proportionally different, not just thicker: the Kestrel's knee
+  // sits close under the hip, the Bison's hangs well below it
+  assert.ok(kestrel.knee > elk.knee && elk.knee > bison.knee,
+    `knee height differs (${kestrel.knee.toFixed(2)}, ${elk.knee.toFixed(2)}, ${bison.knee.toFixed(2)})`);
+
+  // the Bison carries a twin-barrelled gun; the others one
+  assert.equal(kestrel.barrels, 1, 'the Kestrel has a slim single barrel');
+  assert.equal(elk.barrels, 1, 'so does the Elk');
+  assert.equal(bison.barrels, 2, 'the Bison has two');
+});
+
+test('only the siege hull carries the heavy furniture', () => {
+  const [kestrel, elk, bison] = MECH.chassis.map((c) => partCounts(c.id));
+  for (const [name, part] of [['heel spurs', 'spurs'], ['thigh armour', 'thigh'], ['hip skirts', 'skirt'], ['missile pods', 'pods']]) {
+    assert.equal(kestrel[part], 0, `the Kestrel has no ${name}`);
+    assert.equal(elk[part], 0, `the Elk has no ${name}`);
+    assert.ok(bison[part] > 0, `the Bison does (${bison[part]})`);
+  }
+});
+
+test('each hull finds its way about differently, at the same height', () => {
+  // the crown of each is a different thing: a small head, a head with pods,
+  // or a stub aerial on an armoured block
+  const crowns = MECH.chassis.map((c) => {
+    const v = buildMech(c.id);
+    v.root.updateMatrixWorld(true);
+    let top = null;
+    let width = 0;
+    let y = -Infinity;
+    const p = new THREE.Vector3();
+    v.root.traverse((o) => {
+      if (!o.isMesh || o === v.bubble) return;
+      o.getWorldPosition(p);
+      const crownY = p.y + o.scale.y / 2;
+      if (crownY > y) { y = crownY; width = Math.max(o.scale.x, o.scale.z); top = o; }
+    });
+    v.dispose(mechScene);
+    return { y, width };
+  });
+  for (const c of crowns) assert.ok(c.width < 0.7, `the crown is a mast, not a head (${c.width.toFixed(2)}m)`);
+  const spread = Math.max(...crowns.map((c) => c.y)) - Math.min(...crowns.map((c) => c.y));
+  assert.ok(spread < 0.05, `all three reach the same height (within ${spread.toFixed(3)}m)`);
+});
+
 test('it stands on its feet rather than floating or sinking', () => {
   const v = buildMech();
   const { box } = measure(v);
