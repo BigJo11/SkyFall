@@ -173,9 +173,24 @@ Three hulls. **All the same height and all carrying the same guns** — what dif
 
 | Hull | Health | Pace | Build |
 | --- | --- | --- | --- |
-| **KESTREL** | 500 | quicker | lean and stripped back — bare frame, no plating |
-| **ELK** | 1000 | standard | the standard pattern, armoured but not heavy |
-| **BISON** | 1500 | slower | wide, slab-sided, plated over the shoulders and spine |
+| **KESTREL** | 500 | quicker | a scout: leggy, bare back, no pauldrons, a tall thin mast, a long slim gun |
+| **ELK** | 1000 | standard | the standard pattern: balanced legs, a backpack and thrusters, a podded mast |
+| **BISON** | 1500 | slower | a siege hull: planted thick legs, missile pods, slab pauldrons, twin barrels |
+
+They are **three different machines, not one machine in three sizes.** Every hull is
+built from its own parts rather than scaled off a shared one, and each stands the
+same height on the same stance, so they are all the same target and all the same
+thing to fly.
+
+| | KESTREL | ELK | BISON |
+| --- | --- | --- | --- |
+| Legs | short femur, knee up high, long shin raking back | balanced | short thick lower leg under a low knee |
+| Feet | narrow | standard | splayed, with heel spurs |
+| Sensors | a tall thin stalk | a mast with a pod each side | a squat armoured block, no mast |
+| Back | bare spine, two thrusters | backpack and thrusters | stacked missile pods |
+| Shoulders | bare | pauldrons | slabs with boxes on top |
+| Right arm | one long slim barrel | the standard cannon | twin barrels |
+| Extra | — | — | thigh armour, hip skirts |
 
 At 200 a rocket, three drop a Kestrel, five an Elk, and eight a Bison.
 
@@ -206,8 +221,11 @@ aerial, and the cockpit is a slit of glass on the front face at eye height, look
 out under a brow. A cannon makes up the right arm and a fist the left.
 
 So the silhouette, coming over a ridge, is a low-slung hunched body on two
-backwards-bending legs with a mast where you would expect a head — and which hull it
-is you can tell by the width before you are close enough to read anything else.
+backwards-bending legs with a mast where you would expect a head — and which hull
+it is you can tell well before you can read the name. The Kestrel comes in tall and
+thin on stilt-like legs with a bare back. The Elk is the shape you learn first. The
+Bison comes in wide and low-kneed on splayed feet, with missile boxes over its
+shoulders and no mast at all — a block where the others have a stalk.
 
 ### The RPG
 
